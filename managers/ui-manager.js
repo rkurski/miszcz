@@ -25,6 +25,12 @@ class UIManager {
    * Initialize UI components
    */
   init() {
+    console.log('[UIManager] Starting init...');
+    console.log('[UIManager] top_bar exists:', !!document.getElementById('top_bar'));
+    console.log('[UIManager] changeProfile exists:', !!document.getElementById('changeProfile'));
+    console.log('[UIManager] map_canvas_container exists:', !!document.getElementById('map_canvas_container'));
+    console.log('[UIManager] mob_spawner_go exists:', !!document.querySelector('.MoveIcon[data-option="mob_spawner_go"]'));
+
     this._createStylesheet();
     this._createTopBar();
     this._createSecondaryStats();
@@ -33,6 +39,8 @@ class UIManager {
     this._createLocationInfo();
     this._setupUIElements();
     this._startUpdateLoop();
+
+    console.log('[UIManager] Init complete. kws_top_bar created:', !!document.querySelector('.kws_top_bar'));
   }
 
   /**
