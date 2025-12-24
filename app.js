@@ -74,7 +74,8 @@ class GieniobotApp {
   _waitForGame() {
     return new Promise((resolve) => {
       const check = () => {
-        if (typeof GAME !== 'undefined' && GAME.pid) {
+        // Wait for GAME, GAME.pid, and GAME.socket to all exist
+        if (typeof GAME !== 'undefined' && GAME.pid && GAME.socket && typeof GAME.socket.on === 'function') {
           resolve();
         } else {
           setTimeout(check, 100);

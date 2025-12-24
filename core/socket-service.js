@@ -9,7 +9,10 @@ class SocketService {
     this.listeners = new Map();
     this.latency = -1;
 
-    this._setupLatencyMonitor();
+    // Only setup if socket exists
+    if (this.socket && typeof this.socket.on === 'function') {
+      this._setupLatencyMonitor();
+    }
   }
 
   /**
@@ -17,6 +20,8 @@ class SocketService {
    * @private
    */
   _setupLatencyMonitor() {
+    if (!this.socket || typeof this.socket.on !== 'function') return;
+
     this.socket.on('pong', (ms) => {
       this.latency = ms;
     });
