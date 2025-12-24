@@ -1,0 +1,50 @@
+  {
+    "name": "Gieniobot Master",
+    "description": "Gieniobot Master",
+    "version": "1.0.0",
+    "manifest_version": 3,
+    "permissions": [
+      "tabs",
+     "scripting",
+      "storage",
+      "activeTab"
+    ],
+	"host_permissions": [
+	 "https://*.kosmiczni.pl/*"
+	],
+    "action": {
+      "default_popup": "popup.html"
+    },
+    "icons": {
+      "16": "images/16.png",
+      "48": "images/48.png",
+      "128": "images/128.png"
+    },
+    "content_scripts": [
+      {
+        "matches": [
+          "https://*.kosmiczni.pl/*"
+        ],
+		 "run_at": "document_end",
+        "js": [
+		  "content_script.js",
+          "jquery.js"
+        ]
+      },
+      {
+        "css": [
+          "custom_styles.css"
+        ],
+        "matches": [
+          "https://*.kosmiczni.pl/*"
+        ]
+      }
+    ],
+	"web_accessible_resources": [
+    {
+      "resources": [ "content_script.js", "content_script1.js", "scripts/*.js", "main.js",  "scripts/*.js", "top_bar.js", "top_bar1.js", "jquery-3.7.1.min.js", "jquery-3.7.2.min.js"],
+      "matches": [ "https://*.kosmiczni.pl/*" ]
+    }
+  ]
+    
+  }
