@@ -1,0 +1,472 @@
+/**
+ * Gieniobot Master - Main CSS Styles
+ * Extracted from script1-2.js addToCSS() calls
+ */
+
+/* =============== KOMUNIKATY (Messages) =============== */
+.kom {
+    background: url(/gfx/layout/tloPilot.png);
+    background-size: cover;
+    border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill;
+    border-style: solid;
+    border-width: 7px 8px 7px 7px;
+    box-shadow: none;
+}
+
+.kom .close_kom b {
+    background: url(/gfx/layout/tloPilot.png);
+}
+
+.exchange_win {
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 10px;
+    box-sizing: border-box;
+}
+
+.exchange_win::-webkit-scrollbar {
+    width: 13px;
+}
+
+.exchange_win::-webkit-scrollbar-track {
+    background: #f0f0f0;
+    border-radius: 10px;
+}
+
+.exchange_win::-webkit-scrollbar-thumb {
+    background: #c0c0c0;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.exchange_win {
+    scrollbar-width: thin;
+    scrollbar-color: #c0c0c0 #f0f0f0;
+}
+
+/* =============== EMPLOYEE/INSTANCES =============== */
+#emp_list .petopt_btns .newBtn {
+    margin: 0px 3px 3px 0px;
+}
+
+.newBtn.do_all_instances {
+    color: #e5d029;
+}
+
+/* =============== QUICK BAR / ICONS =============== */
+#quick_bar {
+    z-index: 4;
+}
+
+.qlink.kws_active_icon {
+    animation-name: kws_active_icon;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+}
+
+@keyframes kws_active_icon {
+    0% { filter: hue-rotate(168deg); }
+    50% { filter: hue-rotate(40deg); }
+    100% { filter: hue-rotate(168deg); }
+}
+
+.kws_active_button {
+    animation-name: kws_active_icon;
+    animation-duration: 1s;
+    animation-iteration-count: infinite;
+}
+
+.sideIcons {
+    width: 29px;
+    height: 29px;
+    left: -37px;
+    background-size: contain;
+}
+
+/* =============== AUTO EXPEDITION CODES =============== */
+.autoExpeCodes {
+    background: #12121294;
+    border: 1px solid rgb(87, 87, 114);
+    border-radius: 5px 0px 0px 5px;
+    position: absolute;
+    top: -100px;
+    left: -97px;
+    padding: 5px;
+    display: none;
+    color: #ffe500c7;
+    user-select: none;
+}
+
+.manage_autoExpeditions:hover + .autoExpeCodes,
+.autoExpeCodes:hover {
+    display: flex;
+}
+
+.autoExpeCodes .newCheckbox {
+    margin: 0 auto;
+    display: block;
+}
+
+/* =============== SECONDARY CHAR STATS =============== */
+#secondary_char_stats .instance {
+    margin-top: 10px;
+    cursor: pointer;
+    width: 100px;
+}
+
+#secondary_char_stats .activities {
+    margin-top: -5px;
+    cursor: pointer;
+    width: 100px;
+}
+
+#secondary_char_stats ul {
+    margin-top: -18px;
+    margin-left: -18px;
+}
+
+.ico.a11 {
+    background: url("https://raw.githubusercontent.com/rkurski/miszcz/develop/instances.png");
+    background-repeat: no-repeat;
+    background-size: inherit;
+    background-position: center;
+}
+
+.ico.a12 {
+    background-image: url(https://raw.githubusercontent.com/rkurski/miszcz/develop/activity.png);
+    background-repeat: no-repeat;
+    background-size: inherit;
+    background-position: center;
+}
+
+/* =============== SSJ TRANSFORMATIONS =============== */
+.ssj_uio {
+    background: url("https://i.imgur.com/EcfEUcG.png");
+}
+
+#quick_allTransformations {
+    position: absolute;
+    top: 33px;
+    z-index: 1;
+    background: rgb(0 0 0 / 59%);
+    display: none;
+    flex-direction: column-reverse;
+    padding: 5px 5px 0px 5px;
+    border-radius: 5px;
+    box-shadow: 0px 0px 5px 0px rgb(32 96 185);
+}
+
+.show_qat:hover + #quick_allTransformations,
+#quick_allTransformations:hover {
+    display: flex;
+}
+
+#quick_allTransformations .option {
+    display: block;
+    margin: 0px 0px 5px 0px;
+}
+
+/* =============== PLAYER LIST / PVP =============== */
+#player_list_con .glory_rank.war {
+    animation: none !important;
+    background-color: rgb(22 83 106);
+    box-shadow: 0px 0px 7px 0px rgb(0 253 255);
+}
+
+.player_clan.enemy img {
+    animation: none !important;
+    box-shadow: 0px 0px 10px 1px rgb(0 253 255);
+}
+
+/* =============== CHAT =============== */
+.better_chat_loading {
+    filter: sepia(1) hue-rotate(270deg);
+}
+
+.better_chat_loading:hover {
+    filter: sepia(1) hue-rotate(90deg);
+}
+
+.chat_icon.load:hover {
+    background: url(/gfx/layout/ikonyChat.png) -90px 0px !important;
+}
+
+/* =============== UPGRADE MENU =============== */
+#upg_menu button[data-page="game_buffs"] {
+    display: block !important;
+}
+
+/* =============== QUEST TRACKER =============== */
+.qtrack {
+    width: 400px;
+}
+
+#drag_con.scroll .qtrack {
+    width: 383px;
+}
+
+#quest_track_con #drag_tracker {
+    user-select: none;
+}
+
+#quest_track_con .sep2 {
+    height: 14px;
+}
+
+#quest_track_con .sep3 {
+    height: 14px;
+}
+
+/* =============== SPAWNER =============== */
+.option.ls.spawner {
+    position: absolute;
+    top: 60px;
+    right: 40px;
+    background-size: 100% 100%;
+    border: solid #6f6f6f 1px;
+}
+
+#kws_spawn {
+    background: rgba(0, 0, 0, 0.9);
+    position: fixed;
+    top: 120px;
+    left: 5px;
+    z-index: 9999;
+    width: 200px;
+    padding: 1px;
+    border-radius: 5px;
+    border-style: solid;
+    border-width: 7px 8px 7px 7px;
+    display: block;
+    user-select: none;
+    color: #333333;
+}
+
+#kws_spawn .sekcja {
+    position: absolute;
+    top: -27px;
+    left: -7px;
+    background: rgba(0, 0, 0, 0.9);
+    filter: hue-rotate(150deg);
+    background-size: 100% 100%;
+    width: 200px;
+    cursor: all-scroll;
+}
+
+#kws_spawn .spawn_row {
+    border-bottom: solid gray 1px;
+    color: white;
+    font-size: 13px;
+    display: flex;
+    padding: 4px;
+}
+
+.spawn_switch {
+    cursor: pointer;
+}
+
+/* =============== CARD SETS =============== */
+#sc_setss div {
+    min-width: 40px;
+    width: auto;
+    padding: 0 5px;
+    color: white;
+    font-weight: bold;
+    text-align: center;
+    height: 30px;
+    line-height: 30px;
+    border: 1px solid white;
+    margin-left: 1px;
+    float: left;
+    margin-top: 3px;
+}
+
+#sc_setss div.current {
+    color: orange;
+    border: 1px solid orange;
+}
+
+#sc_sets .sc_sets_all {
+    min-width: 40px;
+    width: auto;
+    padding: 0 5px;
+}
+
+.cards_set_name_input {
+    background: #040e13;
+    height: 31px;
+    width: 180px;
+    border: solid #ffffff4d 1px;
+    display: inline-block;
+    text-align: center;
+    font-size: 13px;
+    color: #305779;
+    font-family: 'Play', sans-serif;
+    vertical-align: middle;
+    border-radius: 5px;
+    margin-right: 5px;
+}
+
+.cards_set_name_button {
+    margin-top: 2px;
+}
+
+/* =============== QUEST ROLL DICE =============== */
+.quest_roll1 {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: url('/gfx/layout/dice.png') 0 0;
+    top: -25px;
+    left: 25px;
+    cursor: pointer;
+    filter: drop-shadow(0px 0px 10px lime);
+}
+
+.quest_roll2 {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: url('/gfx/layout/dice.png') 0 0;
+    top: -25px;
+    left: 75px;
+    cursor: pointer;
+    filter: drop-shadow(0px 0px 10px #00fdff);
+}
+
+.quest_roll3 {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    background: url('/gfx/layout/dice.png') 0 0;
+    top: -25px;
+    left: 125px;
+    cursor: pointer;
+    filter: drop-shadow(0px 0px 10px #ff0000);
+}
+
+.quest_roll:hover,
+.quest_roll1:hover,
+.quest_roll2:hover,
+.quest_roll3:hover {
+    background: url('/gfx/layout/dice.png') 0 -45px;
+}
+
+/* =============== LASTMAP BAR =============== */
+#lastmap_bar {
+    top: 115px !important;
+}
+
+/* =============== PROFILE BUTTONS =============== */
+button#changeProfileNext {
+    position: absolute;
+    top: 85px;
+    right: 16px;
+    background: linear-gradient(0deg, rgba(252, 238, 54, 1) 0%, rgba(247, 121, 12, 1) 100%);
+    border: 2px solid #973804;
+    border-radius: 5px;
+    width: 52px;
+}
+
+button#changeProfileNext:hover {
+    background: linear-gradient(0deg, rgba(247, 121, 12, 1) 0%, rgba(252, 238, 54, 1) 100%);
+    border: 0px solid #973804;
+}
+
+button#changeProfilePrev {
+    position: absolute;
+    top: 85px;
+    right: 75px;
+    background: linear-gradient(0deg, rgba(252, 238, 54, 1) 0%, rgba(247, 121, 12, 1) 100%);
+    border: 2px solid #973804;
+    border-radius: 5px;
+    width: 52px;
+}
+
+button#changeProfilePrev:hover {
+    background: linear-gradient(0deg, rgba(247, 121, 12, 1) 0%, rgba(252, 238, 54, 1) 100%);
+    border: 0px solid #973804;
+}
+
+/* =============== TOP BAR =============== */
+.kws_top_bar {
+    float: left !important;
+    position: absolute;
+    z-index: -1;
+}
+
+.kws_top_bar_section {
+    color: white;
+    padding: 3px 5px 3px 5px;
+    border-radius: 5px;
+    margin-right: 8px;
+    user-select: none;
+}
+
+.kws_additional_top_bar {
+    float: left !important;
+    position: absolute;
+    z-index: -1;
+    display: none;
+}
+
+.kws_additional_top_bar_section {
+    color: white;
+    padding: 3px 5px 3px 5px;
+    border-radius: 5px;
+    margin-right: 8px;
+    user-select: none;
+}
+
+/* =============== EMPIRE GO TO =============== */
+.go_to_emp_con {
+    position: absolute;
+    top: 33px;
+    z-index: 1;
+    background: rgb(0 0 0 / 59%);
+    display: none;
+    flex-direction: column-reverse;
+    padding: 5px 5px 0px 5px;
+    border-radius: 5px;
+    box-shadow: 0px 0px 5px 0px rgb(32 96 185);
+}
+
+.empPos:hover + .go_to_emp_con,
+.go_to_emp_con:hover {
+    display: flex;
+}
+
+.go_to_emp_con .qlink {
+    display: block;
+    margin: 0px 0px 5px 0px;
+}
+
+/* =============== EQUIPMENT SETS =============== */
+#ekw_sets_buy button,
+div[data-option="change_ekw_set"] {
+    height: 20px !important;
+    line-height: 19px !important;
+    margin-top: 9px !important;
+}
+
+#page_game_camp .ekw_slot.smaller img {
+    width: 64px;
+}
+
+#page_game_camp div[data-item_id="1923"].smaller img {
+    width: 32px;
+    position: absolute;
+    margin-top: -64px;
+    margin-left: 34px;
+}
+
+/* =============== CLAN PLANETS =============== */
+#clan_planets.galactic {
+    height: 650px !important;
+    width: 658px !important;
+}
+
+#clan_planets_simple .tablen1 {
+    min-width: 295px;
+}
