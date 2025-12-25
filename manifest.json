@@ -5,13 +5,13 @@
     "manifest_version": 3,
     "permissions": [
       "tabs",
-     "scripting",
+      "scripting",
       "storage",
       "activeTab"
     ],
-	"host_permissions": [
-	 "https://*.kosmiczni.pl/*"
-	],
+    "host_permissions": [
+      "https://*.kosmiczni.pl/*"
+    ],
     "action": {
       "default_popup": "popup.html"
     },
@@ -25,9 +25,9 @@
         "matches": [
           "https://*.kosmiczni.pl/*"
         ],
-		 "run_at": "document_end",
+        "run_at": "document_end",
         "js": [
-		  "content_script.js",
+          "content_script.js",
           "jquery.js"
         ]
       },
@@ -40,11 +40,25 @@
         ]
       }
     ],
-	"web_accessible_resources": [
-    {
-      "resources": [ "content_script.js", "content_script1.js", "scripts/*.js", "main.js",  "scripts/*.js", "top_bar.js", "top_bar1.js", "jquery-3.7.1.min.js", "jquery-3.7.2.min.js"],
-      "matches": [ "https://*.kosmiczni.pl/*" ]
-    }
-  ]
-    
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "content_script.js",
+          "content_script1.js",
+          "main.js",
+          "app.js",
+          "scripts/*.js",
+          "core/*.js",
+          "managers/*.js",
+          "features/**/*.js",
+          "styles/*.css",
+          "*.js",
+          "*.json",
+          "*.png"
+        ],
+        "matches": [
+          "https://*.kosmiczni.pl/*"
+        ]
+      }
+    ]
   }

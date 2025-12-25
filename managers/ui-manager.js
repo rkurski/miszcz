@@ -203,6 +203,9 @@ class UIManager {
     // Clan buttons
     this._addClanButtons();
 
+    // Quick bar icons (AFO, Arena, Abyss)
+    this._setupQuickBarOverride();
+
     // Select default bless type
     const blessType2 = document.getElementById('bless_type_2');
     if (blessType2) blessType2.click();
@@ -213,6 +216,54 @@ class UIManager {
       chatLoadBtn.classList.add('better_chat_loading');
       chatLoadBtn.removeAttribute('id');
       chatLoadBtn.removeAttribute('data-option');
+    }
+  }
+
+  /**
+   * Override GAME.parseQuickBar to add custom icons
+   * @private
+   */
+  _setupQuickBarOverride() {
+    if (typeof GAME === 'undefined' || !GAME.parseQuickBar) return;
+
+    const originalParseQuickBar = GAME.parseQuickBar.bind(GAME);
+    const self = this;
+
+    GAME.parseQuickBar = function (newq_bar) {
+      // Call original function
+      originalParseQuickBar(newq_bar);
+
+      // Add our custom icons to quick_bar
+      const quickBar = document.getElementById('quick_bar');
+      if (!quickBar) return;
+
+      // Check if we already added our icons
+      if (quickBar.querySelector('.manage_autoExpeditions')) return;
+
+      // Add AFO icon
+      const afoIcon = `<div class="qlink load_afo" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/P8sJgQz.png');" data-toggle="tooltip" data-original-title="<div class=tt>Załaduj AFO</div>"></div>`;
+
+      // Add Abyss icon
+      const abyssIcon = `<div class="qlink sideIcons manage_auto_abyss" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/j5eQv2B.png');display:block;top:-136px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie Otchłani</div>"></div>`;
+
+      // Add Arena icon
+      const arenaIcon = `<div class="qlink sideIcons manage_auto_arena" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/rAroNzD.png');display:block;top:-104px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie na Arenie</div>"></div>`;
+
+      // Add Expeditions icon
+      const expeditionsIcon = `<div class="qlink sideIcons manage_autoExpeditions" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/uSMzLBb.png');display:block;top:-72px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Wyprawy</div>"></div>`;
+
+      // Add codes checkbox
+      const codesHtml = `<div class="autoExpeCodes"><div style="padding-left:8px;"><label for="aeCodes" style="cursor:pointer;">KODY</label><div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" /><label for="aeCodes"></label></div></div></div>`;
+
+      quickBar.insertAdjacentHTML('beforeend', afoIcon + abyssIcon + arenaIcon + expeditionsIcon + codesHtml);
+
+      // Rebind tooltips if available
+      if (typeof tooltip_bind === 'function') tooltip_bind();
+    };
+
+    // Trigger initial parse if char loaded
+    if (GAME.char_id) {
+      GAME.parseQuickBar(true);
     }
   }
 

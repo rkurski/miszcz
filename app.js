@@ -68,21 +68,78 @@ class GieniobotApp {
   }
 
   /**
-   * Wait for GAME object to be available
+   * Wait for GAME object to be available with character selected
    * @private
    */
   _waitForGame() {
     return new Promise((resolve) => {
+      let checkCount = 0;
       const check = () => {
-        // Wait for GAME, GAME.pid, and GAME.socket to all exist
-        if (typeof GAME !== 'undefined' && GAME.pid && GAME.socket && typeof GAME.socket.on === 'function') {
+        checkCount++;
+
+        // First check if GAME exists and player is logged in
+        if (typeof GAME === 'undefined' || !GAME.pid) {
+          if (checkCount % 50 === 0) {
+            console.log(`[Gieniobot/App] Waiting for GAME.pid... (${checkCount} checks)`);
+          }
+          setTimeout(check, 100);
+          return;
+        }
+
+        // Try to find socket if not already set
+        if (!GAME.socket) {
+          this._findSocket();
+        }
+
+        // Check all required conditions
+        const hasSocket = GAME.socket && typeof GAME.socket.on === 'function';
+        const hasCharId = !!GAME.char_id;
+        const hasCharData = GAME.char_data && GAME.char_data.id;
+
+        if (checkCount % 50 === 0) {
+          console.log(`[Gieniobot/App] Waiting... socket:${hasSocket} char_id:${hasCharId} char_data:${hasCharData}`);
+        }
+
+        // Wait for socket + character to be selected
+        if (hasSocket && hasCharId && hasCharData) {
+          console.log('[Gieniobot/App] GAME ready with character!');
           resolve();
         } else {
           setTimeout(check, 100);
         }
       };
+      console.log('[Gieniobot/App] Starting to wait for GAME...');
       check();
     });
+  }
+
+  /**
+   * Find and set GAME.socket by scanning page scripts
+   * This is needed because the game doesn't expose socket directly
+   * @private
+   */
+  _findSocket() {
+    try {
+      Array.from(document.getElementsByTagName('script')).forEach(script => {
+        const scriptContent = script.innerHTML;
+        const regex = /const\s+([a-zA-Z0-9_]+)\s*=\s*(io\([^\)]+\));/g;
+        let match;
+        while ((match = regex.exec(scriptContent)) !== null) {
+          try {
+            const socketVar = eval(match[1]);
+            if (socketVar && socketVar['io']) {
+              GAME.socket = socketVar;
+              console.log('[Gieniobot/App] Socket found and assigned!');
+              return;
+            }
+          } catch (e) {
+            // Variable not accessible, continue
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[Gieniobot/App] Error finding socket:', error);
+    }
   }
 
   /**
@@ -378,13 +435,18 @@ class GieniobotApp {
 // Global reference for compatibility
 var kwsApp = null;
 
+console.log('[Gieniobot/App] app.js loaded, document.readyState:', document.readyState);
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
+  console.log('[Gieniobot/App] Waiting for DOMContentLoaded...');
   document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Gieniobot/App] DOMContentLoaded fired, creating app...');
     kwsApp = new GieniobotApp();
     kwsApp.init();
   });
 } else {
+  console.log('[Gieniobot/App] DOM ready, creating app immediately...');
   kwsApp = new GieniobotApp();
   kwsApp.init();
 }
