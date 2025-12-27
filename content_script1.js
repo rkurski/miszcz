@@ -21,13 +21,19 @@
 
   // Scripts to load in order (dependencies first)
   const SCRIPTS = [
-    // Original working scripts
+    // Core modules
     'charactersManager.js',
-    'script1-2.js',        // Main bot logic (original, fully working)
+
+    // Main bot logic
+    'script1-2.js',
+
+    // Ball modules
     'ballExp.js',
     'ballUpgrade.js',
     'ballReset.js',
     'ballManager.js',
+
+    // Equipment
     'ekwipunek.js',
   ];
 
