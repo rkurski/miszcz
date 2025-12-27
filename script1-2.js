@@ -1,5 +1,37 @@
+/**
+ * ============================================================================
+ * GIENIOBOT MASTER - Main Bot Logic
+ * ============================================================================
+ * 
+ * Version: 3.7.3
+ * Repository: https://github.com/rkurski/miszcz
+ * 
+ * STRUCTURE:
+ * ----------
+ * Lines 1-70:     Configuration & Socket Detection
+ * Lines 67-2342:  Main kwsv3 class with all bot methods
+ *   - constructor:          Initialization, CSS, bindings
+ *   - Settings:             getSettings, updateSettings
+ *   - Automation:           manageAutoExpeditions, manageAutoAbyss, manageAutoArena
+ *   - Clan:                 activateAllClanBuffs, freeAssist
+ *   - UI:                   updateTopBar, createMinimapSettings
+ *   - Combat:               questProceed, pvpKill
+ *   - Map:                  parseMapInfo, findQuests, findSK
+ *   - Click Handlers:       bindClickHandlers (lines 1264-1819)
+ * Lines 2343-2355: kws instance creation
+ * Lines 2356-2761: GAME.* method overrides
+ * Lines 2762-2770: ballManager & ekwipunek initialization
+ * 
+ * DEV_MODE:
+ * ---------
+ * Set GIENIOBOT_DEV_MODE = true for local development (uses extension files)
+ * Set GIENIOBOT_DEV_MODE = false for production (fetches from GitHub)
+ * 
+ * ============================================================================
+ */
+
 // ============================================
-// GIENIOBOT CONFIGURATION
+// CONFIGURATION
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
@@ -17,8 +49,10 @@ function getGieniobotUrl(path) {
   }
   return GIENIOBOT_GITHUB_URL + path;
 }
-// ============================================
 
+// ============================================
+// GLOBAL VARIABLES
+// ============================================
 var checked = false;
 var latency = -1;
 
@@ -27,7 +61,9 @@ console.log('[script1-2] Loading, DEV_MODE:', GIENIOBOT_DEV_MODE, 'LOCAL_URL:', 
 if (typeof GAME === 'undefined') {
   console.log('[script1-2] GAME is undefined, skipping initialization!');
 } else {
-  // Declare variables at top to avoid 'before initialization' errors
+  // ============================================
+  // STATE VARIABLES
+  // ============================================
   let arena_count = 0;
   let pvp_count = 0;
   let adimp = false;
@@ -36,6 +72,10 @@ if (typeof GAME === 'undefined') {
   let roll3 = false;
   let version = '3.7.3';
 
+  // ============================================
+  // SOCKET DETECTION
+  // Find GAME.socket by scanning page scripts
+  // ============================================
   let Pog = setInterval(() => {
     if (!GAME.pid) { } else {
       clearInterval(Pog);
@@ -45,6 +85,7 @@ if (typeof GAME === 'undefined') {
 
   let Pgg = setInterval(() => {
     clearInterval(Pgg);
+    // Find socket.io instance
     Array.from(document.getElementsByTagName('script')).forEach(script => {
       const scriptContent = script.innerHTML;
       const regex = /const\s+([a-zA-Z0-9_]+)\s*=\s*(io\([^\)]+\));/g;
@@ -54,6 +95,7 @@ if (typeof GAME === 'undefined') {
       }
     });
 
+    // Find a24value for auth
     window.a24value = null;
     Array.from(document.getElementsByTagName('script')).forEach(script => {
       const scriptContent = script.innerHTML;
@@ -64,6 +106,9 @@ if (typeof GAME === 'undefined') {
       }
     });
 
+    // ============================================
+    // MAIN BOT CLASS
+    // ============================================
     class kwsv3 {
       constructor(charactersManager) {
         console.log('[kwsv3] Constructor starting...');
