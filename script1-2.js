@@ -456,144 +456,11 @@ if (typeof GAME === 'undefined') {
           return false;
         }
       }
-      createMinimapSettings() {
-        this.manageMinimapSettings("load");
-        this.manageMapSize("load");
-        this.managePilot();
-        $("#field_sett #field_options").append(`<br style='clear:both;'><div id="kws_minimap_settings"> <b class='orange'>Ukryj pilota kontroli postaci: </b><div class="select_input"><select id="kws_hidePilot"><option value="1" ${this.hidePilot == 1 ? "selected" : ""}>tak</option><option value="0" ${this.hidePilot == 0 ? "selected" : ""}>Nie</option></select></div> <b class='orange'>Minimapa wyświetlana ze strony: </b><div class="select_input"><select id="minimap_side"><option value="0" ${this.minimap.side == 0 ? "selected" : ""}>Prawej</option><option value="1" ${this.minimap.side == 1 ? "selected" : ""}>Lewej</option><option value="2" ${this.minimap.side == 2 ? "selected" : ""}>L - Poza</option></select></div> <b class='orange'>Przeźroczystość minimapy: </b><input id="minimap_range" type="range" value="${this.minimap.opacity}" min="10" max="100" step="1"> <b class='orange'>Dodatkowe informacje o lokacji: </b><div class="select_input"><select id="kws_sh_locInfo"><option value="1" ${this.minimap.loc_info == 1 ? "selected" : ""}>Pokaż</option><option value="0" ${this.minimap.loc_info == 0 ? "selected" : ""}>Ukryj</option></select></div> <b class='orange'>Rozmiar mapy: </b>X: <input name="kws_map_width" class="smin_input" style="width:30px;" type="text" value="${this.mapsize.x}" placeholder="13"> Y: <input name="kws_map_height" class="smin_input" style="width:30px;" type="text" value="${this.mapsize.y}" placeholder="13"><button class="smin_butt kws_mapsize_change" style="margin-left:5px;">Zmień</button><button class="smin_butt kws_mapsize_reset" style="margin-left:5px;">Reset</button> </div>`);
-      }
-      manageMinimapSettings(act) {
-        if (act == "load") {
-          this.minimap = JSON.parse(localStorage.getItem('kws_minimap'));
-          if (this.minimap == undefined) {
-            this.minimap = {
-              side: 0,
-              opacity: 100,
-              loc_info: 0
-            };
-            localStorage.setItem('kws_minimap', JSON.stringify(this.minimap));
-          }
-        } else if (act == "save") {
-          localStorage.setItem('kws_minimap', JSON.stringify(this.minimap));
-        }
-      }
-      parseMapInfo(quests, where) {
-        let mapInfo = Object.values(quests).filter(this.filterQuests);
-        let questsCoords = this.findQuests(mapInfo, GAME.map_quests)
-        let skCoords = this.findSK(GAME.map_balls)
-        let mapSK = Object.keys(GAME.map_balls) ? Object.keys(GAME.map_balls).length : 0;
-        $(`#kws_locInfo .content`).html(`Zadania: ${mapInfo.length} ${questsCoords}SK: ${mapSK} ${skCoords}`);
-      }
 
-      // Map methods (parseMapInfo, filterQuests, findQuests, findSK)
-      // are now in handlers/map.js
+      // Settings methods (createMinimapSettings, manageMinimapSettings, setWebsiteBackground,
+      // manageWebsiteBackground, changeMapSize, manageMapSize, managePilot)
+      // are now in handlers/settings.js
 
-      setWebsiteBackground() {
-        if (localStorage.getItem('kws_wbg')) {
-          $("body").css({
-            "background": "#02070D",
-            "background-image": `url(${localStorage.getItem('kws_wbg')})`,
-            "background-size": "cover",
-            "background-attachment": "fixed"
-          });
-          $("#new_website_bg").val(localStorage.getItem('kws_wbg'));
-          $("footer").addClass("hide_before");
-        }
-      }
-      manageWebsiteBackground(act, url) {
-        if (act == "set") {
-          if (url.length > 5) {
-            localStorage.setItem('kws_wbg', url);
-            $("body").css({
-              "background": "#02070D",
-              "background-image": `url(${url})`,
-              "background-size": "cover",
-              "background-attachment": "fixed"
-            });
-            $("footer").addClass("hide_before");
-          }
-        } else if (act == "reset") {
-          localStorage.removeItem("kws_wbg");
-          $("#new_website_bg").val("");
-          $("body").css({
-            "background": "#02070D",
-            "background-image": `url(/gfx/layout/bg.jpg)`,
-            "background-size": "cover",
-            "background-attachment": "fixed"
-          });
-          $("footer").removeClass("hide_before");
-        }
-      }
-      changeMapSize(rx = 13, ry = 13) {
-        rx = Math.floor(rx);
-        ry = Math.floor(ry);
-        GAME.map.cX = rx * 40;
-        GAME.map.cY = ry * 40;
-        GAME.map.rX = rx;
-        GAME.map.rY = ry;
-        if (GAME.map.initiated) {
-          GAME.loadMapJson(function () {
-            GAME.socket.emit('ga', {
-              a: 3,
-              vo: GAME.map_options.vo
-            }, 1);
-          });
-        }
-        if (rx > 13) {
-          let pgm_w = 963 + (rx - 13) * 40;
-          $("#page_game_map").css("width", pgm_w);
-        } else {
-          $("#page_game_map").css("width", "963px");
-        }
-        $("#map_canvas_container").css({
-          "width": `${GAME.map.cX + 14}px`,
-          "height": `${GAME.map.cY + 14}px`
-        });
-      }
-      manageMapSize(act, size = [13, 13]) {
-        if (act == "load") {
-          this.mapsize = JSON.parse(localStorage.getItem('kws_mapsize'));
-          if (this.mapsize == undefined) {
-            this.mapsize = {
-              x: 13,
-              y: 13
-            };
-            localStorage.setItem('kws_mapsize', JSON.stringify(this.mapsize));
-          } else if (this.mapsize.x != 13 || this.mapsize.y != 13) {
-            this.changeMapSize(this.mapsize.x, this.mapsize.y);
-          }
-        } else if (act == "change") {
-          this.changeMapSize(size[0], size[1]);
-          this.mapsize.x = size[0];
-          this.mapsize.y = size[1];
-          localStorage.setItem('kws_mapsize', JSON.stringify(this.mapsize));
-        } else {
-          this.changeMapSize();
-          this.mapsize.x = 13;
-          this.mapsize.y = 13;
-          $(`input[name="kws_map_width"]`).val(13);
-          $(`input[name="kws_map_height"]`).val(13);
-          localStorage.setItem('kws_mapsize', JSON.stringify(this.mapsize));
-        }
-      }
-      managePilot(act = false, val = 0) {
-        if (act == "set") {
-          localStorage.setItem('kws_pilot', val);
-          this.hidePilot = val;
-          this.managePilot();
-        } else {
-          this.hidePilot = localStorage.getItem('kws_pilot');
-          if (this.hidePilot == undefined) {
-            localStorage.setItem('kws_pilot', 0);
-            this.hidePilot = 0;
-          }
-          if (this.hidePilot == 1) {
-            $("#map_pilot").hide();
-          } else {
-            $("#map_pilot").show();
-          }
-        }
-      }
       sortClanPlanets() {
         let x = 72;
         let y = -11;
@@ -697,158 +564,10 @@ if (typeof GAME === 'undefined') {
         }
         return tab;
       }
-      vip() {
-        var month = $("#monthly_vip_rewards").find(".vip_cat.option" + ":not(.disabled)" + ":not(.received)");
-        var general = $("#general_vip_rewards").find(".vip_cat.option" + ":not(.disabled)" + ":not(.received)");
-        if (month.length) {
-          var id = parseInt(month.attr("data-vip"));
-          var lvl = parseInt(month.attr("data-level"));
-          GAME.socket.emit('ga', {
-            a: 54,
-            type: 1,
-            vip: id,
-            level: lvl
-          });
-          setTimeout(() => {
-            this.vip();
-          }, 500);
-        } else if (general.length) {
-          var id = parseInt(general.attr("data-vip"));
-          var lvl = parseInt(general.attr("data-level"));
-          GAME.socket.emit('ga', {
-            a: 54,
-            type: 1,
-            vip: id,
-            level: lvl
-          });
-          setTimeout(() => {
-            this.vip();
-          }, 500);
-        } else {
-          GAME.komunikat("Odebrano wszystkie możliwe nagrody z Vipa!!!");
-        }
-      }
-      bless() {
-        GAME.socket.emit('ga', {
-          a: 14,
-          type: 3
-        });
-        setTimeout(() => {
-          var arr = $.map($('.use_buff:checked'), function (e, i) {
-            return +e.value;
-          });
-          var btype = $('input[name="bless_type"]:checked').val();
-          GAME.socket.emit('ga', {
-            a: 14,
-            type: 5,
-            buffs: arr,
-            players: $('#bless_players').val(),
-            btype: btype
-          });
-        }, 500);
-      }
-      questProceed() {
-        if (JQS.qcc.is(":visible")) {
-          if ($("button[data-option=finish_quest]").length === 1) {
-            let qb_id = $("button[data-option=finish_quest]").attr("data-qb_id");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 2,
-              button: 1,
-              id: qb_id
-            });
-          } else if ($("button[data-option=quest_riddle]").is(":visible")) {
-            let qb_id = $("button[data-option=quest_riddle]").attr("data-qid");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 7,
-              id: qb_id,
-              ans: $('#quest_riddle').val()
-            });
-          } else if ($("button[data-option=quest_duel]").is(":visible")) {
-            let fb_id = $("button[data-option=quest_duel]").attr("data-qid");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 6,
-              id: fb_id
-            });
-          } else if ($(".quest_win .sekcja").text().toLowerCase() === "nuda" && $("button[data-option=finish_quest]").length === 3) {
-            let qb_id = $("button[data-option=finish_quest]").attr("data-qb_id");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 2,
-              button: 2,
-              id: qb_id
-            });
-          } else if ($(".quest_win .sekcja").text().toLowerCase().startsWith("zadanie substancji") && $("button[data-option=finish_quest]").length === 3) {
-            let qb_id = $("button[data-option=finish_quest]").attr("data-qb_id");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 2,
-              button: 3,
-              id: qb_id
-            });
-          } else if ($("button[data-option=finish_quest]").length === 2 && $("button[data-option=finish_quest]").eq(1).html() === "Mam dość tej studni") {
-            let qb_id = $("button[data-option=finish_quest]").eq(1).attr("data-qb_id");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 2,
-              button: 2,
-              id: qb_id
-            });
-          } else if ($("#field_opts_con .sekcja").html() == "Zasoby") {
-            let qb_id = $("#field_opts_con .field_option").find("[data-option=start_mine]").attr("data-mid");
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 8,
-              mid: qb_id
-            });
-          } else if ($(".quest_action").is(":visible")) {
-            GAME.questAction()
-          }
-          setTimeout(() => {
-            $('#fight_view').fadeOut();
-          }, 500);
-          kom_clear();
-        } else if ($("button[data-option=start_mine]").length >= 1) {
-          let mineID = parseInt($("button[data-option=start_mine]").attr("data-mid"));
-          GAME.socket.emit('ga', {
-            a: 22,
-            type: 8,
-            mid: mineID
-          });
-        }
-      }
-      pvpKill() {
-        if (!JQS.chm.is(":focus")) {
-          let opponents = $("#player_list_con").find(".player button" + "[data-quick=1]" + ":not(.initial_hide_forced)");
-          if ($("button[data-option='load_more_players']").is(":visible")) {
-            $("button[data-option='load_more_players']").click();
-            setTimeout(() => {
-              this.pvpKill();
-            }, 110);
-          } else if (opponents.length > 0) {
-            opponents.eq(0).click();
-            setTimeout(() => {
-              this.pvpKill();
-            }, 110);
-          }
-        }
-      }
-      useCompressor() {
-        if (JQS.qcc.is(":visible")) {
-          let compressors_button = $("#quest_con button[data-option=compress_items]");
-          let quest_id = compressors_button.attr("data-qb_id");
-          if (compressors_button.length === 1 && GAME.compress_items[0].stack > 0) {
-            GAME.socket.emit('ga', {
-              a: 22,
-              type: 10,
-              item_id: GAME.compress_items[0].id,
-              qb_id: quest_id
-            });
-          }
-        }
-      }
+
+      // Combat methods (vip, bless, questProceed, pvpKill, useCompressor)
+      // are now in handlers/combat.js
+
       arena_count() {
         arena_count++;
         $(".kws_top_bar_section.arena").html(`ARENA: ${arena_count}`);
@@ -1709,6 +1428,14 @@ if (typeof GAME === 'undefined') {
     if (typeof PilotMixin !== 'undefined') {
       Object.assign(kwsv3.prototype, PilotMixin);
       console.log('[script1-2] PilotMixin applied');
+    }
+    if (typeof SettingsMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, SettingsMixin);
+      console.log('[script1-2] SettingsMixin applied');
+    }
+    if (typeof CombatMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, CombatMixin);
+      console.log('[script1-2] CombatMixin applied');
     }
 
     GAME.socket.on('pong', function (ms) {
