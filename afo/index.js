@@ -133,12 +133,23 @@ const AFO = {
       }
     });
 
+    // Initialize submodules that need EasyStar
+    if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
+    if (typeof AFO_RES !== 'undefined') AFO_RES.init();
+
     // Bind submodule handlers
     if (typeof AFO_PVP !== 'undefined') AFO_PVP.bindHandlers();
     if (typeof AFO_RESP !== 'undefined') AFO_RESP.bindHandlers();
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.bindHandlers();
     if (typeof AFO_RES !== 'undefined') AFO_RES.bindHandlers();
     if (typeof AFO_CODE !== 'undefined') AFO_CODE.bindHandlers();
+
+    // List mines after delay
+    setTimeout(() => {
+      if (typeof AFO_RES !== 'undefined' && GAME.maploaded) {
+        AFO_RES.listMines();
+      }
+    }, 500);
 
     console.log('[AFO] Panel handlers bound');
   },
