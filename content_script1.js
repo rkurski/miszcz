@@ -24,6 +24,9 @@
     // Core modules
     'charactersManager.js',
 
+    // Handlers (loaded before main script)
+    'handlers/click-handlers.js',
+
     // Main bot logic
     'script1-2.js',
 

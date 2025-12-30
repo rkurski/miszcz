@@ -200,7 +200,12 @@ if (typeof GAME === 'undefined') {
           }
         }, 1000);
         this.setWebsiteBackground();
+
+        // Bind click handlers (internal + external module)
         this.bindClickHandlers();
+        if (typeof bindAllClickHandlers === 'function') {
+          bindAllClickHandlers(this);
+        }
         GAME.socket.on('gr', (res) => {
           this.handleSockets(res);
         });
@@ -1306,11 +1311,18 @@ if (typeof GAME === 'undefined') {
       addToCSS(data) {
         $(`#kwsCSS`).append(data);
       }
+
+      // ============================================
+      // CLICK HANDLERS
+      // All jQuery click event bindings (~550 lines)
+      // ============================================
       bindClickHandlers() {
+        // --- CLAN HANDLERS ---
         $("body").on("click", ".free_assist_for_all", () => {
           this.freeAssist();
         });
-        //AutomaticBless
+
+        // --- AUTOMATIC BLESS ---
         let isAutoBlessActive = false;
         let blessInterval = null;
         $("body").on("click", '.auto_bless', () => {

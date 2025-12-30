@@ -46,12 +46,7 @@
           "content_script.js",
           "content_script1.js",
           "main.js",
-          "app.js",
-          "scripts/*.js",
-          "core/*.js",
-          "managers/*.js",
-          "features/**/*.js",
-          "styles/*.css",
+          "handlers/*.js",
           "*.js",
           "*.json",
           "*.png"
