@@ -3,8 +3,10 @@
  * GIENIOBOT - Map Module
  * ============================================================================
  * 
- * Map-related features: quest parsing, SK finding, location info
+ * Map-related features: quest parsing, location info
  * These methods are mixed into the kwsv3 class.
+ * 
+ * TODO: SK Finder needs to be rewritten from scratch
  * 
  * ============================================================================
  */
@@ -18,9 +20,9 @@ const MapMixin = {
   parseMapInfo(quests, where) {
     let mapInfo = Object.values(quests).filter(this.filterQuests);
     let questsCoords = this.findQuests(mapInfo, GAME.map_quests);
-    let skCoords = this.findSK(GAME.map_balls);
+    // SK finder disabled - needs rewrite
     let mapSK = Object.keys(GAME.map_balls) ? Object.keys(GAME.map_balls).length : 0;
-    $(`#kws_locInfo .content`).html(`Zadania: ${mapInfo.length} ${questsCoords}SK: ${mapSK} ${skCoords}`);
+    $(`#kws_locInfo .content`).html(`Zadania: ${mapInfo.length} ${questsCoords}SK: ${mapSK}`);
   },
 
   filterQuests(quest) {
@@ -60,25 +62,9 @@ const MapMixin = {
 
     content += "</ul>";
     return content;
-  },
-
-  // ============================================
-  // SK FINDER
-  // ============================================
-
-  findSK(balls) {
-    if (!Object.values(balls).length) return "";
-
-    let list = "<br><ul style='padding-inline-start: 15px;'>";
-    for (let key in balls) {
-      if (balls.hasOwnProperty(key)) {
-        let formattedKey = key.replace("_", " | ");
-        list += "<li>" + formattedKey + ": " + balls[key] + "</li>";
-      }
-    }
-    list += "</ul>";
-    return list;
   }
+
+  // TODO: findSK() - needs complete rewrite
 };
 
 // Export mixin

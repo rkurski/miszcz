@@ -30,6 +30,7 @@
     'handlers/ui.js',
     'handlers/clan.js',
     'handlers/map.js',
+    'handlers/pilot.js',
 
     // Main bot logic
     'script1-2.js',
