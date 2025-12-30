@@ -394,82 +394,11 @@ if (typeof GAME === 'undefined') {
         }
       }
 
-      // Automation methods (manageAutoExpeditions, manageAutoAbyss, manageAutoArena, 
-      // attackAutoArena, stopAutoArena) are now in handlers/automation.js
+      // Automation methods are now in handlers/automation.js
 
-      freeAssist() {
-        let fafa_el = $(`button[data-option="clan_assist"]:visible`);
-        if (fafa_el.length > 0) {
-          let fafa_tid = parseInt(fafa_el.eq(0).attr("data-tid"));
-          let fafa_target = parseInt(fafa_el.eq(0).attr("data-target"));
-          GAME.socket.emit('ga', {
-            a: 39,
-            type: 55,
-            tid: fafa_tid,
-            target: fafa_target
-          });
-          fafa_el.eq(0).hide();
-          setTimeout(() => {
-            this.freeAssist();
-          }, 2100);
-        } else {
-          GAME.socket.emit('ga', {
-            a: 39,
-            type: 54
-          });
-          GAME.komunikat("Asystowano wszystkim!");
-        }
-      }
-      autobless() {
-        let arr = $.map($('.use_buff:checked'), function (e, i) { return +e.value; });
-        let btype = $('input[name="bless_type"]:checked').val();
-        GAME.socket.emit('ga', {
-          a: 14,
-          type: 5,
-          buffs: arr,
-          players: $('#bless_players').val(),
-          btype: btype
-        });
-        function komunikat() {
-          kom_clear();
-        }
-        setTimeout(() => {
-          komunikat();
-        }, 1000);
-      }
-      activateAllClanBuffs() {
-        let abut = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`);
-        let isDisabled = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`).parents("tr").hasClass("disabled");
-        let cpbt = $("#clan_planet_buffs").html();
-        let acpbut = $("#has_clan_planet").find(`button[data-option="activate_prp_buff"]`);
-        if (abut.length && !isDisabled) {
-          GAME.socket.emit('ga', {
-            a: 39,
-            type: 26
-          });
-          setTimeout(() => {
-            this.activateAllClanBuffs();
-          }, 200);
-        } else if (cpbt == 0) {
-          GAME.socket.emit('ga', {
-            a: 39,
-            type: 28
-          });
-          setTimeout(() => {
-            this.activateAllClanBuffs();
-          }, 200);
-        } else if (acpbut.length && $("#clan_planet_buffs .red").eq(0).text() == 0) {
-          GAME.socket.emit('ga', {
-            a: 39,
-            type: 29
-          });
-          setTimeout(() => {
-            this.activateAllClanBuffs();
-          }, 200);
-        } else {
-          GAME.komunikat("Wszystkie buffy zostały aktywowane!");
-        }
-      }
+      // Clan methods (freeAssist, autobless, activateAllClanBuffs) 
+      // are now in handlers/clan.js
+
       findWorker(worker, cb) {
         let waitForWorker = setInterval(() => {
           let el = $(`button[data-emp="${worker.id}"]button[data-option="emp_job"]`);
@@ -555,52 +484,10 @@ if (typeof GAME === 'undefined') {
         let mapSK = Object.keys(GAME.map_balls) ? Object.keys(GAME.map_balls).length : 0;
         $(`#kws_locInfo .content`).html(`Zadania: ${mapInfo.length} ${questsCoords}SK: ${mapSK} ${skCoords}`);
       }
-      filterQuests(quest) {
-        let steps = quest.length;
-        if (steps > 0 && quest[steps - 1] && quest[steps - 1].end != 1) {
-          return quest;
-        }
-      }
-      findQuests(mapInfo, quests) {
-        let content = "<ul style='padding-inline-start: 15px;'>";
 
-        mapInfo.forEach(infoArray => {
-          if (infoArray[0] !== false) {
-            let questData = infoArray[0];
-            let qb_id = questData.qb_id.toString();
-            let coord = '';
+      // Map methods (parseMapInfo, filterQuests, findQuests, findSK)
+      // are now in handlers/map.js
 
-            for (let key in quests) {
-              if (quests[key][0] && quests[key][0].qb_id === parseInt(qb_id)) {
-                coord = key;
-                break;
-              }
-            }
-
-            if (coord) {
-              let coordParts = coord.split('_').map(part => parseInt(part));
-              let formattedKey = coordParts.join(' | ');
-              content += `<li>${formattedKey}: ${questData.name}</li>`;
-            }
-          }
-        });
-
-        content += "</ul>";
-        return content;
-      }
-      findSK(balls) {
-        if (!Object.values(balls).length) return "";
-
-        let list = "<br><ul style='padding-inline-start: 15px;'>";
-        for (let key in balls) {
-          if (balls.hasOwnProperty(key)) {
-            let formattedKey = key.replace("_", " | ");
-            list += "<li>" + formattedKey + ": " + balls[key] + "</li>"; // Dodanie kulki do listy
-          }
-        }
-        list += "</ul>";
-        return list;
-      }
       setWebsiteBackground() {
         if (localStorage.getItem('kws_wbg')) {
           $("body").css({
@@ -2158,6 +2045,14 @@ if (typeof GAME === 'undefined') {
     if (typeof UIMixin !== 'undefined') {
       Object.assign(kwsv3.prototype, UIMixin);
       console.log('[script1-2] UIMixin applied');
+    }
+    if (typeof ClanMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, ClanMixin);
+      console.log('[script1-2] ClanMixin applied');
+    }
+    if (typeof MapMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, MapMixin);
+      console.log('[script1-2] MapMixin applied');
     }
 
     GAME.socket.on('pong', function (ms) {

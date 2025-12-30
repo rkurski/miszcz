@@ -28,6 +28,8 @@
     'handlers/click-handlers.js',
     'handlers/automation.js',
     'handlers/ui.js',
+    'handlers/clan.js',
+    'handlers/map.js',
 
     // Main bot logic
     'script1-2.js',
