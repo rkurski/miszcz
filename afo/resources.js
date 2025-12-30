@@ -140,16 +140,27 @@ const AFO_RES = {
 
   CreateMatrix() {
     RES.matrix = [];
+    let mapcell = GAME.mapcell;
+
+    // Check if mapcell is available
+    if (!mapcell) {
+      console.warn('[AFO_RES] mapcell not available, retrying...');
+      setTimeout(() => this.CreateMatrix(), 500);
+      return false;
+    }
+
     for (let i = 0; i < parseInt(GAME.map.max_y); i++) {
       RES.matrix[i] = [];
       for (let j = 0; j < parseInt(GAME.map.max_x); j++) {
-        if (GAME.mapcell[(j + 1) + '_' + (i + 1)].m == 1) {
+        let key = (j + 1) + '_' + (i + 1);
+        if (mapcell[key] && mapcell[key].m == 1) {
           RES.matrix[i][j] = 1;
         } else {
           RES.matrix[i][j] = 0;
         }
       }
     }
+    return true;
   },
 
   Mine() {

@@ -56,16 +56,26 @@ const AFO_LPVM = {
   CreateMatrix() {
     LPVM.Matrix = [];
     LPVM.Map = GAME.mapcell;
+
+    // Check if mapcell is available
+    if (!LPVM.Map) {
+      console.warn('[AFO_LPVM] mapcell not available, retrying...');
+      setTimeout(() => this.CreateMatrix(), 500);
+      return false;
+    }
+
     for (let i = 0; i < parseInt(GAME.map.max_y); i++) {
       LPVM.Matrix[i] = [];
       for (let j = 0; j < parseInt(GAME.map.max_x); j++) {
-        if (LPVM.Map[parseInt(j + 1) + '_' + parseInt(i + 1)].m == 1) {
+        let key = (j + 1) + '_' + (i + 1);
+        if (LPVM.Map[key] && LPVM.Map[key].m == 1) {
           LPVM.Matrix[i][j] = 1;
         } else {
           LPVM.Matrix[i][j] = 0;
         }
       }
     }
+    return true;
   },
 
   LoadPVM() {

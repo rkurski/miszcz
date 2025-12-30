@@ -185,34 +185,46 @@ const AFO = {
       $('#available_servers option[value=' + this.server + ']').prop('selected', true);
     };
 
-    // Setup mapcell property for pathfinding
+    // Setup mapcell property for pathfinding (dynamic lookup)
     (function () {
-      let a;
-      function f() { a = GAME.map_info; }
+      let cachedKey;
+      function findMapcellKey() {
+        if (!cachedKey) {
+          cachedKey = Object.keys(GAME).find(z => GAME[z] && GAME[z]['1_1']);
+        }
+        return cachedKey;
+      }
       Object.defineProperty(GAME, 'mapcell', {
-        get() { return a; }
+        get: function () { return GAME[findMapcellKey()]; }
       });
     })();
 
     // Override player list parsing for low level filter
-    GAME.parseListPlayer_o = GAME.parseListPlayer;
-    GAME.parseListPlayer = function (entry, pvp_master) {
-      if (!LOWLVL.stop && (entry.level < GAME.char_data.level)) {
-        return '';
-      }
-      return GAME.parseListPlayer_o(entry, pvp_master);
-    };
-
-    GAME.parsePlayerShadow_o = GAME.parsePlayerShadow;
-    GAME.parsePlayerShadow = function (data, pvp_master) {
-      if (data && data.pd) {
-        let pd = data.pd;
-        if (!LOWLVL.stop && (pd.level < GAME.char_data.level)) {
-          return '';
+    if (!GAME.parseListPlayer_o) {
+      GAME.parseListPlayer_o = GAME.parseListPlayer;
+      GAME.parseListPlayer = function (entry, pvp_master) {
+        if (entry && entry.data) {
+          let pd = entry.data;
+          if (!LOWLVL.stop && (pd.level < GAME.char_data.level)) {
+            return '';
+          }
         }
-      }
-      return GAME.parsePlayerShadow_o(data, pvp_master);
-    };
+        return GAME.parseListPlayer_o(entry, pvp_master);
+      };
+    }
+
+    if (!GAME.parsePlayerShadow_o) {
+      GAME.parsePlayerShadow_o = GAME.parsePlayerShadow;
+      GAME.parsePlayerShadow = function (data, pvp_master) {
+        if (data && data.pd) {
+          let pd = data.pd;
+          if (!LOWLVL.stop && (pd.level < GAME.char_data.level)) {
+            return '';
+          }
+        }
+        return GAME.parsePlayerShadow_o(data, pvp_master);
+      };
+    }
 
     console.log('[AFO] GAME overrides applied');
   },

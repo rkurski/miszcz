@@ -125,15 +125,19 @@ var RES = {
   mapcell: false,
   matrix: [],
   steps: [],
+  steps_clone: [],
   target: null,
   path: [],
-  mines: [],
+  processing: false,
+  mines: {},
   last_mine: 0,
   speed: 100,
   mined_id: [],
   refresh_mines: true,
   first_mine: [],
-  loc: 0 // Will be set to GAME.char_data.loc on init
+  loc: 0,
+  cdt: null,
+  finder: null
 };
 
 // ============================================
@@ -148,7 +152,10 @@ var CODE = {
   acc: false,
   zast: false,
   b1: false,
-  b2: false
+  b2: false,
+  whatNow: 0,
+  what_to_train: 1,
+  what_to_traintime: 1
 };
 
 // ============================================
