@@ -34,6 +34,8 @@
     'handlers/settings.js',
     'handlers/combat.js',
     'handlers/game-overrides.js',
+    'handlers/empire.js',
+    'handlers/tournaments.js',
 
     // Main bot logic
     'script1-2.js',

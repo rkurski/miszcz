@@ -497,73 +497,8 @@ if (typeof GAME === 'undefined') {
       // UI methods (updateTopBar, collectActivities, markDaily) 
       // are now in handlers/ui.js
 
-      wojny2() {
-        var aimp = $("#e_admiral_player").find("[data-option=show_player]").attr("data-char_id");
-        var imp = $("#leader_player").find("[data-option=show_player]").attr("data-char_id");
-        if (!adimp) {
-          setTimeout(() => {
-            GAME.socket.emit('ga', {
-              a: 50,
-              type: 0,
-              empire: GAME.char_data.empire
-            });
-          }, 100);
-          adimp = true;
-          setTimeout(() => {
-            this.wojny2();
-          }, 300);
-        } else if (!GAME.emp_enemies.includes(1) && ![GAME.char_data.empire].includes(1) && (kws.check_imp().includes(GAME.char_id) || kws.check_imp2().includes(GAME.char_id) || imp == GAME.char_id || aimp == GAME.char_id)) {
-          GAME.socket.emit('ga', {
-            a: 50,
-            type: 7,
-            target: 1
-          });
-          setTimeout(() => {
-            this.wojny2();
-          }, 300);
-        } else if (!GAME.emp_enemies.includes(2) && ![GAME.char_data.empire].includes(2) && (kws.check_imp().includes(GAME.char_id) || kws.check_imp2().includes(GAME.char_id) || imp == GAME.char_id || aimp == GAME.char_id)) {
-          GAME.socket.emit('ga', {
-            a: 50,
-            type: 7,
-            target: 2
-          });
-          setTimeout(() => {
-            this.wojny2();
-          }, 300);
-        } else if (!GAME.emp_enemies.includes(3) && ![GAME.char_data.empire].includes(3) && (kws.check_imp().includes(GAME.char_id) || kws.check_imp2().includes(GAME.char_id) || imp == GAME.char_id || aimp == GAME.char_id)) {
-          GAME.socket.emit('ga', {
-            a: 50,
-            type: 7,
-            target: 3
-          });
-          setTimeout(() => {
-            this.wojny2();
-          }, 300);
-        } else if (!GAME.emp_enemies.includes(4) && ![GAME.char_data.empire].includes(4) && (kws.check_imp().includes(GAME.char_id) || kws.check_imp2().includes(GAME.char_id) || imp == GAME.char_id || aimp == GAME.char_id)) {
-          GAME.socket.emit('ga', {
-            a: 50,
-            type: 7,
-            target: 4
-          });
-          setTimeout(() => {
-            this.wojny2();
-          }, 300);
-        } else { }
-      }
-      check_imp() {
-        var tab = [];
-        for (var i = 0; i < 3; i++) {
-          tab[i] = parseInt($("#empire_heroes .activity").eq(i).find("[data-option=show_player]").attr("data-char_id"));
-        }
-        return tab;
-      }
-      check_imp2() {
-        var tab = [];
-        for (var i = 0; i < 3; i++) {
-          tab[i] = parseInt($("#empire_efrags .activity").eq(i).find("[data-option=show_player]").attr("data-char_id"));
-        }
-        return tab;
-      }
+      // Empire methods (wojny2, check_imp, check_imp2)
+      // are now in handlers/empire.js
 
       // Combat methods (vip, bless, questProceed, pvpKill, useCompressor)
       // are now in handlers/combat.js
@@ -752,56 +687,9 @@ if (typeof GAME === 'undefined') {
         $("#top_bar")[0].style.height = '30px';
         $("#game_win")[0].style.marginTop = '0px';
       }
-      findTournamentCategory() {
-        for (var type = 2; type <= 2; type++) {
-          for (var cat = 1; cat <= 69; cat++) {
-            if (GAME.isYourTourCat(type, cat, GAME.char_data.reborn, GAME.char_data.level)) {
-              this.tournamentCategory = cat;
-            }
-          }
-        }
-      }
-      checkTournamentsSigning() {
-        if (this.isCheckingTournaments) { return; }
-        this.isCheckingTournaments = true;
-        var currentServerTime = new Date(GAME.getTime() * 1000);
-        var currentServerHour = currentServerTime.getHours();
-        var currentServerMinute = currentServerTime.getMinutes();
-        //console.log("KWA_TOURNAMENTS: Check tournaments sign");
-        if (currentServerHour > 20 || currentServerHour < 18) {
-          //console.log("KWA_TOURNAMENTS: Wrong hours, reset values");
-          this.tourSigned = false;
-          this.tournamentCategory = undefined;
-          this.newTournamentID = undefined;
-          this.isCheckingTournaments = false;
-        } else if (!this.tourSigned) {
-          //console.log("KWA_TOURNAMENTS: not signed");
-          if ((currentServerHour == 18 && currentServerMinute > 9) || (currentServerHour > 18 && currentServerHour < 21)) {
-            //console.log("KWA_TOURNAMENTS: correct time");
-            this.tourSigned = true;
-            this.findTournamentCategory();
-            //console.log("KWA_TOURNAMENTS: tournament category fetched");
-            setTimeout(() => {
-              //console.log("KWA_TOURNAMENTS: fetch tournaments IDs");
-              if (this.tournamentCategory <= 54) {
-                GAME.emitOrder({ a: 57, type: 0, type2: 0, page: 1 });
-              } else {
-                GAME.emitOrder({ a: 57, type: 0, type2: 0, page: 2 });
-              }
-            }, 500);
-            setTimeout(() => { /*console.log("KWA_TOURNAMENTS: sign in player");*/GAME.emitOrder({ a: 57, type: 1, tid: this.newTournamentID }); }, 1000);
-            setTimeout(() => { /*console.log("KWA_TOURNAMENTS: sign in all pets");*/GAME.emitOrder({ a: 57, type: 4 }); }, 1500);
-            setTimeout(() => { /*console.log("KWA_TOURNAMENTS: clear popups");*/kom_clear(); }, 2000);
-            setTimeout(() => { this.setTimerForTournamentsReset(); }, 5000);
-          } else {
-            this.isCheckingTournaments = false;
-          }
-        }
-      }
-      setTimerForTournamentsReset() {
-        //console.log("KWA_TOURNAMENTS: reset isCheckingTournaments flag");
-        this.isCheckingTournaments = false;
-      }
+
+      // Tournament methods (findTournamentCategory, checkTournamentsSigning, setTimerForTournamentsReset)
+      // are now in handlers/tournaments.js
 
       // Alternative Pilot methods (createAlternativePilot, bindAlternativePilotButtons)
       // are now in handlers/pilot.js
@@ -884,6 +772,14 @@ if (typeof GAME === 'undefined') {
     if (typeof ClickHandlersMixin !== 'undefined') {
       Object.assign(kwsv3.prototype, ClickHandlersMixin);
       console.log('[script1-2] ClickHandlersMixin applied');
+    }
+    if (typeof EmpireMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, EmpireMixin);
+      console.log('[script1-2] EmpireMixin applied');
+    }
+    if (typeof TournamentsMixin !== 'undefined') {
+      Object.assign(kwsv3.prototype, TournamentsMixin);
+      console.log('[script1-2] TournamentsMixin applied');
     }
 
     GAME.socket.on('pong', function (ms) {
