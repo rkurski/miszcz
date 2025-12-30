@@ -33,6 +33,7 @@
     'handlers/pilot.js',
     'handlers/settings.js',
     'handlers/combat.js',
+    'handlers/game-overrides.js',
 
     // Main bot logic
     'script1-2.js',
