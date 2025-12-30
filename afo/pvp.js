@@ -1,0 +1,464 @@
+/**
+ * ============================================================================
+ * AFO - PVP Module
+ * ============================================================================
+ * 
+ * PVP automation logic - auto-attacking players, territory control, wars.
+ * Uses the global PVP state object from afo/state.js
+ * 
+ * ============================================================================
+ */
+
+const AFO_PVP = {
+
+  // ============================================
+  // MAIN PVP LOOP
+  // ============================================
+
+  checkkkk() {
+    let imp = $("#leader_player").find("[data-option=show_player]").attr("data-char_id");
+    let emp = GAME.char_data.empire;
+    let buff = $(".emp_buff .pull-right").find("button").attr("data-option") == "activate_emp_buff";
+    let buff_id = $(".emp_buff .pull-right").find("button").attr("data-buff");
+    let who_win = $("#gne_satus").text().includes("ZŁO");
+    let abut = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`);
+    let isDisabled = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`).parents("tr").hasClass("disabled");
+
+    if (GAME.quick_opts.ssj && $("#ssj_bar").css("display") === "none" && PVP.code) {
+      setTimeout(() => {
+        GAME.socket.emit(`ga`, { a: 12, type: 17 });
+      }, 200);
+      return true;
+    } else if (PVP.buff_imp && GAME.emp_buffs !== undefined && buff && who_win) {
+      GAME.socket.emit('ga', { a: 50, type: 4, id: buff_id });
+      return true;
+    } else if (PVP.buff_clan && GAME.klan_data != undefined && abut.length && !isDisabled) {
+      $(" .newBtn.activate_all_clan_buffs").click();
+      return true;
+    }
+    return false;
+  },
+
+  start() {
+    if (!PVP.stop && !GAME.is_loading) {
+      if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
+        $("#player_list_con").find("[data-option=load_more_players]").click();
+      }
+      this.action();
+    } else if (GAME.is_loading) {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  action() {
+    switch (PVP.caseNumber) {
+      case 0: PVP.caseNumber++; this.check_position_x(); break;
+      case 1: PVP.caseNumber++; this.check_position_y(); break;
+      case 2: PVP.caseNumber++; this.check(); break;
+      case 3: PVP.caseNumber++; this.check_players(); break;
+      case 4: PVP.caseNumber++; this.kill_players(); break;
+      case 5: PVP.caseNumber++; this.check_players2(); break;
+      case 6: PVP.caseNumber++; this.wojny1(); break;
+      case 7: PVP.caseNumber++; this.check_location(); break;
+      case 8: PVP.caseNumber++; this.check2(); break;
+      case 9: PVP.caseNumber++; this.check_players2(); break;
+      case 10: PVP.caseNumber++; this.dec_wars(); break;
+      case 11: PVP.caseNumber = 0; this.go(); break;
+      default: break;
+    }
+  },
+
+  // ============================================
+  // POSITION & PLAYER CHECKS
+  // ============================================
+
+  check_position_x() {
+    PVP.x = GAME.char_data.x;
+    window.setTimeout(() => this.start(), 5);
+  },
+
+  check_position_y() {
+    PVP.y = GAME.char_data.y;
+    window.setTimeout(() => this.start(), 5);
+  },
+
+  check_players() {
+    if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
+      $("#player_list_con").find("[data-option=load_more_players]").click();
+    }
+    if ($("#player_list_con .player").length > 0) {
+      PVP.y = GAME.char_data.y;
+      if (document.getElementById("player_list_con").children[0].children[1].childElementCount == 3) {
+        PVP.tabb = $("#player_list_con .player").eq(0).find(".timer").text();
+        if (PVP.tabb <= '00:01:30' && PVP.y == 2 && PVP.tabb != '' || PVP.tabb <= '00:00:25' && PVP.tabb != '') {
+          window.setTimeout(() => this.check_players(), PVP.czekajpvp / this.WSPP() * 4);
+        } else {
+          window.setTimeout(() => this.start(), PVP.czekajpvp / this.WSPP() / 2);
+        }
+      } else {
+        window.setTimeout(() => this.start(), PVP.czekajpvp / this.WSPP() / 2);
+      }
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP() * 2);
+    }
+    PVP.licznik = 1;
+  },
+
+  check_players2() {
+    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    this.kill_players1();
+    window.setTimeout(() => this.start(), PVP.czekajpvp / this.WSPP() * (enemy.length) * 2);
+    PVP.licznik = 1;
+  },
+
+  // ============================================
+  // KILLING LOGIC
+  // ============================================
+
+  kill_players() {
+    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    if (enemy.length > 0) {
+      enemy.eq(0).click();
+    } else {
+      kom_clear();
+    }
+    window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+  },
+
+  kill_players1() {
+    if (!JQS.chm.is(":focus")) {
+      let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+      if ($("#player_list_con").find("[data-option=load_more_players]").length == 1) {
+        $("#player_list_con").find("[data-option=load_more_players]").click();
+        window.setTimeout(() => this.kill_players1(), 50);
+      } else if (enemy.length > 0) {
+        enemy.eq(0).click();
+        window.setTimeout(() => this.kill_players1(), 110);
+      } else {
+        kom_clear();
+      }
+    }
+  },
+
+  // ============================================
+  // EMPIRE CHECKS
+  // ============================================
+
+  check_imp() {
+    let tab = [];
+    for (let i = 0; i < 3; i++) {
+      tab[i] = parseInt($("#empire_heroes .activity").eq(i).find("[data-option=show_player]").attr("data-char_id"));
+    }
+    return tab;
+  },
+
+  check_imp2() {
+    let tab = [];
+    for (let i = 0; i < 3; i++) {
+      tab[i] = parseInt($("#empire_efrags .activity").eq(i).find("[data-option=show_player]").attr("data-char_id"));
+    }
+    return tab;
+  },
+
+  // ============================================
+  // WARS
+  // ============================================
+
+  wojny1() {
+    if (PVP.wi) {
+      let aimp = $("#e_admiral_player").find("[data-option=show_player]").attr("data-char_id");
+      let imp = $("#leader_player").find("[data-option=show_player]").attr("data-char_id");
+
+      if (!PVP.adimp) {
+        GAME.socket.emit('ga', { a: 50, type: 0, empire: GAME.char_data.empire });
+        PVP.adimp = true;
+        window.setTimeout(() => this.wojny1(), 500);
+      } else if (!GAME.emp_enemies.includes(1) && ![GAME.char_data.empire].includes(1) &&
+        (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
+          imp == GAME.char_id || aimp == GAME.char_id)) {
+        GAME.socket.emit('ga', { a: 50, type: 7, target: 1 });
+        window.setTimeout(() => this.wojny1(), 500);
+      } else if (!GAME.emp_enemies.includes(2) && ![GAME.char_data.empire].includes(2) &&
+        (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
+          imp == GAME.char_id || aimp == GAME.char_id)) {
+        GAME.socket.emit('ga', { a: 50, type: 7, target: 2 });
+        window.setTimeout(() => this.wojny1(), 500);
+      } else if (!GAME.emp_enemies.includes(3) && ![GAME.char_data.empire].includes(3) &&
+        (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
+          imp == GAME.char_id || aimp == GAME.char_id)) {
+        GAME.socket.emit('ga', { a: 50, type: 7, target: 3 });
+        window.setTimeout(() => this.wojny1(), 500);
+      } else if (!GAME.emp_enemies.includes(4) && ![GAME.char_data.empire].includes(4) &&
+        (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
+          imp == GAME.char_id || aimp == GAME.char_id)) {
+        GAME.socket.emit('ga', { a: 50, type: 7, target: 4 });
+        window.setTimeout(() => this.wojny1(), 500);
+      } else {
+        window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+      }
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  // ============================================
+  // MOVEMENT
+  // ============================================
+
+  zejdz() {
+    GAME.socket.emit('ga', { a: 16 });
+    window.setTimeout(() => this.teleport(), 2000);
+  },
+
+  go() {
+    let x = GAME.char_data.x;
+    let y = GAME.char_data.y;
+
+    if (x == 14 && y == 14 && PVP.loc === 1) {
+      this.zejdz(); PVP.g = 2; PVP.tele = true;
+    } else if (x == 14 && y == 14 && PVP.loc === 2) {
+      this.zejdz(); PVP.g = 3; PVP.tele = true;
+    } else if (x == 14 && y == 14 && PVP.loc === 3) {
+      this.zejdz(); PVP.g = 4; PVP.tele = true;
+    } else if (x == 14 && y == 14 && PVP.loc === 4) {
+      this.zejdz(); PVP.g = 1; PVP.tele = true;
+    } else if (PVP.loc === 7) {
+      this.zejdz(); PVP.tele = true;
+    } else if (x == 8 && y == 4 && PVP.loc == 4 || x == 8 && y == 6 && PVP.loc == 4 ||
+      x == 12 && y == 7 && PVP.loc == 1 || x == 12 && y == 9 && PVP.loc == 1 ||
+      x == 4 && y == 8 && PVP.loc == 1 || x == 4 && y == 10 && PVP.loc == 1 ||
+      x == 7 && y == 13 && PVP.loc == 3 || x == 8 && y == 5 && PVP.loc == 2 ||
+      x == 8 && y == 7 && PVP.loc == 2 || x == 3 && y == 9 && PVP.loc == 5) {
+      this.go_down();
+    } else if (x == 8 && y == 5 && PVP.loc == 4 || x == 8 && y == 7 && PVP.loc == 4) {
+      this.go_left();
+    } else if (x == 5 && y == 11 && PVP.loc == 1 || x == 5 && y == 10 && PVP.loc == 1 ||
+      x == 5 && y == 9 && PVP.loc == 1 || x == 5 && y == 8 && PVP.loc == 1) {
+      this.go_up();
+    } else if (x == 8 && y == 6 && PVP.loc == 2 || x == 8 && y == 8 && PVP.loc == 2) {
+      this.go_right();
+    } else if (x == 2 && y == 11 && PVP.loc == 3) {
+      this.cofanie();
+    } else if (x == 7 && y == 7 && PVP.loc == 6 && PVP.dogory || x == 9 && y == 7 && PVP.loc == 6 && PVP.dogory) {
+      this.prawodol();
+    } else if (x == 8 && y == 8 && PVP.loc == 6 && PVP.dogory || x == 10 && y == 8 && PVP.loc == 6 && PVP.dogory) {
+      this.prawogora();
+    } else if (x < 14 && y % 2 == 0 && PVP.loc < 5 || x < 15 && y % 2 !== 0 && PVP.loc == 6 ||
+      x < 11 && y % 2 == 0 && PVP.loc == 5) {
+      this.go_right();
+    } else if (y % 2 !== 0 && x > 2 && PVP.loc < 6 || x > 1 && y % 2 == 0 && PVP.loc == 6 || x == 2 && PVP.loc == 6) {
+      this.go_left();
+    } else if (x == 14 || x == 2 && PVP.loc < 5 || x == 15 && PVP.loc == 6 || x == 1 ||
+      x == 11 && PVP.loc == 5 || x == 2 && PVP.loc == 5) {
+      this.go_down();
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  teleport() {
+    if (PVP.tele) {
+      GAME.socket.emit('ga', { a: 50, type: 5, e: PVP.g });
+      window.setTimeout(() => this.start(), 2000);
+      PVP.tele = false;
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  check_location() {
+    if (GAME.char_data.loc == 351) { PVP.loc = 4; }
+    else if (GAME.char_data.loc == 350) { PVP.loc = 3; }
+    else if (GAME.char_data.loc == 349) { PVP.loc = 2; }
+    else if (GAME.char_data.loc == 348) { PVP.loc = 1; }
+    else { PVP.loc = 7; }
+    window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+  },
+
+  cofanie() {
+    PVP.x = GAME.char_data.x;
+    if (PVP.x >= 7) {
+      this.go_down();
+    } else {
+      GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
+      window.setTimeout(() => this.cofanie(), 150);
+    }
+  },
+
+  prawodol() {
+    GAME.emitOrder({ a: 4, dir: 3, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  prawogora() {
+    GAME.emitOrder({ a: 4, dir: 5, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  go_up() {
+    GAME.emitOrder({ a: 4, dir: 2, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  go_down() {
+    GAME.emitOrder({ a: 4, dir: 1, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  go_left() {
+    GAME.emitOrder({ a: 4, dir: 8, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  go_right() {
+    GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
+    window.setTimeout(() => this.start(), PVP.wait2 / this.WSPP());
+  },
+
+  // ============================================
+  // UTILITY
+  // ============================================
+
+  check() {
+    if ($("#ewar_list").text().includes("--:--:--")) {
+      window.setTimeout(() => this.check(), 300);
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  check2() {
+    if (this.checkkkk()) {
+      window.setTimeout(() => this.check2(), 1800);
+    } else {
+      window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+    }
+  },
+
+  dec_wars() {
+    let wars = $("#pvp_Panel input[name=pvp_capt]").val();
+    let count = wars ? wars.split(";").length : 0;
+    if (count > 0 && PVP.wk && GAME.char_data.klan_id != 0 && GAME.char_data.klan_rent == 0 && GAME.clan_wars.length < count) {
+      GAME.socket.emit('ga', { a: 39, type: 24, shorts: wars });
+    }
+    window.setTimeout(() => this.start(), PVP.wait / this.WSPP());
+  },
+
+  WSPP() {
+    let speed = PVP.WSP;
+    if (speed < 10) speed = 10;
+    if (speed > 500) speed = 500;
+    if ($("#pvp_Panel input[name=speed_capt]").val() == '') speed = 50;
+    return speed / 50;
+  },
+
+  // ============================================
+  // PANEL HANDLERS
+  // ============================================
+
+  bindHandlers() {
+    $('#pvp_Panel .pvp_pvp').click(() => {
+      if (PVP.stop) {
+        $(".pvp_pvp .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.stop = false;
+        this.start();
+        // Stop other modules
+        RESP.stop = true; RES.stop = true; LPVM.Stop = true; CODE.stop = true;
+        $(".code_code .code_status, .lpvm_lpvm .lpvm_status, .res_res .res_status, .resp_resp .resp_status")
+          .removeClass("green").addClass("red").html("Off");
+      } else {
+        $(".pvp_pvp .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.stop = true;
+      }
+    });
+
+    $('#pvp_Panel .pvp_rb_avoid').click(() => {
+      if (PVP.higherRebornAvoid) {
+        $(".pvp_rb_avoid .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.higherRebornAvoid = false;
+      } else {
+        $(".pvp_rb_avoid .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.higherRebornAvoid = true;
+      }
+    });
+
+    $('#pvp_Panel .pvp_Code').click(() => {
+      if (PVP.code) {
+        $(".pvp_Code .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.code = false;
+        $("#pvp_Panel .pvpCODE_konto").hide();
+      } else {
+        $(".pvp_Code .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.code = true;
+        $("#pvp_Panel .pvpCODE_konto").show();
+      }
+    });
+
+    $('#pvp_Panel .pvpCODE_konto').click(() => {
+      if (PVP.kontoTP) {
+        $(".pvpCODE_konto .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.kontoTP = false; PVP.codeTP = false;
+      } else {
+        $(".pvpCODE_konto .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.kontoTP = true; PVP.codeTP = true;
+      }
+    });
+
+    $('#pvp_Panel .pvp_WI').click(() => {
+      if (PVP.wi) {
+        $(".pvp_WI .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.wi = false;
+      } else {
+        $(".pvp_WI .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.wi = true;
+      }
+    });
+
+    $('#pvp_Panel .pvp_WK').click(() => {
+      if (PVP.wk) {
+        $(".pvp_WK .pvp_status").removeClass("green").addClass("red").html("Off");
+        PVP.wk = false;
+      } else {
+        $(".pvp_WK .pvp_status").removeClass("red").addClass("green").html("On");
+        PVP.wk = true;
+      }
+    });
+
+    if (GAME.server != '20') {
+      $('#pvp_Panel .pvp_buff_imp').click(() => {
+        if (PVP.buff_imp) {
+          $(".pvp_buff_imp .pvp_status").removeClass("green").addClass("red").html("Off");
+          PVP.buff_imp = false;
+        } else {
+          $(".pvp_buff_imp .pvp_status").removeClass("red").addClass("green").html("On");
+          PVP.buff_imp = true;
+        }
+      });
+
+      $('#pvp_Panel .pvp_buff_clan').click(() => {
+        if (PVP.buff_clan) {
+          $(".pvp_buff_clan .pvp_status").removeClass("green").addClass("red").html("Off");
+          PVP.buff_clan = false;
+        } else {
+          $(".pvp_buff_clan .pvp_status").removeClass("red").addClass("green").html("On");
+          PVP.buff_clan = true;
+        }
+      });
+    }
+
+    // Load saved values
+    $("#pvp_Panel input[name=pvp_capt]").val(PVP.clan_list);
+    $("#pvp_Panel input[name=speed_capt]").val(PVP.speed);
+
+    console.log('[AFO_PVP] Handlers bound');
+  }
+};
+
+// Attach methods to global PVP object for backward compatibility
+PVP.checkkkk = () => AFO_PVP.checkkkk();
+PVP.start = () => AFO_PVP.start();
+PVP.action = () => AFO_PVP.action();
+
+// Export
+window.AFO_PVP = AFO_PVP;
+console.log('[AFO] PVP module loaded');
