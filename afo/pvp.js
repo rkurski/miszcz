@@ -24,13 +24,51 @@ const AFO_PVP = {
     let abut = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`);
     let isDisabled = $("#clan_buffs").find(`button[data-option="activate_war_buff"]`).parents("tr").hasClass("disabled");
 
+    // SSJ activation
     if (GAME.quick_opts.ssj && $("#ssj_bar").css("display") === "none" && PVP.code) {
       setTimeout(() => {
-        GAME.socket.emit(`ga`, { a: 12, type: 17 });
-      }, 200);
+        GAME.socket.emit('ga', { a: 18, type: 5, tech_id: GAME.quick_opts.ssj[0] });
+      }, 1500);
       return true;
-    } else if (PVP.buff_imp && GAME.emp_buffs !== undefined && buff && who_win) {
-      GAME.socket.emit('ga', { a: 50, type: 4, id: buff_id });
+    } else if ($('#ssj_status').text() == "--:--:--" && PVP.code && GAME.quick_opts.ssj) {
+      setTimeout(() => {
+        GAME.socket.emit('ga', { a: 18, type: 6 });
+      }, 1500);
+      return true;
+    } else if ($('#ssj_status').text() <= '00:00:05' && PVP.code && GAME.quick_opts.ssj) {
+      return true;
+    }
+    // Training/codes
+    else if ($("#train_uptime").find('.timer').length == 0 && !GAME.is_training && PVP.code) {
+      GAME.socket.emit('ga', { a: 8, type: 2, stat: 1, duration: 1 });
+      if (PVP.codeTP) {
+        setTimeout(() => {
+          GAME.socket.emit('ga', { a: 8, type: 5, multi: ':checked', apud: 'vzaaa' });
+        }, 1600);
+      } else {
+        setTimeout(() => {
+          GAME.socket.emit('ga', { a: 8, type: 5, apud: 'vzaaa' });
+        }, 1600);
+      }
+      return true;
+    } else if (GAME.is_training && $("#train_uptime").find('.timer').length == 1 && PVP.code) {
+      setTimeout(() => {
+        GAME.socket.emit('ga', { a: 8, type: 3 });
+      }, 1600);
+      return true;
+    } else if (GAME.is_training && PVP.code) {
+      GAME.socket.emit('ga', { a: 8, type: 3 });
+      return true;
+    }
+    // Buffs
+    else if (imp == GAME.char_id && PVP.buff_imp && buff && buff_id < 4) {
+      GAME.socket.emit('ga', { a: 50, type: 6, buff: buff_id });
+      return true;
+    } else if (imp == GAME.char_id && PVP.buff_imp && buff && buff_id < 7 && ((emp == 1 || emp == 3) && who_win)) {
+      GAME.socket.emit('ga', { a: 50, type: 6, buff: buff_id });
+      return true;
+    } else if (imp == GAME.char_id && PVP.buff_imp && buff && buff_id < 7 && ((emp == 2 || emp == 4) && !who_win)) {
+      GAME.socket.emit('ga', { a: 50, type: 6, buff: buff_id });
       return true;
     } else if (PVP.buff_clan && GAME.klan_data != undefined && abut.length && !isDisabled) {
       $(" .newBtn.activate_all_clan_buffs").click();

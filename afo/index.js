@@ -234,17 +234,21 @@ const AFO = {
   // ============================================
 
   fetchInitialData() {
+    // Fetch empire data
     setTimeout(() => {
       GAME.socket.emit('ga', { a: 50, type: 0, empire: GAME.char_data.empire });
     }, 300);
 
-    setTimeout(() => {
-      GAME.emitOrder({ a: 39, type: 23 });
-    }, 600);
+    // Fetch clan data only if in a clan
+    if (GAME.char_data && GAME.char_data.klan_id > 0) {
+      setTimeout(() => {
+        GAME.emitOrder({ a: 39, type: 0 });
+      }, 600);
 
-    setTimeout(() => {
-      GAME.emitOrder({ a: 39, type: 23 });
-    }, 900);
+      setTimeout(() => {
+        GAME.emitOrder({ a: 39, type: 23 });
+      }, 900);
+    }
   },
 
   // ============================================
