@@ -27,9 +27,9 @@ if (typeof GAME === 'undefined') {
         const githubUrl = 'https://raw.githubusercontent.com/rkurski/miszcz/develop/';
 
         if (devMode && localUrl) {
-          return localUrl + 'afo/' + path;
+          return localUrl + 'remote/afo/' + path;
         }
-        return githubUrl + 'afo/' + path;
+        return githubUrl + 'remote/afo/' + path;
       };
 
       // Module load order

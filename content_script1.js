@@ -20,34 +20,35 @@
   let EXTENSION_URL = '';
 
   // Scripts to load in order (dependencies first)
+  // All paths relative to base URL - these are loaded from remote/
   const SCRIPTS = [
     // Core modules
-    'charactersManager.js',
+    'remote/features/characters/charactersManager.js',
 
     // Handlers & Mixins (loaded before main script)
-    'handlers/click-handlers.js',
-    'handlers/automation.js',
-    'handlers/ui.js',
-    'handlers/clan.js',
-    'handlers/map.js',
-    'handlers/pilot.js',
-    'handlers/settings.js',
-    'handlers/combat.js',
-    'handlers/game-overrides.js',
-    'handlers/empire.js',
-    'handlers/tournaments.js',
+    'remote/core/handlers/click-handlers.js',
+    'remote/core/handlers/automation.js',
+    'remote/core/handlers/ui.js',
+    'remote/core/handlers/clan.js',
+    'remote/core/handlers/map.js',
+    'remote/core/handlers/pilot.js',
+    'remote/core/handlers/settings.js',
+    'remote/core/handlers/combat.js',
+    'remote/core/handlers/game-overrides.js',
+    'remote/core/handlers/empire.js',
+    'remote/core/handlers/tournaments.js',
 
     // Main bot logic
-    'script1-2.js',
+    'remote/core/script1-2.js',
 
     // Ball modules
-    'ballExp.js',
-    'ballUpgrade.js',
-    'ballReset.js',
-    'ballManager.js',
+    'remote/features/ball/ballExp.js',
+    'remote/features/ball/ballUpgrade.js',
+    'remote/features/ball/ballReset.js',
+    'remote/features/ball/ballManager.js',
 
     // Equipment
-    'ekwipunek.js',
+    'remote/features/equipment/ekwipunek.js',
   ];
 
   // CSS files to load (empty - script1-2.js handles CSS internally)

@@ -46,10 +46,9 @@
           "content_script.js",
           "content_script1.js",
           "main.js",
-          "handlers/*.js",
-          "*.js",
-          "*.json",
-          "*.png"
+          "remote/**/*.js",
+          "remote/**/*.json",
+          "images/*.png"
         ],
         "matches": [
           "https://*.kosmiczni.pl/*"
