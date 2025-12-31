@@ -16,6 +16,7 @@ const AutomationMixin = {
   // ============================================
 
   manageAutoExpeditions() {
+    // expedNmbr: 1 when no bonus (to avoid collision with arena/codes), 2 when bonus active
     let expedNmbr = GAME.char_data.bonus16 < GAME.getTime() ? 1 : 2;
     if (!this.autoExpeditions) {
       this.autoExpeditions = true;
@@ -36,7 +37,12 @@ const AutomationMixin = {
           GAME.socket.emit('ga', { a: 8, type: 3 });
         } else if (this.auto_arena && !isNaN(opponent)) {
           // Skip if auto arena is active
-        } else if (GAME.char_tables.timed_actions[0] == undefined || GAME.char_tables.timed_actions[1] == undefined && GAME.char_data.bonus16 > GAME.getTime()) {
+        } else if (GAME.char_tables.timed_actions[0] == undefined) {
+          // No timed action at all - send expedition
+          GAME.socket.emit('ga', { a: 10, type: 2, ct: 0 });
+          kom_clear();
+        } else if (expedNmbr == 2 && GAME.char_tables.timed_actions[1] == undefined && GAME.char_data.bonus16 > GAME.getTime()) {
+          // Has bonus and slot 2 is empty - send second expedition
           GAME.socket.emit('ga', { a: 10, type: 2, ct: 0 });
           kom_clear();
         }
