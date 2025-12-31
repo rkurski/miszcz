@@ -21,22 +21,22 @@ var LOWLVL = {
 // ============================================
 var PVP = {
   stop: true,
-  wi: true,
+  autoWars: true,          // wi - auto declare empire wars
   code: true,
-  wk: true,
+  autoClanWars: true,      // wk - auto declare clan wars
   higherRebornAvoid: false,
   caseNumber: 0,
   wait: 10,
   wait2: 80,
-  czekajpvp: 160,
-  WSP: 50,
-  licznik: 0,
+  pvpDelay: 160,           // czekajpvp
+  speedMultiplier: 50,     // WSP
+  counter: 0,              // licznik
   dogory: false,
   loc: 0,
   adimp: false,
   g: 1,
   tele: false,
-  tabb: [],
+  playerTimer: [],         // tabb
   x: 1,
   y: 1,
   war: false,
