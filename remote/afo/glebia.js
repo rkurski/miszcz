@@ -174,21 +174,15 @@ const AFO_GLEBIA = {
       return;
     }
 
-    const functions = [
-      this.check_position_x.bind(this),
-      this.check_position_y.bind(this),
-      this.check_players.bind(this),
-      this.check_players2.bind(this),
-      this.kill_players.bind(this),
-      this.check_glebia_location.bind(this),
-      this.go.bind(this)
-    ];
-
-    functions[GLEBIA.caseNumber]();
-
-    // Don't increment caseNumber if we're in attack mode - attackLoop will handle continuation
-    if (!GLEBIA.isAttacking) {
-      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % functions.length;
+    switch (GLEBIA.caseNumber) {
+      case 0: GLEBIA.caseNumber++; this.check_position_x(); break;
+      case 1: GLEBIA.caseNumber++; this.check_position_y(); break;
+      case 2: GLEBIA.caseNumber++; this.check_players(); break;
+      case 3: GLEBIA.caseNumber++; this.check_players2(); break;
+      case 4: this.kill_players(); break; // Don't increment - attackLoop handles progression
+      case 5: GLEBIA.caseNumber++; this.check_glebia_location(); break;
+      case 6: GLEBIA.caseNumber = 0; this.go(); break;
+      default: GLEBIA.caseNumber = 0; break;
     }
   },
 
@@ -413,7 +407,7 @@ const AFO_GLEBIA = {
     if (currentX !== startX || currentY !== startY) {
       GLEBIA.attackRetries = 0;
       GLEBIA.isAttacking = false;  // Clear flag - allow main loop to continue
-      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;  // Move to next step
+      GLEBIA.caseNumber++;  // Move to next step
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
@@ -435,7 +429,7 @@ const AFO_GLEBIA = {
       GLEBIA.attackRetries = 0;
       GLEBIA.tileRetries = 0;
       GLEBIA.isAttacking = false;
-      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;
+      GLEBIA.caseNumber++;
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
@@ -452,7 +446,7 @@ const AFO_GLEBIA = {
         GLEBIA.attackRetries = 0;
         GLEBIA.tileRetries = 0;
         GLEBIA.isAttacking = false;
-        GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;
+        GLEBIA.caseNumber++;
         setTimeout(() => this.start(), GLEBIA.wait);
         return;
       }
