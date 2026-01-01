@@ -34,7 +34,9 @@ const GLEBIA = {
   attackChecks: 0,
 
   // Options
-  code: false
+  code: false,
+  kontoTP: false,
+  speed: 50
 };
 
 const AFO_GLEBIA = {
@@ -82,13 +84,61 @@ const AFO_GLEBIA = {
       if (GLEBIA.code) {
         $(".glebia_code .glebia_status").removeClass("green").addClass("red").html("Off");
         GLEBIA.code = false;
+        $('#glebia_Panel .glebia_konto').hide();
       } else {
         $(".glebia_code .glebia_status").removeClass("red").addClass("green").html("On");
         GLEBIA.code = true;
+        $('#glebia_Panel .glebia_konto').show();
       }
     });
 
+    // Konto toggle (visible only when Kody is on)
+    $('#glebia_Panel .glebia_konto').click(() => {
+      if (GLEBIA.kontoTP) {
+        $(".glebia_konto .glebia_status").removeClass("green").addClass("red").html("Off");
+        GLEBIA.kontoTP = false;
+      } else {
+        $(".glebia_konto .glebia_status").removeClass("red").addClass("green").html("On");
+        GLEBIA.kontoTP = true;
+      }
+    });
+
+    // Speed input handler
+    $('#glebia_Panel .glebia_input input').change((e) => {
+      GLEBIA.speed = parseInt($(e.target).val()) || 50;
+      this.saveSpeed();
+    });
+
+    // Initially hide konto button
+    $('#glebia_Panel .glebia_konto').hide();
+
+    // Load saved speed
+    this.loadSpeed();
+    $('#glebia_Panel input[name=glebia_speed]').val(GLEBIA.speed);
+
     console.log('[AFO_GLEBIA] Handlers bound');
+  },
+
+  // ============================================
+  // SPEED HELPERS
+  // ============================================
+
+  getSpeedMultiplier() {
+    let speed = GLEBIA.speed;
+    if (speed < 10) speed = 10;
+    if (speed > 500) speed = 500;
+    return speed / 50;
+  },
+
+  saveSpeed() {
+    localStorage.setItem('glebia_speed', GLEBIA.speed);
+  },
+
+  loadSpeed() {
+    const saved = localStorage.getItem('glebia_speed');
+    if (saved) {
+      GLEBIA.speed = parseInt(saved) || 50;
+    }
   },
 
   // ============================================
@@ -101,7 +151,7 @@ const AFO_GLEBIA = {
     if (!GAME.is_loading) {
       this.action();
     } else {
-      setTimeout(() => this.start(), GLEBIA.wait);
+      setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
     }
   },
 
@@ -235,7 +285,7 @@ const AFO_GLEBIA = {
     const valid = [2, 1, 8, 7, 5, 4, 3];
     if (!valid.includes(direction)) return;
     GAME.emitOrder({ a: 4, dir: direction, vo: GAME.map_options.vo });
-    setTimeout(() => this.start(), GLEBIA.wait);
+    setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
   },
 
   przejdz() {
@@ -466,9 +516,15 @@ const AFO_GLEBIA = {
       return true;
     } else if ($("#train_uptime").find('.timer').length == 0 && !GAME.is_training) {
       GAME.socket.emit('ga', { a: 8, type: 2, stat: 1, duration: 1 });
-      setTimeout(() => {
-        GAME.socket.emit('ga', { a: 8, type: 5, apud: 'vzaaa' });
-      }, 1600);
+      if (GLEBIA.kontoTP) {
+        setTimeout(() => {
+          GAME.socket.emit('ga', { a: 8, type: 5, multi: ':checked', apud: 'vzaaa' });
+        }, 1600);
+      } else {
+        setTimeout(() => {
+          GAME.socket.emit('ga', { a: 8, type: 5, apud: 'vzaaa' });
+        }, 1600);
+      }
       return true;
     } else if (GAME.is_training && $("#train_uptime").find('.timer').length == 1) {
       setTimeout(() => {

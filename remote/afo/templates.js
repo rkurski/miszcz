@@ -282,6 +282,12 @@ const AFO_Templates = {
         border-bottom: solid gray 1px;
         color: white;
       }
+      #glebia_Panel .glebia_input {
+        text-align: center;
+        border-bottom: solid gray 1px;
+        color: white;
+      }
+      #glebia_Panel .glebia_input input::placeholder { color: #4b4b4b; }
     `
   },
 
@@ -427,6 +433,8 @@ const AFO_Templates = {
         <div class="sekcja glebia_dragg">GŁĘBIA</div>
         <div class='glebia_button glebia_toggle'>Start<b class='glebia_status red'>Off</b></div>
         <div class='glebia_button glebia_code'>Kody<b class='glebia_status red'>Off</b></div>
+        <div class='glebia_button glebia_konto'>Konto<b class='glebia_status red'>Off</b></div>
+        <div class='glebia_input'><input style='width:120px; margin-left:-2px; background:grey;text-align:center;font-size:16;' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' /></div>
       </div>
     `
   },
