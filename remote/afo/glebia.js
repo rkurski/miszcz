@@ -63,6 +63,14 @@ const AFO_GLEBIA = {
       if (GLEBIA.stop) {
         $(".glebia_toggle .glebia_status").removeClass("red").addClass("green").html("On");
         GLEBIA.stop = false;
+
+        // Reset all attack state for clean start
+        GLEBIA.isAttacking = false;
+        GLEBIA.attackRetries = 0;
+        GLEBIA.tileRetries = 0;
+        GLEBIA.lastEnemyCount = -1;
+        GLEBIA.caseNumber = 0;
+
         this.start();
 
         // Stop other modules
