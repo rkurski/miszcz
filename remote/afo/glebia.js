@@ -439,6 +439,16 @@ const AFO_GLEBIA = {
         return;
       }
     } else {
+      // Enemy count changed = successful kill(s)!
+      // Update PVP counter for each kill
+      if (GLEBIA.lastEnemyCount > 0 && GLEBIA.lastEnemyCount > enemyCount) {
+        const killsThisRound = GLEBIA.lastEnemyCount - enemyCount;
+        for (let i = 0; i < killsThisRound; i++) {
+          if (typeof kws !== 'undefined' && kws.pvp_count) {
+            kws.pvp_count();
+          }
+        }
+      }
       // Making progress, reset retries
       GLEBIA.attackRetries = 0;
     }
