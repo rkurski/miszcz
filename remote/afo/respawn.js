@@ -11,6 +11,9 @@
 
 const AFO_RESP = {
 
+  // Item data from items.json (loaded on init, fallback to inline if not loaded)
+  itemData: null,
+
   // ============================================
   // MAIN RESPAWN LOOP
   // ============================================
@@ -38,10 +41,13 @@ const AFO_RESP = {
     } else if (RESP.checkSSJ && GAME.quick_opts.ssj && $("#ssj_bar").css("display") === "none") {
       GAME.socket.emit('ga', { a: 18, type: 5, tech_id: GAME.quick_opts.ssj[0] });
       return true;
-    } else if (RESP.checkSSJ && $('#ssj_status').text() <= '00:00:03' && GAME.quick_opts.ssj) {
-      return true;
     } else if ($('#ssj_status').text() == "--:--:--" && GAME.quick_opts.ssj) {
-      GAME.socket.emit('ga', { a: 18, type: 6 });
+      // FIX: Check '--:--:--' BEFORE time comparison (like PVP) and use setTimeout
+      setTimeout(() => {
+        GAME.socket.emit('ga', { a: 18, type: 6 });
+      }, 1500);
+      return true;
+    } else if (RESP.checkSSJ && $('#ssj_status').text() <= '00:00:03' && GAME.quick_opts.ssj) {
       return true;
     } else if ($("#train_uptime").find('.timer').length == 0 && !GAME.is_training && RESP.code) {
       GAME.socket.emit('ga', { a: 8, type: 2, stat: 1, duration: 1 });
@@ -116,6 +122,12 @@ const AFO_RESP = {
   },
 
   fight() {
+    // OPTIMIZATION: Wait if game is loading (controlled by flag)
+    if (RESP.useLoadingCheck && (GAME.is_loading || $("#loader").is(":visible"))) {
+      window.setTimeout(() => this.fight(), 30);
+      return;
+    }
+
     if (RESP.reload) {
       setTimeout(() => { GAME.maploaded = false; GAME.prepareMap(); }, 300);
       RESP.reload = false;
@@ -124,6 +136,17 @@ const AFO_RESP = {
     let fm = GAME.field_mobs;
     let fmf = GAME.field_mf;
     let fmi = GAME.field_mob_id;
+
+    // OPTIMIZATION: Debouncing - skip if emitting too fast
+    if (RESP.useDebouncing) {
+      const now = Date.now();
+      if (now - RESP.lastEmitTime < RESP.minEmitInterval) {
+        // Too soon, wait a bit and retry
+        window.setTimeout(() => this.fight(), RESP.minEmitInterval - (now - RESP.lastEmitTime));
+        return;
+      }
+      RESP.lastEmitTime = now;
+    }
 
     if ((this.MF() > 0 && fmf[fmi - 1] < 0) && fm[fmi - 1].ranks[0] ||
       (this.MF() > 0 && fmf[fmi - 1] < 1 && fm[fmi - 1].ranks[1]) ||
@@ -138,7 +161,24 @@ const AFO_RESP = {
     } else {
       GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: GAME.spawner[1] });
     }
-    this.action();
+
+    // OPTIMIZATION: Wait for response before continuing (controlled by flag)
+    if (RESP.useLoadingCheck) {
+      this.waitForResponse(() => this.action());
+    } else {
+      this.action();  // Original behavior
+    }
+  },
+
+  /**
+   * Wait for game to finish processing before executing callback
+   */
+  waitForResponse(callback) {
+    if (GAME.is_loading) {
+      setTimeout(() => this.waitForResponse(callback), 20);
+    } else {
+      callback();
+    }
   },
 
   reload_map() {
@@ -171,8 +211,30 @@ const AFO_RESP = {
   },
 
   go() {
+    // OPTIMIZATION: Wait if game is loading (controlled by flag)
+    if (RESP.useLoadingCheck && (GAME.is_loading || $("#loader").is(":visible"))) {
+      window.setTimeout(() => this.go(), 30);
+      return;
+    }
+
+    // OPTIMIZATION: Debouncing - skip if emitting too fast
+    if (RESP.useDebouncing) {
+      const now = Date.now();
+      if (now - RESP.lastEmitTime < RESP.minEmitInterval) {
+        window.setTimeout(() => this.go(), RESP.minEmitInterval - (now - RESP.lastEmitTime));
+        return;
+      }
+      RESP.lastEmitTime = now;
+    }
+
     GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: GAME.spawner[1] });
-    this.action();
+
+    // OPTIMIZATION: Wait for response before continuing (controlled by flag)
+    if (RESP.useLoadingCheck) {
+      this.waitForResponse(() => this.action());
+    } else {
+      this.action();  // Original behavior
+    }
   },
 
   // ============================================
@@ -180,7 +242,8 @@ const AFO_RESP = {
   // ============================================
 
   check_bless() {
-    const blessItems = {
+    // Use items.json data if loaded, otherwise fallback to inline
+    const blessItems = this.itemData?.blessItems || {
       1: { base: 1801, buff: 100 },
       2: { base: 1628, buff: 53 },
       3: { base: 1630, buff: 55 },
@@ -230,15 +293,18 @@ const AFO_RESP = {
   // ============================================
 
   getSenzu(type) {
-    const senzuIds = {
-      [RESP.SENZU_BLUE]: 1244,
-      [RESP.SENZU_PURPLE]: 1259,
-      [RESP.SENZU_MAGIC]: 1309,
-      [RESP.SENZU_GREEN]: 1242,
-      [RESP.SENZU_YELLOW]: 1260,
-      [RESP.SENZU_RED]: 1243
+    // Use items.json data if loaded, otherwise fallback to inline
+    const senzuIdData = this.itemData?.senzuIds || {
+      SENZU_BLUE: 1244,
+      SENZU_PURPLE: 1259,
+      SENZU_MAGIC: 1309,
+      SENZU_GREEN: 1242,
+      SENZU_YELLOW: 1260,
+      SENZU_RED: 1243
     };
-    return GAME.quick_opts.senzus.find(s => s.item_id === senzuIds[type]);
+    // Map type constant to key (e.g., RESP.SENZU_BLUE = 'SENZU_BLUE')
+    const senzuId = senzuIdData[type];
+    return GAME.quick_opts.senzus.find(s => s.item_id === senzuId);
   },
 
   useSenzu() {

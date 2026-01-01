@@ -104,7 +104,13 @@ var RESP = {
 
   buff_imp: false,
   buff_clan: false,
-  loc: 0 // Will be set to GAME.char_data.loc on init
+  loc: 0, // Will be set to GAME.char_data.loc on init
+
+  // Optimization flags (set to false to disable and revert to original behavior)
+  useLoadingCheck: true,      // Wait for GAME.is_loading before emitting
+  useDebouncing: true,        // Throttle emits with minimum interval
+  minEmitInterval: 30,        // Minimum ms between emits (when debouncing enabled)
+  lastEmitTime: 0             // Last emit timestamp (internal use)
 };
 
 // ============================================

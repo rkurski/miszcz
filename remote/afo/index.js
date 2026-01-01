@@ -40,6 +40,9 @@ const AFO = {
       initAFOState();
     }
 
+    // Load item data from items.json (async, fallback to inline data if fails)
+    this.loadItemData();
+
     // Inject templates
     if (typeof AFO_Templates !== 'undefined') {
       AFO_Templates.injectAll();
@@ -56,6 +59,31 @@ const AFO = {
 
     this.loaded = true;
     console.log('[AFO] Initialization complete');
+  },
+
+  /**
+   * Load item data from items.json for RESP module
+   */
+  loadItemData() {
+    const getAFOUrl = (path) => {
+      const configEl = document.getElementById('__gieniobot_config__');
+      const devMode = typeof GIENIOBOT_DEV_MODE !== 'undefined' && GIENIOBOT_DEV_MODE;
+      const localUrl = configEl ? configEl.dataset.extensionUrl : '';
+      const githubUrl = 'https://raw.githubusercontent.com/rkurski/miszcz/develop/';
+      return (devMode && localUrl) ? localUrl + path : githubUrl + path;
+    };
+
+    fetch(getAFOUrl('remote/data/items.json'))
+      .then(response => response.json())
+      .then(data => {
+        if (typeof AFO_RESP !== 'undefined') {
+          AFO_RESP.itemData = data;
+          console.log('[AFO] Loaded items.json data');
+        }
+      })
+      .catch(err => {
+        console.warn('[AFO] Failed to load items.json, using fallback inline data:', err);
+      });
   },
 
   // ============================================
