@@ -467,8 +467,9 @@ const AFO_GLEBIA = {
           }
         }
       }
+      // Reset retries - we're making progress
       GLEBIA.attackRetries = 0;
-      // Don't reset tileRetries here - we want cumulative count
+      GLEBIA.tileRetries = 0;
     }
 
     GLEBIA.lastEnemyCount = enemyCount;
