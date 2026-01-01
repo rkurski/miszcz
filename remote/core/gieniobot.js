@@ -56,10 +56,10 @@ function getGieniobotUrl(path) {
 var checked = false;
 var latency = -1;
 
-console.log('[script1-2] Loading, DEV_MODE:', GIENIOBOT_DEV_MODE, 'LOCAL_URL:', GIENIOBOT_LOCAL_URL ? 'yes' : 'no');
+console.log('[Gieniobot] Loading, DEV_MODE:', GIENIOBOT_DEV_MODE, 'LOCAL_URL:', GIENIOBOT_LOCAL_URL ? 'yes' : 'no');
 
 if (typeof GAME === 'undefined') {
-  console.log('[script1-2] GAME is undefined, skipping initialization!');
+  console.log('[Gieniobot] GAME is undefined, skipping initialization!');
 } else {
   // ============================================
   // STATE VARIABLES (global for module access)
@@ -743,43 +743,43 @@ if (typeof GAME === 'undefined') {
     // ============================================
     if (typeof AutomationMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, AutomationMixin);
-      console.log('[script1-2] AutomationMixin applied');
+      console.log('[Gieniobot] AutomationMixin applied');
     }
     if (typeof UIMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, UIMixin);
-      console.log('[script1-2] UIMixin applied');
+      console.log('[Gieniobot] UIMixin applied');
     }
     if (typeof ClanMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, ClanMixin);
-      console.log('[script1-2] ClanMixin applied');
+      console.log('[Gieniobot] ClanMixin applied');
     }
     if (typeof MapMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, MapMixin);
-      console.log('[script1-2] MapMixin applied');
+      console.log('[Gieniobot] MapMixin applied');
     }
     if (typeof PilotMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, PilotMixin);
-      console.log('[script1-2] PilotMixin applied');
+      console.log('[Gieniobot] PilotMixin applied');
     }
     if (typeof SettingsMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, SettingsMixin);
-      console.log('[script1-2] SettingsMixin applied');
+      console.log('[Gieniobot] SettingsMixin applied');
     }
     if (typeof CombatMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, CombatMixin);
-      console.log('[script1-2] CombatMixin applied');
+      console.log('[Gieniobot] CombatMixin applied');
     }
     if (typeof ClickHandlersMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, ClickHandlersMixin);
-      console.log('[script1-2] ClickHandlersMixin applied');
+      console.log('[Gieniobot] ClickHandlersMixin applied');
     }
     if (typeof EmpireMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, EmpireMixin);
-      console.log('[script1-2] EmpireMixin applied');
+      console.log('[Gieniobot] EmpireMixin applied');
     }
     if (typeof TournamentsMixin !== 'undefined') {
       Object.assign(Gieniobot.prototype, TournamentsMixin);
-      console.log('[script1-2] TournamentsMixin applied');
+      console.log('[Gieniobot] TournamentsMixin applied');
     }
 
     GAME.socket.on('pong', function (ms) {
@@ -791,7 +791,7 @@ if (typeof GAME === 'undefined') {
       if (typeof kwsLocalCharacters !== 'undefined' && kwsLocalCharacters !== null) {
         clearInterval(charWait);
         const kws = new Gieniobot(kwsLocalCharacters);
-        console.log('[script1-2] kws initialized with charactersManager');
+        console.log('[Gieniobot] kws initialized with charactersManager');
         window.kws = kws; // Make globally available
 
         // Apply GAME.* overrides (now that kws is available)
@@ -817,7 +817,7 @@ if (typeof GAME === 'undefined') {
         clearInterval(ballWait);
         kulka = new ballManager();
         ekwipunekObj = new ekwipunekMenager();
-        console.log('[script1-2] ballManager and ekwipunek initialized');
+        console.log('[Gieniobot] ballManager and ekwipunek initialized');
       }
     }, 100);
   }

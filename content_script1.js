@@ -39,7 +39,7 @@
     'remote/core/handlers/tournaments.js',
 
     // Main bot logic
-    'remote/core/script1-2.js',
+    'remote/core/gieniobot.js',
 
     // Ball modules
     'remote/features/ball/ballExp.js',
@@ -51,7 +51,7 @@
     'remote/features/equipment/ekwipunek.js',
   ];
 
-  // CSS files to load (empty - script1-2.js handles CSS internally)
+  // CSS files to load (empty - gieniobot.js handles CSS internally)
   const STYLES = [];
 
   /**
