@@ -190,9 +190,12 @@ const AFO_PVP = {
       return;
     }
 
-    // Load more players if available
+    // Load more players if available - wait after clicking for them to load
     if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
       $("#player_list_con").find("[data-option=load_more_players]").click();
+      // Wait for players to load before continuing
+      window.setTimeout(() => this.attackLoop(), 300);
+      return;
     }
 
     // Count attackable enemies
