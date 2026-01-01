@@ -48,6 +48,7 @@ var PVP = {
   speed: 50,
   // Attack tracking (for lag detection)
   attackRetries: 0,
+  tileRetries: 0,
   lastEnemyCount: -1,
   startX: 0,
   startY: 0,

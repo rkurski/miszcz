@@ -33,6 +33,7 @@ const GLEBIA = {
   // Attack tracking
   attackChecks: 0,
   attackRetries: 0,
+  tileRetries: 0,
   lastEnemyCount: -1,
   isAttacking: false,
 
@@ -302,6 +303,7 @@ const AFO_GLEBIA = {
 
   /**
    * Wait for game loading to complete before executing callback
+   * Speed affects how long to wait after loading (walking speed)
    */
   waitForLoad(callback) {
     if (GLEBIA.stop) return;
@@ -309,8 +311,10 @@ const AFO_GLEBIA = {
     if (GAME.is_loading || $("#loader").is(":visible")) {
       setTimeout(() => this.waitForLoad(callback), 50);
     } else {
-      // Give a bit more time for player list to populate
-      setTimeout(callback, 100);
+      // Speed affects walking delay: higher speed = shorter delay = faster walking
+      // Base: 200ms at speed 10, ~20ms at speed 100
+      const walkDelay = Math.max(20, 200 / this.getSpeedMultiplier());
+      setTimeout(callback, walkDelay);
     }
   },
 
@@ -414,15 +418,16 @@ const AFO_GLEBIA = {
       return;
     }
 
-    // Count attackable enemies
+    // Count attackable enemies (only those with visible attack button)
     let enemies = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
     const enemyCount = enemies.length;
 
     // No enemies - exit attack mode and continue main loop
     if (enemyCount === 0) {
       GLEBIA.attackRetries = 0;
-      GLEBIA.isAttacking = false;  // Clear flag - allow main loop to continue
-      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;  // Move to next step
+      GLEBIA.tileRetries = 0;
+      GLEBIA.isAttacking = false;
+      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
@@ -430,17 +435,28 @@ const AFO_GLEBIA = {
     // Check if we're making progress (enemy count decreased)
     if (GLEBIA.lastEnemyCount === enemyCount) {
       GLEBIA.attackRetries++;
+      GLEBIA.tileRetries++;
 
-      // Too many retries with no progress - probably lag, wait longer and try again
+      // Too many retries on this tile - likely all remaining enemies have cooldown
+      // Give up and move on to prevent infinite loop
+      if (GLEBIA.tileRetries > 15) {
+        console.log('[GLEBIA] Max tile retries reached, moving on');
+        GLEBIA.attackRetries = 0;
+        GLEBIA.tileRetries = 0;
+        GLEBIA.isAttacking = false;
+        GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;
+        setTimeout(() => this.start(), GLEBIA.wait);
+        return;
+      }
+
+      // Short-term retry - wait a bit for server response
       if (GLEBIA.attackRetries > 5) {
         GLEBIA.attackRetries = 0;
-        // Wait longer for server to catch up, then try again
         setTimeout(() => this.attackLoop(startX, startY), 500);
         return;
       }
     } else {
       // Enemy count changed = successful kill(s)!
-      // Update PVP counter for each kill
       if (GLEBIA.lastEnemyCount > 0 && GLEBIA.lastEnemyCount > enemyCount) {
         const killsThisRound = GLEBIA.lastEnemyCount - enemyCount;
         for (let i = 0; i < killsThisRound; i++) {
@@ -449,8 +465,8 @@ const AFO_GLEBIA = {
           }
         }
       }
-      // Making progress, reset retries
       GLEBIA.attackRetries = 0;
+      // Don't reset tileRetries here - we want cumulative count
     }
 
     GLEBIA.lastEnemyCount = enemyCount;
@@ -458,9 +474,8 @@ const AFO_GLEBIA = {
     // Attack first enemy
     enemies.eq(0).click();
 
-    // Continue attack loop with delay
-    const delay = Math.max(110, GLEBIA.attackDelay / this.getSpeedMultiplier());
-    setTimeout(() => this.attackLoop(startX, startY), delay);
+    // Continue attack loop - FIXED 110ms delay (ASAP, speed doesn't affect attacks)
+    setTimeout(() => this.attackLoop(startX, startY), 110);
   },
 
   // ============================================

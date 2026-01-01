@@ -205,7 +205,8 @@ const AFO_PVP = {
     // No enemies - exit attack mode and continue main loop
     if (enemyCount === 0) {
       PVP.attackRetries = 0;
-      PVP.caseNumber++;  // Move to next step
+      PVP.tileRetries = 0;
+      PVP.caseNumber++;
       kom_clear();
       window.setTimeout(() => this.start(), PVP.wait);
       return;
@@ -214,16 +215,25 @@ const AFO_PVP = {
     // Check if we're making progress (enemy count decreased)
     if (PVP.lastEnemyCount === enemyCount) {
       PVP.attackRetries++;
+      PVP.tileRetries++;
 
-      // Too many retries with no progress - probably lag, wait longer and try again
+      // Too many retries on this tile - likely all remaining enemies have cooldown
+      if (PVP.tileRetries > 15) {
+        console.log('[PVP] Max tile retries reached, moving on');
+        PVP.attackRetries = 0;
+        PVP.tileRetries = 0;
+        PVP.caseNumber++;
+        window.setTimeout(() => this.start(), PVP.wait);
+        return;
+      }
+
+      // Short-term retry - wait for server response
       if (PVP.attackRetries > 5) {
         PVP.attackRetries = 0;
-        // Wait longer for server to catch up, then try again
         window.setTimeout(() => this.attackLoop(), 500);
         return;
       }
     } else {
-      // Making progress, reset retries
       PVP.attackRetries = 0;
     }
 
@@ -232,9 +242,8 @@ const AFO_PVP = {
     // Attack first enemy
     enemies.eq(0).click();
 
-    // Continue attack loop with delay
-    const delay = Math.max(110, PVP.pvpDelay / this.getSpeedMultiplier());
-    window.setTimeout(() => this.attackLoop(), delay);
+    // Continue attack loop - FIXED 110ms delay (ASAP)
+    window.setTimeout(() => this.attackLoop(), 110);
   },
 
   // Legacy alias for compatibility
@@ -419,6 +428,7 @@ const AFO_PVP = {
 
   /**
    * Wait for game loading to complete before executing callback
+   * Speed affects how long to wait after loading (walking speed)
    */
   waitForLoad(callback) {
     if (PVP.stop) return;
@@ -426,8 +436,9 @@ const AFO_PVP = {
     if (GAME.is_loading || $("#loader").is(":visible")) {
       window.setTimeout(() => this.waitForLoad(callback), 50);
     } else {
-      // Give a bit more time for player list to populate
-      window.setTimeout(callback, 100);
+      // Speed affects walking delay: higher speed = shorter delay = faster walking
+      const walkDelay = Math.max(20, 200 / this.getSpeedMultiplier());
+      window.setTimeout(callback, walkDelay);
     }
   },
 
