@@ -291,8 +291,27 @@ const AFO_GLEBIA = {
   move(direction) {
     const valid = [2, 1, 8, 7, 5, 4, 3];
     if (!valid.includes(direction)) return;
+
     GAME.emitOrder({ a: 4, dir: direction, vo: GAME.map_options.vo });
-    setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
+
+    // Wait for map to load before continuing (prevents skipping tiles)
+    this.waitForLoad(() => {
+      setTimeout(() => this.start(), GLEBIA.wait);
+    });
+  },
+
+  /**
+   * Wait for game loading to complete before executing callback
+   */
+  waitForLoad(callback) {
+    if (GLEBIA.stop) return;
+
+    if (GAME.is_loading || $("#loader").is(":visible")) {
+      setTimeout(() => this.waitForLoad(callback), 50);
+    } else {
+      // Give a bit more time for player list to populate
+      setTimeout(callback, 100);
+    }
   },
 
   przejdz() {

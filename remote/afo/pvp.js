@@ -389,32 +389,46 @@ const AFO_PVP = {
 
   prawodol() {
     GAME.emitOrder({ a: 4, dir: 3, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
   },
 
   prawogora() {
     GAME.emitOrder({ a: 4, dir: 5, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
   },
 
   go_up() {
     GAME.emitOrder({ a: 4, dir: 2, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
   },
 
   go_down() {
     GAME.emitOrder({ a: 4, dir: 1, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
   },
 
   go_left() {
     GAME.emitOrder({ a: 4, dir: 8, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
   },
 
   go_right() {
     GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
-    window.setTimeout(() => this.start(), PVP.wait2 / this.getSpeedMultiplier());
+    this.waitForLoad(() => this.start());
+  },
+
+  /**
+   * Wait for game loading to complete before executing callback
+   */
+  waitForLoad(callback) {
+    if (PVP.stop) return;
+
+    if (GAME.is_loading || $("#loader").is(":visible")) {
+      window.setTimeout(() => this.waitForLoad(callback), 50);
+    } else {
+      // Give a bit more time for player list to populate
+      window.setTimeout(callback, 100);
+    }
   },
 
   // ============================================
