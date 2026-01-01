@@ -94,7 +94,7 @@ const AFO_PVP = {
       case 1: PVP.caseNumber++; this.check_position_y(); break;
       case 2: PVP.caseNumber++; this.check(); break;
       case 3: PVP.caseNumber++; this.check_players(); break;
-      case 4: PVP.caseNumber++; this.kill_players(); break;
+      case 4: this.kill_players(); break; // Don't increment - attackLoop handles progression
       case 5: PVP.caseNumber++; this.check_players2(); break;
       case 6: PVP.caseNumber++; this.declareEmpireWars(); break;
       case 7: PVP.caseNumber++; this.check_location(); break;
@@ -185,6 +185,7 @@ const AFO_PVP = {
     // Position changed - exit attack mode and continue main loop
     if (currentX !== PVP.startX || currentY !== PVP.startY) {
       PVP.attackRetries = 0;
+      PVP.caseNumber++;  // Move to next step
       window.setTimeout(() => this.start(), PVP.wait);
       return;
     }
@@ -201,6 +202,7 @@ const AFO_PVP = {
     // No enemies - exit attack mode and continue main loop
     if (enemyCount === 0) {
       PVP.attackRetries = 0;
+      PVP.caseNumber++;  // Move to next step
       kom_clear();
       window.setTimeout(() => this.start(), PVP.wait);
       return;

@@ -50,7 +50,8 @@ var PVP = {
   attackRetries: 0,
   lastEnemyCount: -1,
   startX: 0,
-  startY: 0
+  startY: 0,
+  isAttacking: false
 };
 
 // ============================================

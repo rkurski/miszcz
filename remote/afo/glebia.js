@@ -34,6 +34,7 @@ const GLEBIA = {
   attackChecks: 0,
   attackRetries: 0,
   lastEnemyCount: -1,
+  isAttacking: false,
 
   // Options
   code: false,
@@ -175,7 +176,11 @@ const AFO_GLEBIA = {
     ];
 
     functions[GLEBIA.caseNumber]();
-    GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % functions.length;
+
+    // Don't increment caseNumber if we're in attack mode - attackLoop will handle continuation
+    if (!GLEBIA.isAttacking) {
+      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % functions.length;
+    }
   },
 
   // ============================================
@@ -346,6 +351,9 @@ const AFO_GLEBIA = {
    * This prevents moving to next tile before finishing kills.
    */
   kill_players() {
+    // Mark that we're attacking - blocks main loop progression
+    GLEBIA.isAttacking = true;
+
     // Save current position to detect tile change
     const startX = GAME.char_data.x;
     const startY = GAME.char_data.y;
@@ -373,6 +381,8 @@ const AFO_GLEBIA = {
     // Position changed - exit attack mode and continue main loop
     if (currentX !== startX || currentY !== startY) {
       GLEBIA.attackRetries = 0;
+      GLEBIA.isAttacking = false;  // Clear flag - allow main loop to continue
+      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;  // Move to next step
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
@@ -389,6 +399,8 @@ const AFO_GLEBIA = {
     // No enemies - exit attack mode and continue main loop
     if (enemyCount === 0) {
       GLEBIA.attackRetries = 0;
+      GLEBIA.isAttacking = false;  // Clear flag - allow main loop to continue
+      GLEBIA.caseNumber = (GLEBIA.caseNumber + 1) % 7;  // Move to next step
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
