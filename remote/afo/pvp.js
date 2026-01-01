@@ -170,8 +170,14 @@ const AFO_PVP = {
   },
 
   attackLoop() {
-    // Check if stopped or position changed
+    // Check if stopped
     if (PVP.stop) return;
+
+    // CRITICAL: If game is loading/processing, wait and retry - don't send new actions
+    if (GAME.is_loading || $("#loader").is(":visible")) {
+      window.setTimeout(() => this.attackLoop(), 100);
+      return;
+    }
 
     const currentX = GAME.char_data.x;
     const currentY = GAME.char_data.y;
