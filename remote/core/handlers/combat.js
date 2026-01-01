@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * Combat and quest actions: VIP rewards, bless, quest proceed, PVP, compressor
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * ============================================================================
  */

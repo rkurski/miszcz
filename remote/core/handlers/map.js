@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * Map-related features: quest parsing, location info
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * TODO: SK Finder needs to be rewritten from scratch
  * 

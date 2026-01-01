@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * UI management: top bar, activities, quest markers
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * ============================================================================
  */

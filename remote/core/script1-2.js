@@ -9,7 +9,7 @@
  * STRUCTURE:
  * ----------
  * Lines 1-70:     Configuration & Socket Detection
- * Lines 67-2342:  Main kwsv3 class with all bot methods
+ * Lines 67-2342:  Main Gieniobot class with all bot methods
  *   - constructor:          Initialization, CSS, bindings
  *   - Settings:             getSettings, updateSettings
  *   - Automation:           manageAutoExpeditions, manageAutoAbyss, manageAutoArena
@@ -66,25 +66,25 @@ if (typeof GAME === 'undefined') {
   // ============================================
   var arena_count = 0;
   var pvp_count = 0;
-  var adimp = false;
-  var roll1 = false;
-  var roll2 = false;
-  var roll3 = false;
+  var empireDataLoaded = false;           // adimp
+  var questRollActive1 = false;           // roll1
+  var questRollActive2 = false;           // roll2
+  var questRollActive3 = false;           // roll3
   var version = '3.7.3';
 
   // ============================================
   // SOCKET DETECTION
   // Find GAME.socket by scanning page scripts
   // ============================================
-  let Pog = setInterval(() => {
+  let waitForGamePid = setInterval(() => {
     if (!GAME.pid) { } else {
-      clearInterval(Pog);
+      clearInterval(waitForGamePid);
       checked = true;
     }
   }, 50);
 
-  let Pgg = setInterval(() => {
-    clearInterval(Pgg);
+  let socketDetector = setInterval(() => {
+    clearInterval(socketDetector);
     // Find socket.io instance
     Array.from(document.getElementsByTagName('script')).forEach(script => {
       const scriptContent = script.innerHTML;
@@ -109,9 +109,9 @@ if (typeof GAME === 'undefined') {
     // ============================================
     // MAIN BOT CLASS
     // ============================================
-    class kwsv3 {
+    class Gieniobot {
       constructor(charactersManager) {
-        console.log('[kwsv3] Constructor starting...');
+        console.log('[Gieniobot] Constructor starting...');
         this.charactersManager = charactersManager;
         this.isLogged((data) => {
           Object.defineProperty(GAME, 'pid', {
@@ -222,7 +222,7 @@ if (typeof GAME === 'undefined') {
         fetch(getGieniobotUrl('remote/data/riddles.json')).then(res => res.json()).then((out) => {
           cb(out)
         }).catch(err => {
-          console.warn('[kwsv3] Failed to load riddles:', err);
+          console.warn('[Gieniobot] Failed to load riddles:', err);
         });
       }
       solveRiddle(r_id) {
@@ -742,43 +742,43 @@ if (typeof GAME === 'undefined') {
     // APPLY MIXINS
     // ============================================
     if (typeof AutomationMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, AutomationMixin);
+      Object.assign(Gieniobot.prototype, AutomationMixin);
       console.log('[script1-2] AutomationMixin applied');
     }
     if (typeof UIMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, UIMixin);
+      Object.assign(Gieniobot.prototype, UIMixin);
       console.log('[script1-2] UIMixin applied');
     }
     if (typeof ClanMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, ClanMixin);
+      Object.assign(Gieniobot.prototype, ClanMixin);
       console.log('[script1-2] ClanMixin applied');
     }
     if (typeof MapMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, MapMixin);
+      Object.assign(Gieniobot.prototype, MapMixin);
       console.log('[script1-2] MapMixin applied');
     }
     if (typeof PilotMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, PilotMixin);
+      Object.assign(Gieniobot.prototype, PilotMixin);
       console.log('[script1-2] PilotMixin applied');
     }
     if (typeof SettingsMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, SettingsMixin);
+      Object.assign(Gieniobot.prototype, SettingsMixin);
       console.log('[script1-2] SettingsMixin applied');
     }
     if (typeof CombatMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, CombatMixin);
+      Object.assign(Gieniobot.prototype, CombatMixin);
       console.log('[script1-2] CombatMixin applied');
     }
     if (typeof ClickHandlersMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, ClickHandlersMixin);
+      Object.assign(Gieniobot.prototype, ClickHandlersMixin);
       console.log('[script1-2] ClickHandlersMixin applied');
     }
     if (typeof EmpireMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, EmpireMixin);
+      Object.assign(Gieniobot.prototype, EmpireMixin);
       console.log('[script1-2] EmpireMixin applied');
     }
     if (typeof TournamentsMixin !== 'undefined') {
-      Object.assign(kwsv3.prototype, TournamentsMixin);
+      Object.assign(Gieniobot.prototype, TournamentsMixin);
       console.log('[script1-2] TournamentsMixin applied');
     }
 
@@ -790,7 +790,7 @@ if (typeof GAME === 'undefined') {
     let charWait = setInterval(() => {
       if (typeof kwsLocalCharacters !== 'undefined' && kwsLocalCharacters !== null) {
         clearInterval(charWait);
-        const kws = new kwsv3(kwsLocalCharacters);
+        const kws = new Gieniobot(kwsLocalCharacters);
         console.log('[script1-2] kws initialized with charactersManager');
         window.kws = kws; // Make globally available
 

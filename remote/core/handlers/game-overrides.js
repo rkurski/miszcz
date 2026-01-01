@@ -316,24 +316,24 @@ function setupGameOverrides() {
       kws.solveRiddle(res.q_step.want.riddle);
     }
     setTimeout(() => {
-      if (quest.difficulty != 6 && quest.difficulty != 5 && roll2 && JQS.qcc.is(":visible")) {
+      if (quest.difficulty != 6 && quest.difficulty != 5 && questRollActive2 && JQS.qcc.is(":visible")) {
         GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
       } else {
-        roll2 = false;
+        questRollActive2 = false;
       }
     }, 300);
     setTimeout(() => {
-      if (quest.difficulty != 6 && roll3 && JQS.qcc.is(":visible")) {
+      if (quest.difficulty != 6 && questRollActive3 && JQS.qcc.is(":visible")) {
         GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
       } else {
-        roll3 = false;
+        questRollActive3 = false;
       }
     }, 300);
     setTimeout(() => {
-      if (quest.difficulty != 1 && roll1 && JQS.qcc.is(":visible")) {
+      if (quest.difficulty != 1 && questRollActive1 && JQS.qcc.is(":visible")) {
         GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
       } else {
-        roll1 = false;
+        questRollActive1 = false;
       }
     }, 300);
   };

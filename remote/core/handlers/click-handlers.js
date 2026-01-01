@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * All jQuery click event bindings and keyboard shortcuts.
- * This mixin is applied to the kwsv3 class.
+ * This mixin is applied to the Gieniobot class.
  * 
  * Handlers include:
  * - Clan handlers (assist, buffs)
@@ -445,18 +445,18 @@ const ClickHandlersMixin = {
     // --- QUEST ROLL HANDLERS ---
     $("body").on("click", `.quest_roll1.option`, () => {
       var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (roll1) { roll1 = false; }
-      else { roll1 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
+      if (questRollActive1) { questRollActive1 = false; }
+      else { questRollActive1 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
     });
     $("body").on("click", `.quest_roll2.option`, () => {
       var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (roll2) { roll2 = false; }
-      else { roll2 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
+      if (questRollActive2) { questRollActive2 = false; }
+      else { questRollActive2 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
     });
     $("body").on("click", `.quest_roll3.option`, () => {
       var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (roll3) { roll3 = false; }
-      else { roll3 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
+      if (questRollActive3) { questRollActive3 = false; }
+      else { questRollActive3 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
     });
   }
 };

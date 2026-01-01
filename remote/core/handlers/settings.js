@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * User settings: minimap, map size, pilot visibility, website background
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * ============================================================================
  */

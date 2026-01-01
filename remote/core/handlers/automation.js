@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * Automatic game actions: expeditions, arena, abyss
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * ============================================================================
  */

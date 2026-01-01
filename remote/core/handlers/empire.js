@@ -4,7 +4,7 @@
  * ============================================================================
  * 
  * Empire wars and related functionality.
- * These methods are mixed into the kwsv3 class.
+ * These methods are mixed into the Gieniobot class.
  * 
  * ============================================================================
  */
@@ -18,7 +18,7 @@ const EmpireMixin = {
   wojny2() {
     var aimp = $("#e_admiral_player").find("[data-option=show_player]").attr("data-char_id");
     var imp = $("#leader_player").find("[data-option=show_player]").attr("data-char_id");
-    if (!adimp) {
+    if (!empireDataLoaded) {
       setTimeout(() => {
         GAME.socket.emit('ga', {
           a: 50,
@@ -26,7 +26,7 @@ const EmpireMixin = {
           empire: GAME.char_data.empire
         });
       }, 100);
-      adimp = true;
+      empireDataLoaded = true;
       setTimeout(() => {
         this.wojny2();
       }, 300);
