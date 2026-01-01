@@ -331,150 +331,65 @@ const AFO_GLEBIA = {
   },
 
   check_players2() {
-    const playerList = document.getElementById("player_list_con");
-    if (!playerList || playerList.childElementCount === 0) {
-      return setTimeout(() => this.start(), GLEBIA.waitPvp);
+    // Load more if available
+    if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
+      $("#player_list_con").find("[data-option=load_more_players]").click();
     }
 
-    if (typeof LOWLVL !== 'undefined' && LOWLVL.stop === true) {
-      if (playerList.children[0] && playerList.children[0].children[1] &&
-        playerList.children[0].children[1].children[0]) {
-        const tabb = playerList.children[0].children[1].children[0].textContent.split(":");
-        if (parseInt(tabb[2]) <= 30 && parseInt(tabb[1]) <= 0) {
-          return setTimeout(() => this.check_players2(), 150);
-        }
-      }
-    }
-    setTimeout(() => this.start(), GLEBIA.waitPvp);
+    // Count visible enemies for timing
+    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+
+    // Attack all visible enemies
+    this.kill_all_visible();
+
+    // Continue main loop with delay based on enemy count
+    setTimeout(() => this.start(), (GLEBIA.waitPvp / this.getSpeedMultiplier()) * (enemy.length) * 2);
   },
 
   // ============================================
-  // ATTACK LOGIC
+  // ATTACK LOGIC (PVP-style simple pattern)
   // ============================================
 
-  isEnemyAttackable(player) {
-    const cdElem = player.querySelector('.timer');
-    if (!cdElem) {
-      return true; // No timer = player ready
-    }
-    const parts = cdElem.textContent.split(':');
-    if (parts.length === 3) {
-      const seconds = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
-      return seconds <= 5;
-    }
-    return true;
-  },
-
-  getAttackablePlayers(players) {
-    return players.filter(player => {
-      const attackButton = player.querySelector('button[data-quick="1"]');
-      const targetId = attackButton?.getAttribute('data-char_id');
-      return targetId && this.isEnemyAttackable(player);
-    });
-  },
-
-  attackNext(players, index, callback) {
-    if (index >= players.length) {
-      callback();
-      return;
-    }
-
-    const player = players[index];
-    const attackButton = player.querySelector('button[data-quick="1"]');
-    const targetId = attackButton?.getAttribute('data-char_id');
-
-    if (targetId && this.isEnemyAttackable(player)) {
-      GAME.emitOrder({ a: 24, char_id: targetId, quick: 1 });
-    }
-
-    setTimeout(() => this.attackNext(players, index + 1, callback), GLEBIA.attackDelay);
-  },
-
-  loadAllPlayers(callback) {
-    const playerList = document.getElementById('player_list_con');
-    if (!playerList || playerList.children.length === 0) {
-      return setTimeout(callback, 0);
-    }
-
-    const loadMore = playerList.querySelector('[data-option="load_more_players"]');
-    if (loadMore) {
-      loadMore.click();
-      setTimeout(() => this.loadAllPlayers(callback), 800);
-    } else {
-      setTimeout(callback, 0);
-    }
-  },
-
+  /**
+   * Simple kill logic - clicks one enemy per iteration
+   * Returns to main loop after each attack so position changes are detected
+   */
   kill_players() {
-    this.loadAllPlayers(() => {
-      const list = document.getElementById('player_list_con');
-      if (!list) {
-        return setTimeout(() => this.start(), GLEBIA.wait);
+    // Load more players if available
+    if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
+      $("#player_list_con").find("[data-option=load_more_players]").click();
+    }
+
+    // Find first attackable enemy
+    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+
+    if (enemy.length > 0) {
+      // Click first enemy and continue loop
+      enemy.eq(0).click();
+    }
+
+    // Return to main loop - this allows position changes to be detected
+    setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
+  },
+
+  /**
+   * Alternative attack mode - attacks all visible enemies before continuing
+   * Used in check_players2 for cleanup
+   */
+  kill_all_visible() {
+    if (!JQS || !JQS.chm || !JQS.chm.is(":focus")) {
+      let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+
+      if ($("#player_list_con").find("[data-option=load_more_players]").length == 1) {
+        $("#player_list_con").find("[data-option=load_more_players]").click();
+        setTimeout(() => this.kill_all_visible(), 50);
+      } else if (enemy.length > 0) {
+        enemy.eq(0).click();
+        setTimeout(() => this.kill_all_visible(), GLEBIA.attackDelay / this.getSpeedMultiplier());
+      } else {
+        kom_clear && typeof kom_clear === 'function' && kom_clear();
       }
-
-      setTimeout(() => {
-        // Remove players with timers > 5 seconds or without attack button
-        Array.from(list.children).forEach(player => {
-          const cdElem = player.querySelector('.timer');
-          const attackButton = player.querySelector('button[data-quick="1"]');
-          let remove = false;
-          if (cdElem) {
-            const parts = cdElem.textContent.split(':');
-            if (parts.length === 3) {
-              const seconds = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
-              if (seconds > 5) remove = true;
-            }
-          }
-          if (!attackButton) remove = true;
-          if (remove) player.remove();
-        });
-
-        const attackablePlayers = this.getAttackablePlayers(Array.from(list.children));
-
-        if (attackablePlayers.length === 0) {
-          GLEBIA.attackChecks++;
-          if (GLEBIA.attackChecks >= 3) {
-            GLEBIA.attackChecks = 0;
-            setTimeout(() => this.start(), GLEBIA.wait);
-          } else {
-            this.loadAllPlayers(() => {
-              setTimeout(() => this.kill_players(), GLEBIA.waitPvp);
-            });
-          }
-          return;
-        }
-
-        this.attackNext(attackablePlayers, 0, () => {
-          GLEBIA.attackChecks++;
-          this.loadAllPlayers(() => {
-            setTimeout(() => {
-              Array.from(list.children).forEach(player => {
-                const cdElem = player.querySelector('.timer');
-                const attackButton = player.querySelector('button[data-quick="1"]');
-                let remove = false;
-                if (cdElem) {
-                  const parts = cdElem.textContent.split(':');
-                  if (parts.length === 3) {
-                    const seconds = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
-                    if (seconds > 5) remove = true;
-                  }
-                }
-                if (!attackButton) remove = true;
-                if (remove) player.remove();
-              });
-
-              const stillAttackable = this.getAttackablePlayers(Array.from(list.children)).length > 0;
-              if (stillAttackable && GLEBIA.attackChecks < 3) {
-                setTimeout(() => this.kill_players(), GLEBIA.waitPvp);
-              } else {
-                GLEBIA.attackChecks = 0;
-                setTimeout(() => this.start(), GLEBIA.wait);
-              }
-            }, GLEBIA.waitPvp);
-          });
-        });
-      }, GLEBIA.wait);
-    });
+    }
   },
 
   // ============================================
