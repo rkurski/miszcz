@@ -248,6 +248,40 @@ const AFO_Templates = {
         border-bottom: solid gray 1px;
         color: white;
       }
+    `,
+
+    glebia: `
+      #glebia_Panel {
+        background: rgba(0,0,0,0.9);
+        position: fixed;
+        top: 450px;
+        left: 80%;
+        z-index: 9999;
+        width: 150px;
+        padding: 1px;
+        border-radius: 5px;
+        border-style: solid;
+        border-width: 7px 8px 7px 7px;
+        display: block;
+        user-select: none;
+        color: #333333;
+      }
+      #glebia_Panel .sekcja {
+        position: absolute;
+        top: -27px;
+        left: -7px;
+        background: rgba(0,0,0,0.9);
+        filter: hue-rotate(196deg);
+        background-size: 100% 100%;
+        width: 150px;
+        cursor: all-scroll;
+      }
+      #glebia_Panel .glebia_button {
+        cursor: pointer;
+        text-align: center;
+        border-bottom: solid gray 1px;
+        color: white;
+      }
     `
   },
 
@@ -265,6 +299,7 @@ const AFO_Templates = {
         <div class='gh_button gh_res'>Zbierajka<b class='gh_status red'>Off</b></div>
         <div class='gh_button gh_code'>Kody<b class='gh_status red'>Off</b></div>
         <div class='gh_button gh_low_lvls'>Ukryj niskie lvle<b class='gh_status red'>Off</b></div>
+        <div class='gh_button gh_glebia'>Głębia<b class='gh_status red'>Off</b></div>
       </div>
     `,
 
@@ -385,6 +420,14 @@ const AFO_Templates = {
         <div class="lpvm_button lpvm_limit">Limit<b class="lpvm_status red">Off</b></div>
         <div class='gamee_input'><input style='width:120px; margin-left:-2px; background:grey;text-align:center;font-size:16;' type='text' placeholder="Enter text" name='lpvm_capt' value='60' /></div>
       </div>
+    `,
+
+    glebia: `
+      <div id="glebia_Panel">
+        <div class="sekcja glebia_dragg">GŁĘBIA</div>
+        <div class='glebia_button glebia_toggle'>Start<b class='glebia_status red'>Off</b></div>
+        <div class='glebia_button glebia_code'>Kody<b class='glebia_status red'>Off</b></div>
+      </div>
     `
   },
 
@@ -407,6 +450,7 @@ const AFO_Templates = {
     $("body").append(this.html.code);
     $("body").append(this.html.res);
     $("body").append(this.html.lpvm);
+    $("body").append(this.html.glebia);
 
     // Hide sub-panels initially
     $("#pvp_Panel").hide();
@@ -414,6 +458,7 @@ const AFO_Templates = {
     $("#code_Panel").hide();
     $("#res_Panel").hide();
     $("#lpvm_Panel").hide();
+    $("#glebia_Panel").hide();
 
     // Make panels draggable
     $("#main_Panel").draggable({ handle: ".panel_dragg" });
@@ -422,6 +467,7 @@ const AFO_Templates = {
     $("#res_Panel").draggable({ handle: ".res_dragg" });
     $("#lpvm_Panel").draggable({ handle: ".lpvm_dragg" });
     $("#code_Panel").draggable({ handle: ".code_dragg" });
+    $("#glebia_Panel").draggable({ handle: ".glebia_dragg" });
 
     console.log('[AFO_Templates] All panels injected');
   }

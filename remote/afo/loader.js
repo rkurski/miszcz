@@ -41,6 +41,7 @@ if (typeof GAME === 'undefined') {
         'pvm.js',
         'resources.js',
         'codes.js',
+        'glebia.js',
         'index.js'
       ];
 

@@ -14,6 +14,7 @@
  * - afo/pvm.js        - LPVM (Listy gończe) logic
  * - afo/resources.js  - Resource mining logic
  * - afo/codes.js      - Codes/training logic
+ * - afo/glebia.js     - Głębia (depth dungeon) logic
  * 
  * ============================================================================
  */
@@ -133,6 +134,19 @@ const AFO = {
       }
     });
 
+    // GŁĘBIA main button - show/hide submenu
+    $('#main_Panel .gh_glebia').click(() => {
+      if ($(".gh_glebia .gh_status").hasClass("red")) {
+        $(".gh_glebia .gh_status").removeClass("red").addClass("green").html("On");
+        $("#glebia_Panel").show();
+      } else {
+        $(".gh_glebia .gh_status").removeClass("green").addClass("red").html("Off");
+        $("#glebia_Panel").hide();
+        $(".glebia_toggle .glebia_status").removeClass("green").addClass("red").html("Off");
+        if (typeof GLEBIA !== 'undefined') GLEBIA.stop = true;
+      }
+    });
+
     // Initialize submodules that need EasyStar
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
@@ -143,6 +157,7 @@ const AFO = {
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.bindHandlers();
     if (typeof AFO_RES !== 'undefined') AFO_RES.bindHandlers();
     if (typeof AFO_CODE !== 'undefined') AFO_CODE.bindHandlers();
+    if (typeof AFO_GLEBIA !== 'undefined') AFO_GLEBIA.bindHandlers();
 
     // List mines after delay
     setTimeout(() => {
@@ -261,12 +276,14 @@ const AFO = {
     LPVM.Stop = true;
     RES.stop = true;
     CODE.stop = true;
+    if (typeof GLEBIA !== 'undefined') GLEBIA.stop = true;
 
     $(".pvp_pvp .pvp_status").removeClass("green").addClass("red").html("Off");
     $(".resp_resp .resp_status").removeClass("green").addClass("red").html("Off");
     $(".lpvm_lpvm .lpvm_status").removeClass("green").addClass("red").html("Off");
     $(".res_res .res_status").removeClass("green").addClass("red").html("Off");
     $(".code_code .code_status").removeClass("green").addClass("red").html("Off");
+    $(".glebia_toggle .glebia_status").removeClass("green").addClass("red").html("Off");
 
     console.log('[AFO] All modules stopped');
   }
