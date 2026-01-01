@@ -32,6 +32,8 @@ const GLEBIA = {
 
   // Attack tracking
   attackChecks: 0,
+  attackRetries: 0,
+  lastEnemyCount: -1,
 
   // Options
   code: false,
@@ -331,65 +333,84 @@ const AFO_GLEBIA = {
   },
 
   check_players2() {
-    // Load more if available
-    if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
-      $("#player_list_con").find("[data-option=load_more_players]").click();
-    }
-
-    // Count visible enemies for timing
-    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
-
-    // Attack all visible enemies
-    this.kill_all_visible();
-
-    // Continue main loop with delay based on enemy count
-    setTimeout(() => this.start(), (GLEBIA.waitPvp / this.getSpeedMultiplier()) * (enemy.length) * 2);
+    // kill_players now handles full attack cycle, just continue to next step
+    setTimeout(() => this.start(), GLEBIA.wait);
   },
 
   // ============================================
-  // ATTACK LOGIC (PVP-style simple pattern)
+  // ATTACK LOGIC (Attack-Until-Clear pattern)
   // ============================================
 
   /**
-   * Simple kill logic - clicks one enemy per iteration
-   * Returns to main loop after each attack so position changes are detected
+   * Attack loop that stays active until all enemies are killed or position changes.
+   * This prevents moving to next tile before finishing kills.
    */
   kill_players() {
+    // Save current position to detect tile change
+    const startX = GAME.char_data.x;
+    const startY = GAME.char_data.y;
+
+    // Reset attack state
+    GLEBIA.attackRetries = 0;
+    GLEBIA.lastEnemyCount = -1;
+
+    this.attackLoop(startX, startY);
+  },
+
+  attackLoop(startX, startY) {
+    // Check if stopped or position changed
+    if (GLEBIA.stop) return;
+
+    const currentX = GAME.char_data.x;
+    const currentY = GAME.char_data.y;
+
+    // Position changed - exit attack mode and continue main loop
+    if (currentX !== startX || currentY !== startY) {
+      GLEBIA.attackRetries = 0;
+      setTimeout(() => this.start(), GLEBIA.wait);
+      return;
+    }
+
     // Load more players if available
     if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
       $("#player_list_con").find("[data-option=load_more_players]").click();
     }
 
-    // Find first attackable enemy
-    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    // Count attackable enemies
+    let enemies = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    const enemyCount = enemies.length;
 
-    if (enemy.length > 0) {
-      // Click first enemy and continue loop
-      enemy.eq(0).click();
+    // No enemies - exit attack mode and continue main loop
+    if (enemyCount === 0) {
+      GLEBIA.attackRetries = 0;
+      setTimeout(() => this.start(), GLEBIA.wait);
+      return;
     }
 
-    // Return to main loop - this allows position changes to be detected
-    setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
-  },
+    // Check if we're making progress (enemy count decreased)
+    if (GLEBIA.lastEnemyCount === enemyCount) {
+      GLEBIA.attackRetries++;
 
-  /**
-   * Alternative attack mode - attacks all visible enemies before continuing
-   * Used in check_players2 for cleanup
-   */
-  kill_all_visible() {
-    if (!JQS || !JQS.chm || !JQS.chm.is(":focus")) {
-      let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
-
-      if ($("#player_list_con").find("[data-option=load_more_players]").length == 1) {
-        $("#player_list_con").find("[data-option=load_more_players]").click();
-        setTimeout(() => this.kill_all_visible(), 50);
-      } else if (enemy.length > 0) {
-        enemy.eq(0).click();
-        setTimeout(() => this.kill_all_visible(), GLEBIA.attackDelay / this.getSpeedMultiplier());
-      } else {
-        kom_clear && typeof kom_clear === 'function' && kom_clear();
+      // Too many retries with no progress - probably lag, wait longer and try again
+      if (GLEBIA.attackRetries > 5) {
+        GLEBIA.attackRetries = 0;
+        // Wait longer for server to catch up, then try again
+        setTimeout(() => this.attackLoop(startX, startY), 500);
+        return;
       }
+    } else {
+      // Making progress, reset retries
+      GLEBIA.attackRetries = 0;
     }
+
+    GLEBIA.lastEnemyCount = enemyCount;
+
+    // Attack first enemy
+    enemies.eq(0).click();
+
+    // Continue attack loop with delay
+    const delay = Math.max(110, GLEBIA.attackDelay / this.getSpeedMultiplier());
+    setTimeout(() => this.attackLoop(startX, startY), delay);
   },
 
   // ============================================

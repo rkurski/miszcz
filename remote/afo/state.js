@@ -45,7 +45,12 @@ var PVP = {
   kontoTP: false,
   codeTP: false,
   clan_list: '',
-  speed: 50
+  speed: 50,
+  // Attack tracking (for lag detection)
+  attackRetries: 0,
+  lastEnemyCount: -1,
+  startX: 0,
+  startY: 0
 };
 
 // ============================================

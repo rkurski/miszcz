@@ -143,39 +143,92 @@ const AFO_PVP = {
   },
 
   check_players2() {
-    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
-    this.kill_players1();
-    window.setTimeout(() => this.start(), PVP.pvpDelay / this.getSpeedMultiplier() * (enemy.length) * 2);
+    // kill_players now handles full attack cycle with lag detection
+    // Just trigger another attack pass and continue
+    this.attackLoop();
     PVP.counter = 1;
   },
 
   // ============================================
-  // KILLING LOGIC
+  // KILLING LOGIC (Attack-Until-Clear pattern)
   // ============================================
 
+  /**
+   * Attack loop that stays active until all enemies are killed or position changes.
+   * This prevents moving to next tile before finishing kills.
+   */
   kill_players() {
-    let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
-    if (enemy.length > 0) {
-      enemy.eq(0).click();
-    } else {
-      kom_clear();
-    }
-    window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
+    // Save current position to detect tile change
+    PVP.startX = GAME.char_data.x;
+    PVP.startY = GAME.char_data.y;
+
+    // Reset attack state
+    PVP.attackRetries = 0;
+    PVP.lastEnemyCount = -1;
+
+    this.attackLoop();
   },
 
-  kill_players1() {
-    if (!JQS.chm.is(":focus")) {
-      let enemy = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
-      if ($("#player_list_con").find("[data-option=load_more_players]").length == 1) {
-        $("#player_list_con").find("[data-option=load_more_players]").click();
-        window.setTimeout(() => this.kill_players1(), 50);
-      } else if (enemy.length > 0) {
-        enemy.eq(0).click();
-        window.setTimeout(() => this.kill_players1(), 110);
-      } else {
-        kom_clear();
-      }
+  attackLoop() {
+    // Check if stopped or position changed
+    if (PVP.stop) return;
+
+    const currentX = GAME.char_data.x;
+    const currentY = GAME.char_data.y;
+
+    // Position changed - exit attack mode and continue main loop
+    if (currentX !== PVP.startX || currentY !== PVP.startY) {
+      PVP.attackRetries = 0;
+      window.setTimeout(() => this.start(), PVP.wait);
+      return;
     }
+
+    // Load more players if available
+    if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
+      $("#player_list_con").find("[data-option=load_more_players]").click();
+    }
+
+    // Count attackable enemies
+    let enemies = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    const enemyCount = enemies.length;
+
+    // No enemies - exit attack mode and continue main loop
+    if (enemyCount === 0) {
+      PVP.attackRetries = 0;
+      kom_clear();
+      window.setTimeout(() => this.start(), PVP.wait);
+      return;
+    }
+
+    // Check if we're making progress (enemy count decreased)
+    if (PVP.lastEnemyCount === enemyCount) {
+      PVP.attackRetries++;
+
+      // Too many retries with no progress - probably lag, wait longer and try again
+      if (PVP.attackRetries > 5) {
+        PVP.attackRetries = 0;
+        // Wait longer for server to catch up, then try again
+        window.setTimeout(() => this.attackLoop(), 500);
+        return;
+      }
+    } else {
+      // Making progress, reset retries
+      PVP.attackRetries = 0;
+    }
+
+    PVP.lastEnemyCount = enemyCount;
+
+    // Attack first enemy
+    enemies.eq(0).click();
+
+    // Continue attack loop with delay
+    const delay = Math.max(110, PVP.pvpDelay / this.getSpeedMultiplier());
+    window.setTimeout(() => this.attackLoop(), delay);
+  },
+
+  // Legacy alias for compatibility
+  kill_players1() {
+    this.attackLoop();
   },
 
   // ============================================
