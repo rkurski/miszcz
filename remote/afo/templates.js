@@ -306,6 +306,7 @@ const AFO_Templates = {
         <div class='gh_button gh_code'>Kody<b class='gh_status red'>Off</b></div>
         <div class='gh_button gh_low_lvls'>Ukryj niskie lvle<b class='gh_status red'>Off</b></div>
         <div class='gh_button gh_glebia'>Głębia<b class='gh_status red'>Off</b></div>
+        <div class='gh_button gh_daily'>Dzienne<b class='gh_status red'>Off</b></div>
       </div>
     `,
 

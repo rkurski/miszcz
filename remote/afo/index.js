@@ -175,10 +175,29 @@ const AFO = {
       }
     });
 
+    // DZIENNE main button - show daily quests panel
+    $('#main_Panel .gh_daily').click(() => {
+      if ($(".gh_daily .gh_status").hasClass("red")) {
+        $(".gh_daily .gh_status").removeClass("red").addClass("green").html("On");
+        if (typeof AFO_DAILY !== 'undefined') {
+          AFO_DAILY.showPanel();
+        }
+      } else {
+        $(".gh_daily .gh_status").removeClass("green").addClass("red").html("Off");
+        if (typeof AFO_DAILY !== 'undefined') {
+          AFO_DAILY.hidePanel();
+          if (!DAILY.stop) {
+            AFO_DAILY.stop('Zamknięto panel');
+          }
+        }
+      }
+    });
+
     // Initialize submodules that need EasyStar
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.init();
+    if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.init();
 
     // Bind submodule handlers
     if (typeof AFO_PVP !== 'undefined') AFO_PVP.bindHandlers();
@@ -188,6 +207,7 @@ const AFO = {
     if (typeof AFO_CODE !== 'undefined') AFO_CODE.bindHandlers();
     if (typeof AFO_GLEBIA !== 'undefined') AFO_GLEBIA.bindHandlers();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.bindHandlers();
+    if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.bindHandlers();
 
     // List mines after delay
     setTimeout(() => {
@@ -306,6 +326,7 @@ const AFO = {
     LPVM.Stop = true;
     RES.stop = true;
     CODE.stop = true;
+    DAILY.stop = true;
     if (typeof GLEBIA !== 'undefined') GLEBIA.stop = true;
 
     $(".pvp_pvp .pvp_status").removeClass("green").addClass("red").html("Off");
@@ -314,6 +335,7 @@ const AFO = {
     $(".res_res .res_status").removeClass("green").addClass("red").html("Off");
     $(".code_code .code_status").removeClass("green").addClass("red").html("Off");
     $(".glebia_toggle .glebia_status").removeClass("green").addClass("red").html("Off");
+    $(".gh_daily .gh_status").removeClass("green").addClass("red").html("Off");
 
     console.log('[AFO] All modules stopped');
   }

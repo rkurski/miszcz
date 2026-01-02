@@ -1,0 +1,598 @@
+{
+  "config": {
+    "defaultSubstance": "ostateczna",
+    "defaultCombatLocation": "current"
+  },
+  "quests": [
+    {
+      "name": "Rozwój Planety",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "private_planet",
+      "location": {
+        "name": "Prywatna planeta",
+        "coords": {
+          "x": 10,
+          "y": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Klanowe",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "clan_planet",
+      "location": {
+        "name": "Planeta Klanowa",
+        "coords": {
+          "x": 20,
+          "y": 24
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Imperium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "empire_hq",
+      "location": {
+        "name": "Siedziba Imperium",
+        "coords": {
+          "x": 10,
+          "y": 7
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        },
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvM",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvM II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvP",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvP II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Symboli",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Symboli II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Substancji",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Substancji II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV1]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 2,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV2]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 9,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV3]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 16,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV4]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 16,
+          "y": 6
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV5]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 9,
+          "y": 6
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Modlitwa",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 6,
+          "y": 11
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Scalacz MEGA",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Cephiro",
+        "locId": 1402,
+        "coords": {
+          "x": 5,
+          "y": 5
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 5000
+        }
+      ]
+    }
+  ],
+  "questTypes": {
+    "ACTION": "Kliknij akcje/dialog",
+    "BOT_KILL": "Pokonaj X botów",
+    "PLAYER_KILL": "Pokonaj X graczy",
+    "BOUNTY": "Wykonaj X listów gończych",
+    "RESOURCE": "Zbierz X zasobów",
+    "EXPEDITION": "Wykonaj X wypraw"
+  },
+  "locationTypes": {
+    "normal": "Zwykła lokacja - wymaga locId i coords",
+    "private_planet": "Prywatna planeta - wymaga tylko coords",
+    "clan_planet": "Planeta klanowa - wymaga tylko coords",
+    "empire_hq": "Siedziba imperium - wymaga tylko coords"
+  }
+}

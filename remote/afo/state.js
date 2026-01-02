@@ -172,6 +172,56 @@ var CODE = {
 };
 
 // ============================================
+// DAILY QUESTS AUTOMATION STATE
+// ============================================
+var DAILY = {
+  stop: true,
+  paused: false,
+
+  // Quest data
+  questData: [],              // Loaded from JSON
+  enabledQuests: [],          // Quest names user wants to do
+  completedQuests: [],        // Quest names done this session
+  skippedQuests: [],          // Quest names user unchecked
+
+  // Current progress
+  currentQuestIdx: 0,
+  currentStageIdx: 0,
+  questQueue: [],             // Ordered list of quests to process
+
+  // Portal grouping
+  portalGroup: [],            // Quests to do in current portal location
+  portalGroupIdx: 0,
+  inPortal: false,
+  currentPortalLocId: 0,
+
+  // Empire handling
+  inEmpire: false,
+  ownEmpire: 0,
+  targetEmpire: 0,
+
+  // Navigation
+  isNavigating: false,
+  isTeleporting: false,
+  Path: [],
+  Matrix: [],
+  Finder: null,
+
+  // Combat
+  isInCombat: false,
+  combatTarget: null,
+  killCount: 0,
+  killTarget: 0,
+
+  // User preferences
+  substance: 'x20',           // 'x20' or 'ostateczna' - x20 by default
+  combatLoc: 'current',       // 'current', 'private', or locId
+
+  // Timing
+  wait: 100
+};
+
+// ============================================
 // INIT LOCATION-DEPENDENT STATE
 // ============================================
 function initAFOState() {
@@ -188,6 +238,7 @@ window.RESP = RESP;
 window.LPVM = LPVM;
 window.RES = RES;
 window.CODE = CODE;
+window.DAILY = DAILY;
 window.initAFOState = initAFOState;
 
 console.log('[AFO] State module loaded');
