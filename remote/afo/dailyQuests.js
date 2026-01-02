@@ -110,6 +110,11 @@ const AFO_DAILY = {
         text-decoration: line-through;
         opacity: 0.5;
       }
+      #daily_Panel .daily_quest_item.skipped {
+        color: #ff9800;
+        text-decoration: line-through;
+        opacity: 0.7;
+      }
       #daily_Panel .daily_quest_item.current {
         background: rgba(255, 215, 0, 0.2);
       }
@@ -274,13 +279,14 @@ const AFO_DAILY = {
       <div id="daily_Panel">
         <div class="sekcja daily_dragg">DZIENNE QUESTY</div>
         <div class="daily_status" id="daily_status">Gotowy do startu</div>
+        <div class="daily_select_all" style="padding: 5px 10px; border-bottom: 1px solid #333;">
+          <button class="newBtn" id="daily_toggle_all_btn" style="font-size: 10px; padding: 2px 6px;">PRZEŁĄCZ</button>
+          <button class="newBtn" id="daily_reset_btn" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">ZERUJ</button>
+        </div>
         <div class="daily_quest_list" id="daily_quest_list"></div>
         <div class="daily_options">
-          <label>SUB: 
-            <select id="daily_substance">
-              <option value="x20" selected>x20</option>
-              <option value="ostateczna">Ostateczna</option>
-            </select>
+          <label style="cursor: pointer;">
+            SUB: <span id="daily_substance_toggle" class="daily_toggle" data-value="x20" style="background: #555; padding: 2px 8px; border-radius: 3px; font-size: 11px;">x20</span>
           </label>
           <label>Walka:
             <select id="daily_combat_loc">
@@ -299,6 +305,9 @@ const AFO_DAILY = {
     $('body').append(html);
     $('#daily_Panel').show().draggable({ handle: '.daily_dragg' });
 
+    this.loadCompletedQuests();
+    this.loadSkippedQuests();
+    this.loadFailedQuests();
     this.renderQuestList();
     this.bindUIHandlers();
   },
@@ -314,17 +323,19 @@ const AFO_DAILY = {
     let html = '';
     quests.forEach((quest, idx) => {
       const isCompleted = DAILY.completedQuests.includes(quest.name);
-      const isSkipped = DAILY.skippedQuests.includes(quest.name);
-      const isEnabled = quest.enabled && !isSkipped;
+      const isUserDisabled = DAILY.skippedQuests.includes(quest.name);  // User unchecked
+      const isFailed = DAILY.failedQuests.includes(quest.name);         // Bot couldn't complete
+      const isEnabled = quest.enabled && !isUserDisabled;
       const isCurrent = DAILY.questQueue[DAILY.currentQuestIdx]?.name === quest.name;
 
       const completedClass = isCompleted ? 'completed' : '';
+      const failedClass = isFailed ? 'skipped' : '';  // Orange style only for failed
       const currentClass = isCurrent && !DAILY.stop ? 'current' : '';
-      const checked = isEnabled && !isCompleted ? 'checked' : '';
+      const checked = isEnabled && !isCompleted && !isFailed ? 'checked' : '';
 
       html += `
-        <div class="daily_quest_item ${completedClass} ${currentClass}" data-quest-name="${quest.name}">
-          <input type="checkbox" ${checked} ${isCompleted ? 'disabled' : ''} data-idx="${idx}">
+        <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass}" data-quest-name="${quest.name}">
+          <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
           <span class="quest_name">${quest.name}</span>
           <span class="quest_loc">${quest.location.name || ''}</span>
         </div>
@@ -341,10 +352,67 @@ const AFO_DAILY = {
   markQuestComplete(questName) {
     if (!DAILY.completedQuests.includes(questName)) {
       DAILY.completedQuests.push(questName);
+      this.saveCompletedQuests();
     }
     $(`.daily_quest_item[data-quest-name="${questName}"]`)
       .addClass('completed')
       .find('input').prop('disabled', true).prop('checked', false);
+  },
+
+  markQuestSkipped(questName) {
+    // failedQuests = quests bot couldn't complete (orange style, persisted)
+    if (!DAILY.failedQuests.includes(questName)) {
+      DAILY.failedQuests.push(questName);
+      this.saveFailedQuests();
+    }
+    $(`.daily_quest_item[data-quest-name="${questName}"]`)
+      .addClass('skipped')
+      .removeClass('current')
+      .find('input').prop('disabled', true).prop('checked', false);
+  },
+
+  saveCompletedQuests() {
+    try {
+      localStorage.setItem('daily_completed_' + GAME.char_id, JSON.stringify(DAILY.completedQuests));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save completed quests:', e);
+    }
+  },
+
+  saveSkippedQuests() {
+    // skippedQuests = user disabled, NOT persisted (just session state)
+    // No-op - checkbox state is session-only
+  },
+
+  saveFailedQuests() {
+    try {
+      localStorage.setItem('daily_failed_' + GAME.char_id, JSON.stringify(DAILY.failedQuests));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save failed quests:', e);
+    }
+  },
+
+  loadCompletedQuests() {
+    try {
+      const saved = localStorage.getItem('daily_completed_' + GAME.char_id);
+      DAILY.completedQuests = saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      DAILY.completedQuests = [];
+    }
+  },
+
+  loadSkippedQuests() {
+    // skippedQuests = session only, start empty each time
+    DAILY.skippedQuests = [];
+  },
+
+  loadFailedQuests() {
+    try {
+      const saved = localStorage.getItem('daily_failed_' + GAME.char_id);
+      DAILY.failedQuests = saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      DAILY.failedQuests = [];
+    }
   },
 
   markQuestCurrent(questName) {
@@ -365,9 +433,36 @@ const AFO_DAILY = {
       }
     });
 
-    // Substance selection
-    $('#daily_substance').on('change', (e) => {
-      DAILY.substance = $(e.target).val();
+    // Toggle all button - if any unchecked, select all; otherwise deselect all
+    $('#daily_toggle_all_btn').on('click', () => {
+      const $checkboxes = $('#daily_quest_list input[type="checkbox"]:not(:disabled)');
+      const allChecked = $checkboxes.length > 0 && $checkboxes.filter(':not(:checked)').length === 0;
+      $checkboxes.each((_, el) => {
+        $(el).prop('checked', !allChecked).trigger('change');
+      });
+    });
+
+    // Reset button - clear all completed and failed
+    $('#daily_reset_btn').on('click', () => {
+      if (confirm('Czy na pewno chcesz zresetować wszystkie dzienne questy?')) {
+        DAILY.completedQuests = [];
+        DAILY.skippedQuests = [];
+        DAILY.failedQuests = [];
+        this.saveCompletedQuests();
+        this.saveFailedQuests();
+        this.renderQuestList();
+        GAME.komunikat('[DZIENNE] Zresetowano wszystkie questy');
+      }
+    });
+
+    // Substance toggle (click to switch between x20 and ostateczna)
+    $('#daily_substance_toggle').on('click', (e) => {
+      const $toggle = $(e.target);
+      const currentValue = $toggle.attr('data-value');
+      const newValue = currentValue === 'x20' ? 'ostateczna' : 'x20';
+      $toggle.attr('data-value', newValue);
+      $toggle.text(newValue === 'x20' ? 'x20' : 'ost.');
+      DAILY.substance = newValue;
     });
 
     // Combat location selection
@@ -696,11 +791,27 @@ const AFO_DAILY = {
 
     // Navigate to portal entry coords
     this.updateStatus('Idę do portalu...');
+    DAILY._currentQuest = quest;  // Save for portal check
     this.navigateToCoords(portal.entry.x, portal.entry.y, () => {
-      // Enter portal (move to the field triggers portal)
+      // We've arrived at portal entry - use the portal!
+      console.log('[AFO_DAILY] Arrived at portal entry, using portal');
       DAILY.isTeleporting = true;
       DAILY.currentPortalLocId = portal.innerLocId;
-      // The map change will be detected in handleSockets
+      // Small delay before using portal, then emit via socket
+      setTimeout(() => {
+        console.log('[AFO_DAILY] Emitting portal use command');
+        GAME.socket.emit('ga', { a: 6 });  // Use portal via socket
+
+        // Wait for map to load after portal transition, then continue
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          console.log('[AFO_DAILY] Portal transition complete, continuing to NPC');
+          DAILY.isTeleporting = false;
+          DAILY.inPortal = true;
+          DAILY.currentPortalLocId = 0;
+          this.afterTeleport();
+        }, 2000);  // 2 second delay for portal loading
+      }, 300);
     });
   },
 
@@ -721,9 +832,24 @@ const AFO_DAILY = {
 
     this.updateStatus('Wychodzę z portalu...');
     this.navigateToCoords(portal.exit.x, portal.exit.y, () => {
-      // Moving to exit coords should trigger portal exit
+      // We've arrived at portal exit - use the portal to exit!
+      console.log('[AFO_DAILY] Arrived at portal exit, using portal');
       DAILY.isTeleporting = true;
-      // Map change to original loc will be handled in handleSockets
+
+      // Small delay before using portal, then emit via socket
+      setTimeout(() => {
+        console.log('[AFO_DAILY] Emitting portal exit command');
+        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+
+        // Wait for map to load after portal transition
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          console.log('[AFO_DAILY] Portal exit complete');
+          DAILY.isTeleporting = false;
+          DAILY.inPortal = false;
+          this.advanceQuestQueue();
+        }, 2000);
+      }, 300);
     });
   },
 
@@ -866,15 +992,37 @@ const AFO_DAILY = {
 
       console.log('[AFO_DAILY] Path complete at', GAME.char_data.x, GAME.char_data.y);
 
-      // Check if there's a portal to enter
-      const portalBtn = $('button[data-option="use_loc_tp"]').first();
-      console.log('[AFO_DAILY] Portal button found:', portalBtn.length > 0);
+      // Check if we're at a portal location and need to enter
+      // Portal check: look for portal target coords and compare with character position
+      const currentQuest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
+      const portal = currentQuest?.location?.portal;
 
+      if (portal && !DAILY.inPortal) {
+        const entryX = portal.entry?.x;
+        const entryY = portal.entry?.y;
+
+        // Check if character is at portal entry position
+        if (entryX && entryY && GAME.char_data.x === entryX && GAME.char_data.y === entryY) {
+          console.log('[AFO_DAILY] At portal entry position, entering portal');
+          GAME.emitOrder({ a: 6 });
+
+          // Wait for teleport and then continue
+          setTimeout(() => {
+            if (DAILY._navCallback) {
+              DAILY._navCallback();
+              DAILY._navCallback = null;
+            }
+          }, 1500);
+          return;
+        }
+      }
+
+      // Also check if there's a portal button (fallback)
+      const portalBtn = $('button[data-option="use_loc_tp"]').first();
       if (portalBtn.length > 0) {
-        console.log('[AFO_DAILY] Found portal, entering');
+        console.log('[AFO_DAILY] Found portal button, entering');
         GAME.emitOrder({ a: 6 });
 
-        // Wait for teleport and then continue
         setTimeout(() => {
           if (DAILY._navCallback) {
             DAILY._navCallback();
@@ -991,16 +1139,16 @@ const AFO_DAILY = {
       if (DAILY._finishClicked) {
         console.log('[AFO_DAILY] Dialog closed after finish click - quest complete');
         DAILY._finishClicked = false;
-        this.onQuestComplete(quest);
+        this.verifyAndCompleteQuest(quest);
         return;
       }
       // Dialog closed - check if quest is done
       const questData = this.findQuestByName(quest.name);
       if (!questData) {
-        this.onQuestComplete(quest);
+        this.verifyAndCompleteQuest(quest);
       } else {
         // Try again
-        setTimeout(() => this.startDialog(quest, questData.qb_id), 300);
+        setTimeout(() => this.startDialog(quest, questData.qb_id), 400);
       }
       return;
     }
@@ -1009,14 +1157,76 @@ const AFO_DAILY = {
     const requires = this.parseQuestRequirements();
     console.log('[AFO_DAILY] Parsed requirements:', requires);
 
-    // If there's a finish_quest button, always try to click it first
-    if ($("button[data-option=finish_quest]").length > 0) {
+    // Handle special quest types FIRST (like combat.js questProceed)
+    const questTitle = $('.quest_win .sekcja').text().toLowerCase();
+    const finishBtns = $('button[data-option=finish_quest]');
+
+    // STUDNIA SZCZĘŚCIA: 2 buttons where second says "Mam dość tej studni"
+    // Debug: log button count and second button text
+    console.log('[AFO_DAILY] Studnia check - buttons:', finishBtns.length, 'second text:', finishBtns.eq(1).text().trim());
+    if (finishBtns.length === 2 && finishBtns.eq(1).text().trim() === 'Mam dość tej studni') {
+      console.log('[AFO_DAILY] Studnia Szczęścia detected - clicking button 2');
+      const qb_id = finishBtns.eq(1).attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 2, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1200);
+      return;
+    }
+
+    // ZADANIE SUBSTANCJI: title starts with "zadanie substancji" and 3 buttons
+    if (questTitle.startsWith('zadanie substancji') && finishBtns.length === 3) {
+      console.log('[AFO_DAILY] Zadanie Substancji detected - clicking button 3');
+      const qb_id = finishBtns.attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 3, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1200);
+      return;
+    }
+
+    // NUDA: title is "nuda" and 3 buttons
+    if (questTitle === 'nuda' && finishBtns.length === 3) {
+      console.log('[AFO_DAILY] Nuda detected - clicking button 2');
+      const qb_id = finishBtns.attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 2, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1200);
+      return;
+    }
+
+    // QUEST RIDDLE
+    if ($('button[data-option=quest_riddle]').is(':visible')) {
+      const qb_id = $('button[data-option=quest_riddle]').attr('data-qid');
+      console.log('[AFO_DAILY] Quest riddle detected');
+      GAME.socket.emit('ga', { a: 22, type: 7, id: qb_id, ans: $('#quest_riddle').val() });
+      setTimeout(() => this.processDialog(quest), 800);
+      return;
+    }
+
+    // QUEST DUEL
+    if ($('button[data-option=quest_duel]').is(':visible')) {
+      const fb_id = $('button[data-option=quest_duel]').attr('data-qid');
+      console.log('[AFO_DAILY] Quest duel detected');
+      GAME.socket.emit('ga', { a: 22, type: 6, id: fb_id });
+      setTimeout(() => this.processDialog(quest), 800);
+      return;
+    }
+
+    // QUEST ACTION (like visiting location)
+    if ($('.quest_action').is(':visible')) {
+      console.log('[AFO_DAILY] Quest action detected');
+      GAME.questAction();
+      setTimeout(() => this.processDialog(quest), 800);
+      return;
+    }
+
+    // Normal finish_quest button handling
+    if (finishBtns.length > 0) {
       // Check if requirements are met (or no requirements / ACTION type)
       if (!requires || requires.type === 'ACTION' || requires.current >= requires.target) {
         console.log('[AFO_DAILY] Requirements met, clicking finish button');
         this.clickFinishQuest();
         // Wait longer for dialog to update, then check again
-        setTimeout(() => this.afterFinishClick(quest), 1000);
+        setTimeout(() => this.afterFinishClick(quest), 1200);
         return;
       }
     }
@@ -1030,38 +1240,83 @@ const AFO_DAILY = {
       return;
     }
 
-    // No special requirements - use questProceed to advance
-    if (typeof kws !== 'undefined' && typeof kws.questProceed === 'function') {
-      kws.questProceed();
-    } else {
-      this.manualQuestProceed();
+    // No buttons, no requirements - dialog is in limbo state
+    // Track attempts to avoid infinite loop
+    DAILY._dialogAttempts = (DAILY._dialogAttempts || 0) + 1;
+    console.log('[AFO_DAILY] Dialog stuck - attempt', DAILY._dialogAttempts);
+
+    if (DAILY._dialogAttempts >= 10) {
+      console.warn('[AFO_DAILY] Dialog stuck after 10 attempts - skipping quest');
+      DAILY._dialogAttempts = 0;
+      $('#quest_con').hide();
+      this.skipQuestWithMark(quest, 'Brak możliwości wykonania');
+      return;
     }
 
     // Wait and check again
-    setTimeout(() => this.continueDialog(quest), 600);
+    setTimeout(() => this.continueDialog(quest), 800);
   },
 
   // Called after clicking finish button - check what happened
   afterFinishClick(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
-    // FIRST: Check track_quest for completion (green = already done!)
-    const qbId = this.getQuestQbId(quest);
-    const trackQuest = $(`#track_quest_${qbId}`);
-    if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
-      console.log('[AFO_DAILY] Track quest shows green after finish - quest complete');
-      DAILY._finishClicked = false;
-      $('#quest_con').hide();
-      this.onQuestComplete(quest);
-      return;
-    }
-
     // Check if dialog closed
     if (!$('#quest_con').is(':visible')) {
       console.log('[AFO_DAILY] Dialog closed after finish - quest complete');
       DAILY._finishClicked = false;
-      this.onQuestComplete(quest);
+      this.verifyAndCompleteQuest(quest);
       return;
+    }
+
+    // FIRST: Check for special quest types that need specific button clicks
+    // These take priority over track_quest green check!
+    const finishBtns = $('button[data-option=finish_quest]');
+    const questTitle = $('.quest_win .sekcja').text().toLowerCase();
+
+    // STUDNIA SZCZĘŚCIA: 2 buttons where second says "Mam dość tej studni"
+    // This means we donated and now need to click "enough" to complete
+    if (finishBtns.length === 2 && finishBtns.eq(1).text().trim() === 'Mam dość tej studni') {
+      console.log('[AFO_DAILY] Studnia Szczęścia - clicking "Mam dość tej studni" (button 2)');
+      const qb_id = finishBtns.eq(1).attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 2, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1500);  // Longer delay for studnia
+      return;
+    }
+
+    // ZADANIE SUBSTANCJI: title starts with "zadanie substancji" and 3 buttons
+    if (questTitle.startsWith('zadanie substancji') && finishBtns.length === 3) {
+      console.log('[AFO_DAILY] Zadanie Substancji - clicking button 3');
+      const qb_id = finishBtns.attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 3, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1500);
+      return;
+    }
+
+    // NUDA: title is "nuda" and 3 buttons
+    if (questTitle === 'nuda' && finishBtns.length === 3) {
+      console.log('[AFO_DAILY] Nuda - clicking button 2');
+      const qb_id = finishBtns.attr('data-qb_id');
+      DAILY._finishClicked = true;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: 2, id: qb_id });
+      setTimeout(() => this.afterFinishClick(quest), 1500);
+      return;
+    }
+
+    // NOW check track_quest for completion (green = already done!)
+    const qbId = this.getQuestQbId(quest);
+    const trackQuest = $(`#track_quest_${qbId}`);
+    if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
+      // Double-check: make sure there's no "Mam dość tej studni" button
+      if (finishBtns.length === 0 || finishBtns.eq(1).text().trim() !== 'Mam dość tej studni') {
+        console.log('[AFO_DAILY] Track quest shows green after finish - quest complete');
+        DAILY._finishClicked = false;
+        $('#quest_con').hide();
+        this.verifyAndCompleteQuest(quest);
+        return;
+      }
     }
 
     // Dialog still open - check if there are NEW requirements
@@ -1077,10 +1332,10 @@ const AFO_DAILY = {
     }
 
     // Still has finish button? Continue clicking
-    if ($("button[data-option=finish_quest]").length > 0) {
+    if (finishBtns.length > 0) {
       console.log('[AFO_DAILY] Still has finish button, clicking again');
       this.clickFinishQuest();
-      setTimeout(() => this.afterFinishClick(quest), 1000);
+      setTimeout(() => this.afterFinishClick(quest), 1200);
       return;
     }
 
@@ -1099,13 +1354,13 @@ const AFO_DAILY = {
       if (DAILY._finishClicked) {
         console.log('[AFO_DAILY] Dialog closed after finish - marking complete');
         DAILY._finishClicked = false;
-        this.onQuestComplete(quest);
+        this.verifyAndCompleteQuest(quest);
         return;
       }
       // Dialog closed = quest might be done
       const questData = this.findQuestByName(quest.name);
       if (!questData) {
-        this.onQuestComplete(quest);
+        this.verifyAndCompleteQuest(quest);
         return;
       }
       // Quest still there, try dialog again
@@ -1232,6 +1487,26 @@ const AFO_DAILY = {
       };
     }
 
+    // RESOURCE COLLECT: "Zbierz zasób ResourceName 0/10" - need to mine/gather resources
+    // Extract resource name from: <strong class="red3">ResourceName <span>0/10</span></strong>
+    const resourceMatch = desc.match(/Zbierz\s+zasób.*?(\d+)\/(\d+)/i);
+    if (resourceMatch) {
+      // Try to extract resource name from the strong.red3 element
+      let resourceName = '';
+      const strongEl = $('#quest_con .quest_desc strong.red3');
+      if (strongEl.length > 0) {
+        // Get text content without the span (which contains the count)
+        resourceName = strongEl.clone().children().remove().end().text().trim();
+      }
+      console.log('[AFO_DAILY] Resource collect detected:', resourceName, resourceMatch[1], '/', resourceMatch[2]);
+      return {
+        type: 'RESOURCE_COLLECT',
+        resourceName: resourceName,
+        current: parseInt(resourceMatch[1]),
+        target: parseInt(resourceMatch[2])
+      };
+    }
+
     return null;
   },
 
@@ -1244,6 +1519,14 @@ const AFO_DAILY = {
 
     console.log('[AFO_DAILY] Handling requirement:', requires);
     this.updateStatus(`${quest.name}: ${requires.current}/${requires.target}`);
+
+    // Save original qbId BEFORE we leave the location (important for empire quests!)
+    // After going to enemy empire, findQuestByName returns quests from THAT location, not ours
+    const questData = this.findQuestByName(quest.name);
+    if (questData && questData.qb_id) {
+      requires.originalQbId = questData.qb_id;
+      console.log('[AFO_DAILY] Saved originalQbId:', requires.originalQbId);
+    }
 
     if (requires.current >= requires.target) {
       // Requirement met, continue dialog
@@ -1258,9 +1541,133 @@ const AFO_DAILY = {
       case 'PLAYER_KILL':
         this.handlePlayerKill(quest, requires);
         break;
+      case 'RESOURCE_COLLECT':
+        this.handleResourceCollect(quest, requires);
+        break;
       default:
         // Unknown type, try to continue
         setTimeout(() => this.continueDialog(quest), 500);
+    }
+  },
+
+  handleResourceCollect(quest, requires) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    DAILY.isInCombat = true;  // Reuse combat flag for resource collection
+    DAILY._combatQuest = quest;
+    DAILY._combatRequires = requires;
+
+    this.updateStatus(`${quest.name}: Zbieram ${requires.resourceName || 'zasoby'} ${requires.current}/${requires.target}`);
+    console.log('[AFO_DAILY] Starting resource collection for:', requires.resourceName);
+
+    // Find resource ID in GAME.map_mines.mine_data by name
+    if (requires.resourceName && typeof GAME.map_mines !== 'undefined') {
+      const mineData = Object.entries(GAME.map_mines.mine_data || {});
+      let resourceId = null;
+
+      for (const [key, mine] of mineData) {
+        if (mine.name && mine.name.includes(requires.resourceName)) {
+          resourceId = mine.id;
+          console.log('[AFO_DAILY] Found resource ID:', resourceId, 'for', mine.name);
+          break;
+        }
+      }
+
+      if (resourceId) {
+        requires.resourceId = resourceId;
+      } else {
+        console.warn('[AFO_DAILY] Resource not found on map:', requires.resourceName);
+        // List available resources
+        console.log('[AFO_DAILY] Available resources:', mineData.map(m => m[1].name));
+      }
+    }
+
+    // Start resource collection loop
+    this.resourceCollectLoop(quest, requires);
+  },
+
+  resourceCollectLoop(quest, requires) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Check if requirements met via track_quest .green class (most reliable)
+    const qbId = requires.originalQbId;
+    if (qbId) {
+      const trackQuest = $(`#track_quest_${qbId}`);
+
+      // First check for .green class on the strong element - this means complete!
+      if (trackQuest.find('strong.green').length > 0) {
+        console.log('[AFO_DAILY] Resource track_quest shows green - complete!');
+        this.onResourceComplete(quest);
+        return;
+      }
+
+      // Also check quest_warunek span
+      const questSpan = $(`.quest_warunek${qbId}`);
+      if (questSpan.length > 0) {
+        const current = parseInt(questSpan.attr('data-count')) || 0;
+        const target = parseInt(questSpan.attr('data-max')) || requires.target;
+
+        this.updateStatus(`${quest.name}: ${current}/${target}`);
+
+        if (current >= target) {
+          console.log('[AFO_DAILY] Resource collection complete:', current, '/', target);
+          this.onResourceComplete(quest);
+          return;
+        }
+      }
+    }
+
+    // Try to use AFO_RES if available and we have resource ID
+    if (typeof AFO_RES !== 'undefined' && typeof RES !== 'undefined' && requires.resourceId) {
+      if (RES.stop) {
+        console.log('[AFO_DAILY] Configuring and starting AFO_RES for resource:', requires.resourceId);
+
+        // Configure RES to mine the specific resource
+        RES.mined_id = [requires.resourceId];  // Only mine this specific resource
+        RES.refresh_mines = true;  // Refresh mine positions
+        RES.loc = GAME.char_data.loc;  // Set current location
+        RES.stop = false;
+
+        // Stop other modules
+        PVP.stop = true;
+        RESP.stop = true;
+        LPVM.Stop = true;
+        CODE.stop = true;
+
+        AFO_RES.Start();  // Note: capital S!
+      }
+      // Monitor progress
+      setTimeout(() => this.resourceCollectLoop(quest, requires), 1500);
+      return;
+    }
+
+    // Fallback: try to start mining manually if no AFO_RES or no resourceId
+    const mineBtn = $('button[data-option=start_mine]');
+    if (mineBtn.length > 0) {
+      const mineId = mineBtn.attr('data-mid');
+      console.log('[AFO_DAILY] Starting mine manually:', mineId);
+      GAME.socket.emit('ga', { a: 22, type: 8, mid: parseInt(mineId) });
+    }
+
+    // Continue monitoring
+    setTimeout(() => this.resourceCollectLoop(quest, requires), 1500);
+  },
+
+  onResourceComplete(quest) {
+    console.log('[AFO_DAILY] Resource collection complete for:', quest.name);
+    DAILY.isInCombat = false;
+
+    // Stop AFO_RES if running
+    if (typeof RES !== 'undefined') {
+      RES.stop = true;
+    }
+
+    // Re-open dialog to continue
+    const questData = this.findQuestByName(quest.name);
+    if (questData) {
+      setTimeout(() => this.startDialog(quest, questData.qb_id), 800);
+    } else {
+      this.verifyAndCompleteQuest(quest);
     }
   },
 
@@ -1532,6 +1939,7 @@ const AFO_DAILY = {
     if (DAILY.stop || DAILY.paused) return;
 
     DAILY.isInCombat = true;
+    DAILY._pvpRequires = requires;  // Save for onPvpComplete to access originalQbId
 
     // For empire quests, need to go to target empire
     // For isPvpWins (simple PvP), pick any enemy empire
@@ -1571,16 +1979,19 @@ const AFO_DAILY = {
       return;
     }
 
-    // Check track_quest for completion (green = done)
-    // Get fresh qbId from map_quests (not stale from quest object)
-    const questData = this.findQuestByName(quest.name);
-    const qbId = questData?.qb_id;
+    // Use the ORIGINAL qbId saved before we left our empire!
+    // After entering enemy empire, findQuestByName returns quests from THAT location
+    const qbId = requires.originalQbId;
 
     if (!qbId) {
-      // Quest not in map anymore = already complete
-      console.log('[AFO_DAILY] Quest not in map_quests - marking complete');
-      this.stopPvpAndComplete(quest);
-      return;
+      // No original qbId saved = bug, try to find it
+      console.warn('[AFO_DAILY] No originalQbId saved, trying findQuestByName fallback');
+      const questData = this.findQuestByName(quest.name);
+      if (!questData?.qb_id) {
+        console.log('[AFO_DAILY] Quest not found - marking complete');
+        this.stopPvpAndComplete(quest);
+        return;
+      }
     }
 
     const trackQuest = $(`#track_quest_${qbId}`);
@@ -1594,18 +2005,40 @@ const AFO_DAILY = {
       return;
     }
 
-    // Also check quest_warunek
+    // Check quest_warunek span inside track_quest element
+    // HTML format: <span class="quest_warunek4449594" data-count="9" data-max="20">9/20</span>
     const questSpan = $(`.quest_warunek${qbId}`);
     if (questSpan.length > 0) {
       const current = parseInt(questSpan.attr('data-count')) || 0;
       const target = parseInt(questSpan.attr('data-max')) || requires.target;
 
+      console.log('[AFO_DAILY] Empire quest progress from span:', current, '/', target);
       this.updateStatus(`${quest.name}: ${current}/${target}`);
 
       if (current >= target) {
         console.log('[AFO_DAILY] PvP requirements met:', current, '/', target);
         this.stopPvpAndComplete(quest);
         return;
+      }
+    } else {
+      // Fallback: try to parse from track_quest HTML text for empire kill quests
+      // Format: "Pokonać członków ... Imperium ... <span>9/20</span>"
+      if (requires.isEmpireQuest && trackQuest.length > 0) {
+        const trackText = trackQuest.text();
+        const progressMatch = trackText.match(/(\d+)\/(\d+)/);
+        if (progressMatch) {
+          const current = parseInt(progressMatch[1]);
+          const target = parseInt(progressMatch[2]);
+
+          console.log('[AFO_DAILY] Empire quest progress from text:', current, '/', target);
+          this.updateStatus(`${quest.name}: ${current}/${target}`);
+
+          if (current >= target) {
+            console.log('[AFO_DAILY] Empire PvP requirements met:', current, '/', target);
+            this.stopPvpAndComplete(quest);
+            return;
+          }
+        }
       }
     }
 
@@ -1685,11 +2118,17 @@ const AFO_DAILY = {
     DAILY.isInCombat = false;
     DAILY._pvpMoveDir = 0;  // Reset movement direction
 
+    // Get the saved originalQbId from requires
+    const requires = DAILY._pvpRequires;
+    const originalQbId = requires?.originalQbId;
+    console.log('[AFO_DAILY] onPvpComplete, originalQbId:', originalQbId);
+
     // Return from enemy empire if needed
     if (DAILY.targetEmpire && DAILY.targetEmpire !== DAILY.ownEmpire) {
       console.log('[AFO_DAILY] Returning from enemy empire');
       this.updateStatus('Wychodzę z wrogiego imperium...');
-      GAME.socket.emit('ga', { a: 50, type: 4 }); // Exit empire
+      // Use a:16 to properly exit location
+      GAME.socket.emit('ga', { a: 16 });
       DAILY.targetEmpire = 0;
 
       // Wait 1s, then enter own empire
@@ -1699,11 +2138,18 @@ const AFO_DAILY = {
         this.updateStatus('Wracam do własnego imperium...');
         GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
 
-        // Wait 1s more, then continue dialog
+        // Wait 1.5s more for map to load, then go to quest NPC
         setTimeout(() => {
           if (DAILY.stop || DAILY.paused) return;
-          this.continueDialog(quest);
-        }, 1000);
+
+          // Navigate to quest NPC and start dialog with ORIGINAL qbId
+          if (originalQbId) {
+            this.updateStatus('Wracam do NPC...');
+            this.navigateToQuestNPC(quest);
+          } else {
+            this.continueDialog(quest);
+          }
+        }, 1500);
       }, 1000);
       return;
     }
@@ -1714,6 +2160,54 @@ const AFO_DAILY = {
   // ============================================
   // QUEST COMPLETION
   // ============================================
+
+  // Verify quest is actually complete (not visible in field_opts_con anymore)
+  verifyAndCompleteQuest(quest) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Get quest qb_id
+    const questData = this.findQuestByName(quest.name);
+    const qbId = questData?.qb_id || DAILY._pvpRequires?.originalQbId;
+
+    // Check if quest is still visible in field_opts_con (means not complete!)
+    const questInField = $(`#field_q_${qbId}`);
+
+    if (questInField.length > 0 && questInField.is(':visible')) {
+      console.log('[AFO_DAILY] Quest still visible in field_opts_con, needs final click');
+
+      // Track verification attempts
+      DAILY._verifyAttempts = (DAILY._verifyAttempts || 0) + 1;
+      if (DAILY._verifyAttempts > 5) {
+        console.warn('[AFO_DAILY] Too many verify attempts, marking complete anyway');
+        DAILY._verifyAttempts = 0;
+        this.onQuestComplete(quest);
+        return;
+      }
+
+      // Try to open dialog and finish it
+      if (qbId) {
+        GAME.socket.emit('ga', { a: 22, type: 1, id: qbId });
+        setTimeout(() => {
+          // Click finish if available
+          const finishBtn = $('button[data-option=finish_quest]').first();
+          if (finishBtn.length > 0) {
+            const btnQbId = finishBtn.attr('data-qb_id');
+            const button = parseInt(finishBtn.attr('data-button')) || 1;
+            console.log('[AFO_DAILY] Clicking final finish button');
+            GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: btnQbId });
+          }
+          // Check again after delay
+          setTimeout(() => this.verifyAndCompleteQuest(quest), 800);
+        }, 500);
+        return;
+      }
+    }
+
+    // Quest is not in field_opts_con = truly complete!
+    DAILY._verifyAttempts = 0;
+    console.log('[AFO_DAILY] Quest verified complete:', quest.name);
+    this.onQuestComplete(quest);
+  },
 
   onQuestComplete(quest) {
     console.log('[AFO_DAILY] Quest complete:', quest.name);
@@ -1757,6 +2251,31 @@ const AFO_DAILY = {
     } else {
       callback();
     }
+  },
+
+  // Skip quest and mark it visually (orange color) on the list
+  skipQuestWithMark(quest, reason) {
+    console.warn('[AFO_DAILY] Skipping quest:', quest.name, '-', reason);
+    GAME.komunikat(`[DZIENNE] Pominięto: ${quest.name} - ${reason}`);
+
+    // Mark on UI and save to localStorage
+    this.markQuestSkipped(quest.name);
+
+    // Clear states
+    DAILY.isInCombat = false;
+    DAILY._dialogAttempts = 0;
+
+    // Check if in portal group
+    if (DAILY.inPortal && DAILY.portalGroup.length > 0) {
+      DAILY.portalGroupIdx++;
+      setTimeout(() => this.processNextQuest(), 500);
+      return;
+    }
+
+    // Exit special location if needed
+    this.exitSpecialLocationIfNeeded(() => {
+      this.advanceQuestQueue();
+    });
   },
 
   advanceQuestQueue() {
@@ -1854,24 +2373,74 @@ const AFO_DAILY = {
       if (questData) {
         console.log('[AFO_DAILY] map_quests loaded, navigating to NPC');
         this.navigateToQuestNPC(quest);
-      } else {
-        // Quest not found = already completed!
-        console.log('[AFO_DAILY] Quest not available on map - already completed:', quest.name);
-        this.onQuestComplete(quest);
+        return;
       }
+
+      // Quest not found on this map - but might be in a portal!
+      if (quest.location?.portal && !DAILY.inPortal) {
+        console.log('[AFO_DAILY] Quest not on map but has portal - going to portal entry');
+        this.goToPortalEntry(quest);
+        return;
+      }
+
+      // Quest not found and no portal = might be in JSON coords or already completed
+      const coords = quest.location?.coords;
+      if (coords) {
+        console.log('[AFO_DAILY] Quest not on map, navigating to JSON coords:', coords);
+        this.navigateToCoords(coords.x, coords.y, () => {
+          // Check again after arriving
+          const found = this.findQuestByName(quest.name);
+          if (found) {
+            this.startDialog(quest, found.qb_id);
+          } else {
+            console.log('[AFO_DAILY] Quest still not found at coords - marking complete');
+            this.verifyAndCompleteQuest(quest);
+          }
+        });
+        return;
+      }
+
+      // No coords, no portal, not on map = likely completed
+      console.log('[AFO_DAILY] Quest not available on map - already completed:', quest.name);
+      this.verifyAndCompleteQuest(quest);
       return;
     }
 
-    // Max 10 attempts (5 seconds)
-    if (attempts >= 10) {
-      // After timeout, check if quest exists
+    // Max 15 attempts (7.5 seconds) - increased for slower connections
+    if (attempts >= 15) {
+      console.warn('[AFO_DAILY] map_quests timeout after', attempts, 'attempts');
+
+      // If quest has portal, try going there
+      if (quest.location?.portal && !DAILY.inPortal) {
+        console.log('[AFO_DAILY] Timeout but quest has portal - going to portal entry');
+        this.goToPortalEntry(quest);
+        return;
+      }
+
+      // Try JSON coords
+      const coords = quest.location?.coords;
+      if (coords) {
+        console.log('[AFO_DAILY] Timeout, navigating to JSON coords:', coords);
+        this.navigateToCoords(coords.x, coords.y, () => {
+          const found = this.findQuestByName(quest.name);
+          if (found) {
+            this.startDialog(quest, found.qb_id);
+          } else {
+            console.warn('[AFO_DAILY] Quest not found after timeout - skipping');
+            this.skipQuestWithMark(quest, 'Nie znaleziono questa na mapie');
+          }
+        });
+        return;
+      }
+
+      // Last resort - try anyway
       const questData = this.findQuestByName(quest.name);
       if (questData) {
         console.warn('[AFO_DAILY] map_quests timeout, trying anyway');
         this.navigateToQuestNPC(quest);
       } else {
-        console.log('[AFO_DAILY] Quest not found after timeout - marking complete:', quest.name);
-        this.onQuestComplete(quest);
+        console.warn('[AFO_DAILY] Quest not found after timeout - skipping');
+        this.skipQuestWithMark(quest, 'Nie znaleziono questa na mapie');
       }
       return;
     }

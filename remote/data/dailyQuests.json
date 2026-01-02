@@ -79,7 +79,7 @@
         6
       ],
       "enabled": true,
-      "priority": 2,
+      "priority": 1,
       "locationType": "empire_hq",
       "location": {
         "name": "Siedziba Imperium",
@@ -394,8 +394,6 @@
     {
       "name": "Studnia Życzeń [LV3]",
       "born": [
-        0,
-        1,
         2,
         3,
         4,
@@ -435,9 +433,6 @@
     {
       "name": "Studnia Życzeń [LV4]",
       "born": [
-        0,
-        1,
-        2,
         3,
         4,
         5,
@@ -476,9 +471,6 @@
     {
       "name": "Studnia Życzeń [LV5]",
       "born": [
-        0,
-        1,
-        2,
         3,
         4,
         5,
@@ -552,6 +544,115 @@
         {
           "type": "ACTION",
           "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Reputacja",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Bogów",
+        "locId": 73,
+        "coords": {
+          "x": 14,
+          "y": 7
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 15
+          },
+          "exit": {
+            "x": 10,
+            "y": 10
+          },
+          "innerLocId": 531,
+          "innerQuests": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Premium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Bogów",
+        "locId": 73,
+        "coords": {
+          "x": 7,
+          "y": 7
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 15
+          },
+          "exit": {
+            "x": 10,
+            "y": 10
+          },
+          "innerLocId": 531,
+          "innerQuests": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Wymiana Chi",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Wnętrze Cerbera",
+        "locId": 396,
+        "coords": {
+          "x": 3,
+          "y": 9
+        }
+      },
+      "stages": [
+        {
+          "type": "RESOURCE",
+          "dynamic": true,
+          "count": 10
         }
       ]
     },
