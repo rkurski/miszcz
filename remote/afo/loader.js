@@ -42,6 +42,7 @@ if (typeof GAME === 'undefined') {
         'resources.js',
         'codes.js',
         'glebia.js',
+        'ballSearcher.js',
         'index.js'
       ];
 

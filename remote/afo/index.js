@@ -178,6 +178,7 @@ const AFO = {
     // Initialize submodules that need EasyStar
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
+    if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.init();
 
     // Bind submodule handlers
     if (typeof AFO_PVP !== 'undefined') AFO_PVP.bindHandlers();
@@ -186,6 +187,7 @@ const AFO = {
     if (typeof AFO_RES !== 'undefined') AFO_RES.bindHandlers();
     if (typeof AFO_CODE !== 'undefined') AFO_CODE.bindHandlers();
     if (typeof AFO_GLEBIA !== 'undefined') AFO_GLEBIA.bindHandlers();
+    if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.bindHandlers();
 
     // List mines after delay
     setTimeout(() => {
