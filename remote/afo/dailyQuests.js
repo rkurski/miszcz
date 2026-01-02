@@ -460,6 +460,7 @@ const AFO_DAILY = {
     if (DAILY.stop || DAILY.paused) return;
 
     DAILY.paused = true;
+    PVP.stop = true;  // Stop AFO_PVP if running
     $('#daily_pause_btn').text('WZNÓW');
     this.updateStatus('⏸ Wstrzymano');
     console.log('[AFO_DAILY] Paused');
@@ -495,6 +496,7 @@ const AFO_DAILY = {
     DAILY.isNavigating = false;
     DAILY.isTeleporting = false;
     DAILY.isInCombat = false;
+    PVP.stop = true;  // Stop AFO_PVP if running
 
     // Update UI - show START, hide PAUZA and PRZERWIJ
     $('#daily_start_btn').removeClass('hidden');
@@ -861,6 +863,27 @@ const AFO_DAILY = {
 
     if (DAILY.Path.length === 0) {
       DAILY.isNavigating = false;
+
+      console.log('[AFO_DAILY] Path complete at', GAME.char_data.x, GAME.char_data.y);
+
+      // Check if there's a portal to enter
+      const portalBtn = $('button[data-option="use_loc_tp"]').first();
+      console.log('[AFO_DAILY] Portal button found:', portalBtn.length > 0);
+
+      if (portalBtn.length > 0) {
+        console.log('[AFO_DAILY] Found portal, entering');
+        GAME.emitOrder({ a: 6 });
+
+        // Wait for teleport and then continue
+        setTimeout(() => {
+          if (DAILY._navCallback) {
+            DAILY._navCallback();
+            DAILY._navCallback = null;
+          }
+        }, 1500);
+        return;
+      }
+
       if (DAILY._navCallback) {
         DAILY._navCallback();
         DAILY._navCallback = null;
@@ -1117,15 +1140,15 @@ const AFO_DAILY = {
   parseQuestRequirements() {
     const desc = $('#quest_con .quest_desc').text();
 
-    // BOT_KILL: "Pokonaj: MobName(Rank) 0/100"
-    const mobMatch = desc.match(/Pokonaj:\s*([^\(]+)\(([^\)]+)\)\s*(\d+)\/(\d+)/);
+    // BOT_KILL: "Pokonaj: MobName(Rank) 20 880/25 000" - numbers may have spaces
+    const mobMatch = desc.match(/Pokonaj:\s*([^\(]+)\(([^\)]+)\)\s*([\d\s]+)\/([\d\s]+)/);
     if (mobMatch) {
       return {
         type: 'BOT_KILL',
         mob: mobMatch[1].trim(),
         rank: mobMatch[2].toLowerCase(),
-        current: parseInt(mobMatch[3]),
-        target: parseInt(mobMatch[4])
+        current: parseInt(mobMatch[3].replace(/\s/g, '')),
+        target: parseInt(mobMatch[4].replace(/\s/g, ''))
       };
     }
 
@@ -1549,10 +1572,23 @@ const AFO_DAILY = {
     }
 
     // Check track_quest for completion (green = done)
-    const qbId = this.getQuestQbId(quest);
-    const trackQuest = $(`#track_quest_${qbId}`);
+    // Get fresh qbId from map_quests (not stale from quest object)
+    const questData = this.findQuestByName(quest.name);
+    const qbId = questData?.qb_id;
 
-    if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
+    if (!qbId) {
+      // Quest not in map anymore = already complete
+      console.log('[AFO_DAILY] Quest not in map_quests - marking complete');
+      this.stopPvpAndComplete(quest);
+      return;
+    }
+
+    const trackQuest = $(`#track_quest_${qbId}`);
+    const greenSpan = trackQuest.find('.green');
+
+    console.log('[AFO_DAILY] PVP check - qbId:', qbId, 'track:', trackQuest.length, 'green:', greenSpan.length);
+
+    if (trackQuest.length > 0 && greenSpan.length > 0) {
       console.log('[AFO_DAILY] PvP track quest shows green - complete');
       this.stopPvpAndComplete(quest);
       return;
@@ -1573,13 +1609,17 @@ const AFO_DAILY = {
       }
     }
 
+    // Log monitoring
+    console.log('[AFO_DAILY] PVP monitoring, PVP.stop =', PVP?.stop);
+
     // Start AFO_PVP if not already running
-    if (typeof AFO_PVP !== 'undefined' && !PVP.stop) {
+    if (typeof AFO_PVP !== 'undefined' && PVP.stop === false) {
       // Already running, just keep monitoring
       setTimeout(() => this.doPvpCombat(quest, requires), 500);
     } else if (typeof AFO_PVP !== 'undefined') {
-      console.log('[AFO_DAILY] Starting AFO_PVP');
+      console.log('[AFO_DAILY] Starting AFO_PVP (without codes)');
       PVP.stop = false;
+      PVP.code = false;  // Disable codes
       AFO_PVP.start();
       // Monitor for completion
       setTimeout(() => this.doPvpCombat(quest, requires), 500);
