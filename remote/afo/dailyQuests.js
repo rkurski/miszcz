@@ -18,6 +18,11 @@ const AFO_DAILY = {
   Finder: null,               // EasyStar instance for pathfinding
   dataLoaded: false,
 
+  // Stuck detection state
+  _lastProgress: 0,
+  _lastProgressTime: 0,
+  _stuckAttempts: 0,
+
   // ============================================
   // INITIALIZATION
   // ============================================
@@ -162,6 +167,34 @@ const AFO_DAILY = {
         padding: 2px;
         font-size: 11px;
       }
+      #daily_Panel .daily_quest_item.premium {
+        background: linear-gradient(90deg, rgba(255,215,0,0.15) 0%, rgba(255,215,0,0.05) 100%);
+        border-left: 3px solid #ffd700;
+      }
+      #daily_Panel .daily_quest_item.premium .quest_name {
+        color: #ffd700;
+        font-weight: bold;
+      }
+      #daily_Panel .daily_quest_item.waiting {
+        background: linear-gradient(90deg, rgba(100,149,237,0.15) 0%, rgba(100,149,237,0.05) 100%);
+        border-left: 3px solid #6495ed;
+      }
+      #daily_Panel .daily_quest_item.waiting .quest_name {
+        color: #6495ed;
+      }
+      #daily_Panel .daily_quest_item .quest_timer {
+        color: #6495ed;
+        font-size: 10px;
+        margin-left: 5px;
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      #daily_Panel .daily_options input[type="checkbox"] {
+        margin-right: 4px;
+      }
     `;
 
     if (!document.getElementById('daily_quests_css')) {
@@ -176,63 +209,112 @@ const AFO_DAILY = {
   // TELEPORT LOCATIONS
   // ============================================
 
-  getTeleportLocationsOptions() {
-    let options = '<option value="current">Obecna lokacja</option>';
+  /**
+   * Request teleport locations list from server
+   * Uses same method as ballSearcher: a:19, type:1
+   */
+  requestTeleportLocs() {
+    GAME.emitOrder({ a: 19, type: 1 });
+    console.log('[AFO_DAILY] Requested teleport locations from server');
+  },
 
-    // Get teleport locations from game
-    if (GAME.teleport_locs && Array.isArray(GAME.teleport_locs)) {
-      const currentBorn = GAME.char_data.reborn;
+  /**
+   * Get teleport locations from #tp_list DOM (populated by a:19, type:1)
+   * Returns array of {id, name, reborn}
+   */
+  getTeleportLocsFromDOM() {
+    const currentReborn = GAME.char_data?.reborn || 0;
+    const list = document.querySelector('#tp_list');
+    const locs = [];
 
-      // Filter and sort by id (oldest first)
-      const locs = GAME.teleport_locs
-        .filter(loc => loc.reborn <= currentBorn)
-        .sort((a, b) => a.id - b.id);
-
-      locs.forEach(loc => {
-        options += `<option value="${loc.id}">${loc.name}</option>`;
-      });
+    if (!list) {
+      console.log('[AFO_DAILY] #tp_list not found');
+      return locs;
     }
+
+    const items = list.querySelectorAll('[data-loc]');
+    items.forEach(item => {
+      const locId = item.getAttribute('data-loc');
+      const rebornVal = item.getAttribute('data-reborn');
+      const locName = item.textContent.trim() || `Lokacja ${locId}`;
+
+      // Only locations for current reborn
+      if (locId && /^\d{1,4}$/.test(locId) && parseInt(rebornVal) === currentReborn) {
+        locs.push({
+          id: parseInt(locId),
+          name: locName,
+          reborn: parseInt(rebornVal)
+        });
+      }
+    });
+
+    return locs.reverse(); // Oldest first
+  },
+
+  /**
+   * Get teleport locations options for dropdown
+   */
+  getTeleportLocationsOptions() {
+    const currentBorn = GAME.char_data?.reborn || 0;
+    let options = '<option value="current">Obecna lokacja</option>';
 
     // Add private planet if available
     if (GAME.quick_opts && GAME.quick_opts.private_planet) {
       options += '<option value="private">Prywatna planeta</option>';
+    }
+
+    // Get teleport locations from DOM
+    const locs = this.getTeleportLocsFromDOM();
+
+    if (locs.length > 0) {
+      // Get default location for current born from config
+      const defaultLocId = DAILY.config?.defaultCombatLocByBorn?.[currentBorn];
+
+      locs.forEach(loc => {
+        const selected = (defaultLocId && loc.id == defaultLocId) ? ' selected' : '';
+        options += `<option value="${loc.id}"${selected}>${loc.name}</option>`;
+      });
     }
 
     return options;
   },
 
-  // ============================================
-  // TELEPORT LOCATIONS
-  // ============================================
-
-  getTeleportLocationsOptions() {
-    const currentBorn = GAME.char_data.reborn;
-    let options = '';
-    let isFirstLoc = true;
-
-    // Get teleport locations from game
-    if (GAME.teleport_locs && Array.isArray(GAME.teleport_locs)) {
-      // Filter and sort by id (oldest first)
-      const locs = GAME.teleport_locs
-        .filter(loc => loc.reborn <= currentBorn)
-        .sort((a, b) => a.id - b.id);
-
-      locs.forEach(loc => {
-        const selected = isFirstLoc ? ' selected' : '';
-        options += `<option value="${loc.id}"${selected}>${loc.name}</option>`;
-        isFirstLoc = false;
-      });
+  /**
+   * Refresh the combat location dropdown with current locations
+   */
+  refreshCombatLocDropdown() {
+    const $select = $('#daily_combat_loc');
+    if ($select.length > 0) {
+      const currentVal = $select.val();
+      $select.html(this.getTeleportLocationsOptions());
+      // Try to restore previous selection
+      if (currentVal && $select.find(`option[value="${currentVal}"]`).length > 0) {
+        $select.val(currentVal);
+      }
+      console.log('[AFO_DAILY] Combat location dropdown refreshed');
     }
+  },
 
-    // Add current location option
-    options += '<option value="current">Obecna lokacja</option>';
+  // ============================================
+  // QUEST AVAILABILITY CHECK
+  // ============================================
 
-    // Add private planet if available
-    if (GAME.quick_opts && GAME.quick_opts.private_planet) {
-      options += '<option value="private">Prywatna planeta</option>';
+  /**
+   * Check if player has access to quest location
+   * Hide quests for private planet/clan/empire if player doesn't have them
+   */
+  isQuestAvailable(quest) {
+    if (quest.locationType === 'private_planet') {
+      return !!(GAME.quick_opts && GAME.quick_opts.private_planet);
     }
-
-    return options;
+    if (quest.locationType === 'clan_planet') {
+      // Check if player is in a clan
+      return !!(GAME.char_data && GAME.quick_opts.clan_planet);
+    }
+    if (quest.locationType === 'empire_hq') {
+      return !!(GAME.quick_opts && GAME.quick_opts.empire);
+    }
+    return true;
   },
 
   // ============================================
@@ -253,8 +335,14 @@ const AFO_DAILY = {
       const data = await response.json();
 
       DAILY.questData = data.quests || [];
+      DAILY.config = data.config || {};  // Save config (defaultCombatLocByBorn, etc.)
       this.dataLoaded = true;
-      console.log(`[AFO_DAILY] Loaded ${DAILY.questData.length} quests`);
+      console.log(`[AFO_DAILY] Loaded ${DAILY.questData.length} quests, config:`, DAILY.config);
+
+      // Request teleport locations from server and refresh dropdown after delay
+      this.requestTeleportLocs();
+      setTimeout(() => this.refreshCombatLocDropdown(), 2000);
+
       return true;
     } catch (error) {
       console.error('[AFO_DAILY] Failed to load quest data:', error);
@@ -285,14 +373,21 @@ const AFO_DAILY = {
         </div>
         <div class="daily_quest_list" id="daily_quest_list"></div>
         <div class="daily_options">
-          <label style="cursor: pointer;">
-            SUB: <span id="daily_substance_toggle" class="daily_toggle" data-value="x20" style="background: #555; padding: 2px 8px; border-radius: 3px; font-size: 11px;">x20</span>
-          </label>
-          <label>Walka:
-            <select id="daily_combat_loc">
-              ${this.getTeleportLocationsOptions()}
-            </select>
-          </label>
+          <div style="margin-bottom: 5px;">
+            <label>Walka:
+              <select id="daily_combat_loc" style="width: 180px;">
+                ${this.getTeleportLocationsOptions()}
+              </select>
+            </label>
+          </div>
+          <div>
+            <label style="cursor: pointer;">
+              SUB: <span id="daily_substance_toggle" class="daily_toggle" data-value="x20" style="background: #555; padding: 2px 8px; border-radius: 3px; font-size: 11px;">x20</span>
+            </label>
+            <label style="cursor: pointer; margin-left: 15px;">
+              ⏱ <span id="daily_compressor_toggle" class="daily_toggle" data-value="off" style="background: #555; padding: 2px 8px; border-radius: 3px; font-size: 11px;">NIE</span>
+            </label>
+          </div>
         </div>
         <div class="daily_controls">
           <button class="newBtn" id="daily_start_btn">START</button>
@@ -318,25 +413,58 @@ const AFO_DAILY = {
 
   renderQuestList() {
     const currentBorn = GAME.char_data.reborn;
-    const quests = DAILY.questData.filter(q => q.born.includes(currentBorn));
+    const quests = DAILY.questData
+      .filter(q => q.born.includes(currentBorn))
+      .filter(q => this.isQuestAvailable(q));
 
     let html = '';
     quests.forEach((quest, idx) => {
       const isCompleted = DAILY.completedQuests.includes(quest.name);
       const isUserDisabled = DAILY.skippedQuests.includes(quest.name);  // User unchecked
       const isFailed = DAILY.failedQuests.includes(quest.name);         // Bot couldn't complete
-      const isEnabled = quest.enabled && !isUserDisabled;
+      const isWaiting = DAILY.waitingQuests?.some(w => w.name === quest.name);  // Waiting for timer
       const isCurrent = DAILY.questQueue[DAILY.currentQuestIdx]?.name === quest.name;
+
+      // Checkbox state: enabled from JSON is default, but user can override via skippedQuests
+      // If user unchecked (in skippedQuests) -> unchecked
+      // If not in skippedQuests and quest.enabled !== false -> checked (enabled defaults to true)
+      const isEnabled = !isUserDisabled && quest.enabled !== false;
 
       const completedClass = isCompleted ? 'completed' : '';
       const failedClass = isFailed ? 'skipped' : '';  // Orange style only for failed
       const currentClass = isCurrent && !DAILY.stop ? 'current' : '';
+      const premiumClass = quest.premium ? 'premium' : '';
+      const waitingClass = isWaiting ? 'waiting' : '';
       const checked = isEnabled && !isCompleted && !isFailed ? 'checked' : '';
 
+      // Get waiting time from track_quest data-end if applicable
+      let waitingInfo = '';
+      if (isWaiting) {
+        const waitData = DAILY.waitingQuests.find(w => w.name === quest.name);
+        if (waitData && waitData.qbId) {
+          // Try to get timer from track_quest (more accurate, updates in real-time)
+          const trackTimer = $(`#track_quest_${waitData.qbId} .timer[data-end]`);
+          if (trackTimer.length > 0) {
+            const timerText = trackTimer.text().trim();
+            if (timerText) {
+              waitingInfo = `<span class="quest_timer">⏱ ${timerText}</span>`;
+            }
+          }
+          // Fallback to calculated time
+          if (!waitingInfo && waitData.endTime) {
+            const remaining = Math.max(0, waitData.endTime - Date.now());
+            const mins = Math.floor(remaining / 60000);
+            const secs = Math.floor((remaining % 60000) / 1000);
+            waitingInfo = `<span class="quest_timer">⏱ ${mins}:${secs.toString().padStart(2, '0')}</span>`;
+          }
+        }
+      }
+
       html += `
-        <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass}" data-quest-name="${quest.name}">
+        <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
           <span class="quest_name">${quest.name}</span>
+          ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
         </div>
       `;
@@ -468,6 +596,23 @@ const AFO_DAILY = {
     // Combat location selection
     $('#daily_combat_loc').on('change', (e) => {
       DAILY.combatLoc = $(e.target).val();
+      console.log('[AFO_DAILY] Combat location changed:', DAILY.combatLoc);
+    });
+
+    // Initialize combatLoc from current dropdown value
+    DAILY.combatLoc = $('#daily_combat_loc').val() || 'current';
+    console.log('[AFO_DAILY] Combat location initialized:', DAILY.combatLoc);
+
+    // Use compressor (zegarek) toggle - click to switch TAK/NIE
+    $('#daily_compressor_toggle').on('click', (e) => {
+      const $toggle = $(e.target);
+      const currentValue = $toggle.attr('data-value');
+      const newValue = currentValue === 'off' ? 'on' : 'off';
+      $toggle.attr('data-value', newValue);
+      $toggle.text(newValue === 'on' ? 'TAK' : 'NIE');
+      $toggle.css('background', newValue === 'on' ? '#4CAF50' : '#555');
+      DAILY.useCompressor = (newValue === 'on');
+      console.log('[AFO_DAILY] useCompressor:', DAILY.useCompressor);
     });
 
     // Start button
@@ -500,11 +645,13 @@ const AFO_DAILY = {
       return;
     }
 
-    // Build quest queue from enabled quests
+    // Build quest queue from checked quests (not in skippedQuests)
+    // JSON 'enabled' flag only sets default checkbox state, user's checkbox state is final
     const currentBorn = GAME.char_data.reborn;
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
-      .filter(q => q.enabled && !DAILY.skippedQuests.includes(q.name))
+      .filter(q => this.isQuestAvailable(q))
+      .filter(q => !DAILY.skippedQuests.includes(q.name))
       .filter(q => !DAILY.completedQuests.includes(q.name))
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
@@ -664,8 +811,12 @@ const AFO_DAILY = {
       }
     }
 
-    // Check if done
+    // Check if done with regular queue
     if (DAILY.currentQuestIdx >= DAILY.questQueue.length) {
+      // Check waiting quests before stopping
+      if (this.checkWaitingQuests()) {
+        return; // Processing a waiting quest
+      }
       this.stop('Wykonano wszystkie questy!');
       return;
     }
@@ -680,6 +831,179 @@ const AFO_DAILY = {
     }
 
     this.processQuest(quest);
+  },
+
+  /**
+   * Check if any waiting quests are ready to complete
+   * Returns true if processing a waiting quest or staying in standby, false if should stop
+   */
+  checkWaitingQuests() {
+    if (!DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
+      return false; // No waiting quests, can stop
+    }
+
+    const now = Date.now();
+
+    // Update endTime from track_quest for all waiting quests
+    DAILY.waitingQuests.forEach(w => {
+      if (w.qbId) {
+        const trackTimer = $(`#track_quest_${w.qbId} .timer[data-end]`);
+        if (trackTimer.length > 0) {
+          const dataEnd = parseInt(trackTimer.attr('data-end'));
+          if (dataEnd > 0) {
+            w.endTime = dataEnd * 1000;
+          }
+        }
+      }
+    });
+
+    // Find quests that are ready (timer expired OR track_quest shows green)
+    const readyQuests = DAILY.waitingQuests.filter(w => {
+      // Check if timer expired
+      if (now >= w.endTime) {
+        return true;
+      }
+
+      // Check if track_quest shows green (quest might be completable via other means)
+      if (w.qbId) {
+        const trackQuest = $(`#track_quest_${w.qbId}`);
+        if (trackQuest.find('.green').length > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (readyQuests.length > 0) {
+      // Process first ready quest
+      const waitData = readyQuests[0];
+      console.log('[AFO_DAILY] Waiting quest ready:', waitData.name);
+
+      // Remove from waiting list
+      DAILY.waitingQuests = DAILY.waitingQuests.filter(w => w.name !== waitData.name);
+
+      this.updateStatus(`${waitData.name}: Timer zakończony, kończę quest`);
+      this.renderQuestList();
+
+      // Navigate back to quest NPC to finish
+      const quest = waitData.quest;
+      this.goToQuestLocation(quest, () => {
+        this.navigateToQuestNPC(quest);
+      });
+
+      return true;
+    }
+
+    // No ready quests but there are pending - stay in STANDBY mode
+    console.log('[AFO_DAILY] Standby mode - waiting for', DAILY.waitingQuests.length, 'quests');
+    this.updateWaitingQuestsUI();
+
+    // Return true to prevent stop() from being called
+    // Schedule periodic checks
+    this.scheduleWaitingCheck();
+
+    return true; // Stay active in standby
+  },
+
+  /**
+   * Schedule periodic check for waiting quests
+   */
+  scheduleWaitingCheck() {
+    if (DAILY._waitingCheckInterval) {
+      clearInterval(DAILY._waitingCheckInterval);
+    }
+
+    // Check every 5 seconds
+    DAILY._waitingCheckInterval = setInterval(() => {
+      if (DAILY.stop || !DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
+        clearInterval(DAILY._waitingCheckInterval);
+        DAILY._waitingCheckInterval = null;
+        if (!DAILY.stop && DAILY.waitingQuests?.length === 0) {
+          this.stop('Wykonano wszystkie questy!');
+        }
+        return;
+      }
+
+      // Re-render to update timers
+      this.renderQuestList();
+
+      // Check if any are ready
+      if (this.checkWaitingQuests()) {
+        // A quest became ready and is being processed
+        clearInterval(DAILY._waitingCheckInterval);
+        DAILY._waitingCheckInterval = null;
+      }
+    }, 5000);
+  },
+
+  /**
+   * Update UI for waiting quests
+   */
+  updateWaitingQuestsUI() {
+    if (!DAILY.waitingQuests || DAILY.waitingQuests.length === 0) return;
+
+    const now = Date.now();
+    let closestEnd = Infinity;
+
+    DAILY.waitingQuests.forEach(w => {
+      const remaining = Math.max(0, w.endTime - now);
+      if (remaining < closestEnd) {
+        closestEnd = remaining;
+      }
+    });
+
+    if (closestEnd < Infinity) {
+      const mins = Math.floor(closestEnd / 60000);
+      const secs = Math.floor((closestEnd % 60000) / 1000);
+      this.updateStatus(`Oczekujące: ${DAILY.waitingQuests.length} (następny za ${mins}:${secs.toString().padStart(2, '0')})`);
+    }
+
+    // Re-render to update timers
+    this.renderQuestList();
+
+    // Schedule next check
+    if (closestEnd > 0) {
+      setTimeout(() => {
+        if (!DAILY.stop && DAILY.currentQuestIdx >= DAILY.questQueue.length) {
+          this.checkWaitingQuests();
+        }
+      }, Math.min(closestEnd + 1000, 30000)); // Check when timer expires or every 30s
+    }
+  },
+
+  /**
+   * Go to quest location for waiting quest completion
+   */
+  goToQuestLocation(quest, callback) {
+    switch (quest.locationType) {
+      case 'private_planet':
+        this.goToPrivatePlanet(quest);
+        DAILY._afterTeleportCallback = callback;
+        break;
+      case 'clan_planet':
+        this.goToClanPlanet(quest);
+        DAILY._afterTeleportCallback = callback;
+        break;
+      case 'empire_hq':
+        this.goToEmpireHQ(quest);
+        DAILY._afterTeleportCallback = callback;
+        break;
+      case 'normal':
+      default:
+        // Check if need to teleport
+        const locId = quest.location?.locId;
+        if (locId && GAME.char_data.loc !== locId) {
+          this.updateStatus(`Teleport: ${quest.location.name || locId}`);
+          DAILY.isTeleporting = true;
+          DAILY._currentQuest = quest;
+          DAILY._afterTeleportCallback = callback;
+          GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+        } else {
+          callback();
+        }
+        break;
+    }
   },
 
   processQuest(quest) {
@@ -720,15 +1044,25 @@ const AFO_DAILY = {
       return;
     }
 
-    // If already on location
-    if (GAME.char_data.loc === locId || DAILY.inPortal) {
+    // If already on location - skip teleport (optimization for multi-quest on same loc)
+    if (GAME.char_data.loc === locId) {
+      console.log('[AFO_DAILY] Already on location', locId, '- skipping teleport');
+      this.navigateToQuestNPC(quest);
+      return;
+    }
+
+    // If in portal, navigate within portal
+    if (DAILY.inPortal) {
+      console.log('[AFO_DAILY] In portal - navigating within portal');
       this.navigateToQuestNPC(quest);
       return;
     }
 
     // Teleport
     this.updateStatus(`Teleport: ${quest.location.name || locId}`);
+    console.log('[AFO_DAILY] Teleporting to location', locId);
     DAILY.isTeleporting = true;
+    DAILY._currentQuest = quest;
     GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
     // Continue in handleSockets
   },
@@ -1153,6 +1487,13 @@ const AFO_DAILY = {
       return;
     }
 
+    // STUDNIA ŻYCZEŃ early detection - handle with special slow timing
+    if (quest.name && quest.name.startsWith('Studnia Życzeń')) {
+      console.log('[AFO_DAILY] Detected Studnia quest, using special handler');
+      this.handleStudniaQuest(quest);
+      return;
+    }
+
     // Check for requirements
     const requires = this.parseQuestRequirements();
     console.log('[AFO_DAILY] Parsed requirements:', requires);
@@ -1392,18 +1733,108 @@ const AFO_DAILY = {
     }
   },
 
+  // Special handler for Studnia Życzeń quests - needs slower timing
+  handleStudniaQuest(quest) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Handling Studnia Życzeń with slow timing');
+
+    // Check if quest is already completed (GAME.map_quests has [false] for this quest)
+    const questData = this.findQuestByName(quest.name);
+    if (!questData) {
+      console.log('[AFO_DAILY] Studnia quest already completed (not found on map)');
+      DAILY._studniaAttempts = 0;
+      $('#quest_con').hide();  // Close dialog if still open
+      this.onQuestComplete(quest);
+      return;
+    }
+
+    DAILY._studniaAttempts = (DAILY._studniaAttempts || 0) + 1;
+
+    if (DAILY._studniaAttempts > 20) {
+      console.warn('[AFO_DAILY] Studnia: too many attempts, skipping');
+      DAILY._studniaAttempts = 0;
+      this.skipQuestWithMark(quest, 'Nie udało się ukończyć studni');
+      return;
+    }
+
+    const finishBtns = $('button[data-option=finish_quest]');
+
+    // Look for "Mam dość tej studni" button (always button 2 when present)
+    if (finishBtns.length >= 2) {
+      const btn2Text = finishBtns.eq(1).text().trim();
+      console.log('[AFO_DAILY] Studnia buttons:', finishBtns.length, 'btn2:', btn2Text);
+
+      if (btn2Text === 'Mam dość tej studni') {
+        console.log('[AFO_DAILY] Found "Mam dość" button, clicking');
+        const qb_id = finishBtns.eq(1).attr('data-qb_id');
+        DAILY._finishClicked = true;
+        DAILY._studniaAttempts = 0;
+        GAME.socket.emit('ga', { a: 22, type: 2, button: 2, id: qb_id });
+        // Much longer delay for studnia - wait for server response
+        setTimeout(() => this.afterStudniaClick(quest), 2000);
+        return;
+      }
+    }
+
+    // Only 1 button or no "Mam dość" yet - click first button and wait
+    if (finishBtns.length >= 1) {
+      console.log('[AFO_DAILY] Studnia: clicking first button, waiting for "Mam dość"');
+      const qb_id = finishBtns.first().attr('data-qb_id');
+      const button = parseInt(finishBtns.first().attr('data-button')) || 1;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: qb_id });
+      // Wait longer, then check for "Mam dość" button
+      setTimeout(() => this.handleStudniaQuest(quest), 1500);
+      return;
+    }
+
+    // No buttons yet - wait
+    setTimeout(() => this.handleStudniaQuest(quest), 800);
+  },
+
+  afterStudniaClick(quest) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Check if dialog closed = success
+    if (!$('#quest_con').is(':visible')) {
+      console.log('[AFO_DAILY] Studnia complete - dialog closed');
+      DAILY._finishClicked = false;
+      this.verifyAndCompleteQuest(quest);
+      return;
+    }
+
+    // Dialog still open - might need to click again
+    const finishBtns = $('button[data-option=finish_quest]');
+    if (finishBtns.length === 0) {
+      // No buttons = likely transitioning, wait more
+      setTimeout(() => this.afterStudniaClick(quest), 1000);
+      return;
+    }
+
+    // Continue handling
+    this.handleStudniaQuest(quest);
+  },
+
   parseQuestRequirements() {
     const desc = $('#quest_con .quest_desc').text();
+    console.log('[AFO_DAILY] parseQuestRequirements desc:', desc.substring(0, 200));
+
+    // Normalize whitespace for easier matching
+    const normalizedDesc = desc.replace(/\s+/g, ' ');
 
     // BOT_KILL: "Pokonaj: MobName(Rank) 20 880/25 000" - numbers may have spaces
-    const mobMatch = desc.match(/Pokonaj:\s*([^\(]+)\(([^\)]+)\)\s*([\d\s]+)\/([\d\s]+)/);
+    // Also matches "Dowolny przeciwnik(Elita)"
+    const mobMatch = normalizedDesc.match(/Pokonaj:\s*([^\(]+)\s*\(([^\)]+)\)\s*([\d\s]+)\s*\/\s*([\d\s]+)/i);
     if (mobMatch) {
+      const mobName = mobMatch[1].trim();
+      console.log('[AFO_DAILY] BOT_KILL matched:', mobName, mobMatch[2], mobMatch[3], '/', mobMatch[4]);
       return {
         type: 'BOT_KILL',
-        mob: mobMatch[1].trim(),
+        mob: mobName.toLowerCase().includes('dowolny') ? 'any' : mobName,
         rank: mobMatch[2].toLowerCase(),
         current: parseInt(mobMatch[3].replace(/\s/g, '')),
-        target: parseInt(mobMatch[4].replace(/\s/g, ''))
+        target: parseInt(mobMatch[4].replace(/\s/g, '')),
+        isAnyEnemy: mobName.toLowerCase().includes('dowolny')
       };
     }
 
@@ -1507,7 +1938,64 @@ const AFO_DAILY = {
       };
     }
 
+    // WAIT: "Zaczekać 00:10:00" - timer quest (priority: 1 in JSON)
+    const waitMatch = desc.match(/Zaczekać\s+([\d:]+)/i);
+    if (waitMatch) {
+      const timeString = waitMatch[1];
+      const timeSeconds = this.parseTimeToSeconds(timeString);
+      console.log('[AFO_DAILY] Wait requirement detected:', timeString, '=', timeSeconds, 'seconds');
+      return {
+        type: 'WAIT',
+        timeString: timeString,
+        timeSeconds: timeSeconds,
+        current: 0,
+        target: 1
+      };
+    }
+
+    // ZDOBYTE PRZEDMIOTY: "Zdobyte przedmioty 0/5" - dropped items, treat as BOT_KILL
+    const droppedItemsMatch = desc.match(/Zdobyte\s+przedmioty[^\d]*([\d\s]+)\/([\d\s]+)/i);
+    if (droppedItemsMatch) {
+      console.log('[AFO_DAILY] Dropped items detected:', droppedItemsMatch[1], '/', droppedItemsMatch[2]);
+      return {
+        type: 'BOT_KILL',
+        mob: 'any',
+        rank: null,
+        current: parseInt(droppedItemsMatch[1].replace(/\s/g, '')),
+        target: parseInt(droppedItemsMatch[2].replace(/\s/g, '')),
+        isDroppedItems: true
+      };
+    }
+
+    // ZDOBYC OD: "Zdobyć Sadło od Piaskowy chomik (Legendarny) 0/200"
+    const getFromMatch = desc.match(/Zdobyć\s+(.+?)\s+od\s+([^\(]+)\(([^\)]+)\)[^\d]*([\d\s]+)\/([\d\s]+)/i);
+    if (getFromMatch) {
+      console.log('[AFO_DAILY] Get item from mob detected:', getFromMatch[1], 'from', getFromMatch[2], '(', getFromMatch[3], ')');
+      return {
+        type: 'BOT_KILL',
+        itemName: getFromMatch[1].trim(),
+        mob: getFromMatch[2].trim(),
+        rank: getFromMatch[3].toLowerCase(),
+        current: parseInt(getFromMatch[4].replace(/\s/g, '')),
+        target: parseInt(getFromMatch[5].replace(/\s/g, '')),
+        isGetItem: true
+      };
+    }
+
     return null;
+  },
+
+  /**
+   * Parse time string like "00:10:00" to seconds
+   */
+  parseTimeToSeconds(timeStr) {
+    const parts = timeStr.split(':').map(p => parseInt(p) || 0);
+    if (parts.length === 3) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      return parts[0] * 60 + parts[1];
+    }
+    return parseInt(timeStr) || 0;
   },
 
   // ============================================
@@ -1544,10 +2032,119 @@ const AFO_DAILY = {
       case 'RESOURCE_COLLECT':
         this.handleResourceCollect(quest, requires);
         break;
+      case 'WAIT':
+        this.handleWaitQuest(quest, requires);
+        break;
       default:
         // Unknown type, try to continue
         setTimeout(() => this.continueDialog(quest), 500);
     }
+  },
+
+  /**
+   * Handle timer quest - add to waiting queue and continue with other quests
+   * If useCompressor is enabled, skip the timer immediately
+   */
+  handleWaitQuest(quest, requires) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const qbId = requires.originalQbId || this.getQuestQbId(quest);
+    console.log('[AFO_DAILY] Handling WAIT quest:', quest.name, 'qbId:', qbId, 'timeSeconds:', requires.timeSeconds);
+
+    // If timer is already 0 or expired, the quest is ready to complete - continue dialog immediately
+    if (requires.timeSeconds <= 0) {
+      console.log('[AFO_DAILY] Timer already at 0 - quest ready to complete');
+      this.updateStatus(`${quest.name}: Timer zakończony, kończę quest`);
+      setTimeout(() => this.continueDialog(quest), 500);
+      return;
+    }
+
+    // Check track_quest to see if timer already expired
+    const trackQuest = $(`#track_quest_${qbId}`);
+    if (trackQuest.length > 0) {
+      // If track_quest has green class, timer is done
+      if (trackQuest.find('.green').length > 0) {
+        console.log('[AFO_DAILY] Track quest shows green - quest ready to complete');
+        setTimeout(() => this.continueDialog(quest), 500);
+        return;
+      }
+
+      // Check data-end to see if already expired
+      const timerEl = trackQuest.find('.timer[data-end]');
+      if (timerEl.length > 0) {
+        const dataEnd = parseInt(timerEl.attr('data-end'));
+        if (dataEnd > 0 && dataEnd * 1000 <= Date.now()) {
+          console.log('[AFO_DAILY] Timer data-end shows expired - quest ready to complete');
+          setTimeout(() => this.continueDialog(quest), 500);
+          return;
+        }
+      }
+    }
+
+    // If useCompressor is enabled, use compressor to skip timer
+    if (DAILY.useCompressor) {
+      console.log('[AFO_DAILY] useCompressor enabled - skipping timer');
+      this.updateStatus(`${quest.name}: Używam zegarka...`);
+
+      // Click the compress_items button if visible, or emit directly
+      const compressBtn = $(`button[data-option="compress_items"][data-qb_id="${qbId}"]`);
+      if (compressBtn.length > 0) {
+        compressBtn.click();
+      } else {
+        // Fallback: emit compress
+        GAME.socket.emit('ga', { a: 22, type: 10, qb_id: qbId });
+      }
+
+      // Wait and continue dialog to check if quest can be finished
+      setTimeout(() => this.continueDialog(quest), 1500);
+      return;
+    }
+
+    // Get end time from track_quest timer data-end attribute (reuse trackQuest from above)
+    let endTime = Date.now() + (requires.timeSeconds * 1000); // Fallback
+
+    const trackQuestEl = $(`#track_quest_${qbId}`);
+    if (trackQuestEl.length > 0) {
+      const timerEl = trackQuestEl.find('.timer[data-end]');
+      if (timerEl.length > 0) {
+        const dataEnd = parseInt(timerEl.attr('data-end'));
+        if (dataEnd > 0) {
+          // data-end is Unix timestamp in seconds
+          endTime = dataEnd * 1000;
+          console.log('[AFO_DAILY] Got endTime from track_quest data-end:', new Date(endTime));
+        }
+      }
+    }
+
+    // Add quest to waiting queue
+    const waitData = {
+      name: quest.name,
+      quest: quest,
+      requires: requires,
+      endTime: endTime,
+      qbId: qbId
+    };
+
+    if (!DAILY.waitingQuests) {
+      DAILY.waitingQuests = [];
+    }
+
+    // Don't add duplicate
+    if (!DAILY.waitingQuests.some(w => w.name === quest.name)) {
+      DAILY.waitingQuests.push(waitData);
+      console.log('[AFO_DAILY] Added to waiting queue:', quest.name, 'until', new Date(endTime));
+    }
+
+    // Update UI
+    this.renderQuestList();
+    this.updateStatus(`${quest.name}: Czekam, kontynuuję inne`);
+    GAME.komunikat(`[DZIENNE] ${quest.name} - czekam, kontynuuję inne questy`);
+
+    // Close dialog and continue with other quests
+    $('#quest_con').hide();
+
+    // Advance to next quest - waiting quests will be checked at end
+    this.advanceQuestQueue();
   },
 
   handleResourceCollect(quest, requires) {
@@ -1662,12 +2259,21 @@ const AFO_DAILY = {
       RES.stop = true;
     }
 
-    // Re-open dialog to continue
-    const questData = this.findQuestByName(quest.name);
-    if (questData) {
-      setTimeout(() => this.startDialog(quest, questData.qb_id), 800);
+    // Need to return to quest location first, then reopen dialog
+    const locId = quest.location?.locId;
+    const currentLoc = GAME.char_data.loc;
+
+    if (locId && currentLoc !== locId) {
+      // Teleport back to quest location
+      console.log('[AFO_DAILY] Returning to quest location:', locId);
+      this.updateStatus('Wracam do lokacji questa...');
+      DAILY.isTeleporting = true;
+      DAILY._currentQuest = quest;
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+      // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
     } else {
-      this.verifyAndCompleteQuest(quest);
+      // Already on correct location - just navigate to NPC
+      setTimeout(() => this.navigateToQuestNPC(quest), 800);
     }
   },
 
@@ -1680,7 +2286,56 @@ const AFO_DAILY = {
     DAILY._combatQuest = quest;
     DAILY._combatRequires = requires;
 
-    // Start combat loop
+    // Check if quest uses combat location (useCombatLocation flag in JSON)
+    // OR if combatLoc is not 'current' and quest stages include BOT_KILL
+    console.log('[AFO_DAILY] Combat loc check - quest.useCombatLocation:', quest.useCombatLocation, 'DAILY.combatLoc:', DAILY.combatLoc);
+
+    const useCombatLoc = quest.useCombatLocation ||
+      (DAILY.combatLoc && DAILY.combatLoc !== 'current');
+
+    if (useCombatLoc && DAILY.combatLoc && DAILY.combatLoc !== 'current') {
+      // Save original location to return after combat
+      DAILY._originalLocId = GAME.char_data.loc;
+      DAILY._originalCoords = { x: GAME.char_data.x, y: GAME.char_data.y };
+
+      console.log('[AFO_DAILY] Teleporting to combat location:', DAILY.combatLoc);
+      this.updateStatus(`${quest.name}: Teleport do walki...`);
+
+      // Teleport to combat location
+      if (DAILY.combatLoc === 'private') {
+        // Private planet teleport
+        GAME.socket.emit('ga', { a: 16 }); // Return first
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          GAME.socket.emit('ga', { a: 15, type: 13 });
+          // Wait for teleport, then start combat
+          setTimeout(() => {
+            if (DAILY.stop || DAILY.paused) return;
+            console.log('[AFO_DAILY] Arrived at private planet, starting combat');
+            this.combatLoop();
+          }, 2000);
+        }, 800);
+      } else {
+        // Normal teleport by locId
+        const locId = parseInt(DAILY.combatLoc);
+        if (GAME.char_data.loc === locId) {
+          // Already on location
+          console.log('[AFO_DAILY] Already on combat location, starting combat');
+          this.combatLoop();
+        } else {
+          GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+          // Wait for teleport, then start combat
+          setTimeout(() => {
+            if (DAILY.stop || DAILY.paused) return;
+            console.log('[AFO_DAILY] Arrived at combat location, starting combat');
+            this.combatLoop();
+          }, 2000);
+        }
+      }
+      return;
+    }
+
+    // No combat location teleport needed - start combat immediately
     this.combatLoop();
   },
 
@@ -1772,17 +2427,44 @@ const AFO_DAILY = {
 
     // Also check quest_warunek span
     const questSpan = $(`.quest_warunek${qbId}`);
+    let currentProgress = 0;
     if (questSpan.length > 0) {
-      const current = parseInt(questSpan.attr('data-count')) || 0;
+      currentProgress = parseInt(questSpan.attr('data-count')) || 0;
       const target = parseInt(questSpan.attr('data-max')) || requires.target;
 
-      if (current >= target) {
-        console.log('[AFO_DAILY] Combat requirements met:', current, '/', target);
+      if (currentProgress >= target) {
+        console.log('[AFO_DAILY] Combat requirements met:', currentProgress, '/', target);
         this.onCombatComplete(quest);
         return;
       }
 
-      this.updateStatus(`${quest.name}: ${current}/${target}`);
+      this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
+    }
+
+    // Stuck detection - check if progress is being made
+    if (currentProgress > DAILY._lastProgress) {
+      // Progress made - reset stuck detection
+      DAILY._lastProgress = currentProgress;
+      DAILY._lastProgressTime = now;
+      DAILY._stuckAttempts = 0;
+    } else if (DAILY._lastProgressTime > 0 && now - DAILY._lastProgressTime > 10000) {
+      // No progress for 10+ seconds - we might be stuck
+      DAILY._stuckAttempts++;
+      console.warn('[AFO_DAILY] No progress for 10s, attempt', DAILY._stuckAttempts);
+
+      if (DAILY._stuckAttempts >= 3) {
+        console.warn('[AFO_DAILY] Stuck too long, trying random movement');
+        this.attemptUnstuckMove();
+        DAILY._lastProgressTime = now;
+        DAILY._stuckAttempts = 0;
+        return;
+      }
+    }
+
+    // Initialize progress tracking
+    if (DAILY._lastProgressTime === 0) {
+      DAILY._lastProgress = currentProgress;
+      DAILY._lastProgressTime = now;
     }
 
     // Check prereqs first (like RESP)
@@ -1803,6 +2485,33 @@ const AFO_DAILY = {
     DAILY._combatRequires = null;
     DAILY._lastRefresh = 0;
 
+    // Reset stuck detection
+    DAILY._lastProgress = 0;
+    DAILY._lastProgressTime = 0;
+    DAILY._stuckAttempts = 0;
+
+    // Check if we need to return to original location
+    if (DAILY._originalLocId && GAME.char_data.loc !== DAILY._originalLocId) {
+      console.log('[AFO_DAILY] Returning to quest location:', DAILY._originalLocId);
+      this.updateStatus(`${quest.name}: Wracam do questa...`);
+
+      // Teleport back to quest location
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: DAILY._originalLocId });
+
+      // Wait for teleport, then navigate to NPC
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
+        DAILY._originalLocId = null;
+        DAILY._originalCoords = null;
+        this.navigateToQuestNPC(quest);
+      }, 2000);
+      return;
+    }
+
+    // Clear original location data
+    DAILY._originalLocId = null;
+    DAILY._originalCoords = null;
+
     // Re-open dialog to continue
     const questData = this.findQuestByName(quest.name);
     if (questData) {
@@ -1810,6 +2519,19 @@ const AFO_DAILY = {
     } else {
       this.onQuestComplete(quest);
     }
+  },
+
+  // Attempt to move in a random direction when stuck (no combat progress)
+  attemptUnstuckMove() {
+    // Try to move in a random direction to unstick
+    const dirs = [1, 2, 3, 4, 5, 6, 7, 8]; // All 8 directions
+    const randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+
+    console.log('[AFO_DAILY] Attempting unstuck move, direction:', randomDir);
+    GAME.socket.emit('ga', { a: 4, dir: randomDir, vo: GAME.map_options.vo });
+
+    // Continue combat loop after movement
+    setTimeout(() => this.combatLoop(), 1000);
   },
 
   // Get spawner ignore array based on required mob rank
@@ -1838,6 +2560,14 @@ const AFO_DAILY = {
     if (targetRank >= 0) {
       ignore[targetRank] = false;  // Don't ignore the rank we need
       console.log('[AFO_DAILY] Filtering to rank:', requiredRank, '-> index', targetRank);
+    }
+
+    // Safety check: if ALL ranks are being ignored (all true), enable all as fallback
+    if (ignore.every(v => v === true)) {
+      console.warn('[AFO_DAILY] All spawn ranks ignored - enabling all as fallback');
+      for (let i = 0; i < ignore.length; i++) {
+        ignore[i] = false;
+      }
     }
 
     // Click checkboxes in #kws_spawn2 to apply filter
@@ -2121,7 +2851,7 @@ const AFO_DAILY = {
     // Get the saved originalQbId from requires
     const requires = DAILY._pvpRequires;
     const originalQbId = requires?.originalQbId;
-    console.log('[AFO_DAILY] onPvpComplete, originalQbId:', originalQbId);
+    console.log('[AFO_DAILY] onPvpComplete, originalQbId:', originalQbId, 'locationType:', quest.locationType);
 
     // Return from enemy empire if needed
     if (DAILY.targetEmpire && DAILY.targetEmpire !== DAILY.ownEmpire) {
@@ -2131,25 +2861,32 @@ const AFO_DAILY = {
       GAME.socket.emit('ga', { a: 16 });
       DAILY.targetEmpire = 0;
 
-      // Wait 1s, then enter own empire
+      // Wait 1s, then return to appropriate location
       setTimeout(() => {
         if (DAILY.stop || DAILY.paused) return;
 
-        this.updateStatus('Wracam do własnego imperium...');
-        GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
-
-        // Wait 1.5s more for map to load, then go to quest NPC
-        setTimeout(() => {
-          if (DAILY.stop || DAILY.paused) return;
-
-          // Navigate to quest NPC and start dialog with ORIGINAL qbId
-          if (originalQbId) {
-            this.updateStatus('Wracam do NPC...');
-            this.navigateToQuestNPC(quest);
+        // Check quest type to determine where to return
+        if (quest.locationType === 'empire_hq') {
+          // Empire quests - return to own empire HQ (this is correct!)
+          this.updateStatus('Wracam do własnego imperium...');
+          DAILY.isTeleporting = true;
+          DAILY._currentQuest = quest;
+          GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
+          // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
+        } else {
+          // Normal quests (like "Zadanie PvP") - teleport to quest location
+          const locId = quest.location?.locId;
+          if (locId) {
+            this.updateStatus('Teleport do lokacji questa...');
+            DAILY.isTeleporting = true;
+            DAILY._currentQuest = quest;
+            GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+            // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
           } else {
-            this.continueDialog(quest);
+            console.log('[AFO_DAILY] No locId, navigating to NPC directly');
+            setTimeout(() => this.navigateToQuestNPC(quest), 500);
           }
-        }, 1500);
+        }
       }, 1000);
       return;
     }
