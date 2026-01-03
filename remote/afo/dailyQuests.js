@@ -1646,7 +1646,22 @@ const AFO_DAILY = {
       return;
     }
 
+    // FIRST check if there are NEW requirements (e.g. BOT_KILL stage after dialog)
+    // This must be checked BEFORE green status, because track_quest may show green
+    // for the PREVIOUS completed requirement, not the new one
+    const newRequires = this.parseQuestRequirements();
+
+    if (newRequires && newRequires.type !== 'ACTION' && newRequires.current < newRequires.target) {
+      // New stage with new requirements!
+      console.log('[AFO_DAILY] New requirements after finish:', newRequires.type, newRequires.current, '/', newRequires.target);
+      DAILY._finishClicked = false;
+      $('#quest_con').hide();
+      this.handleQuestRequirement(quest, newRequires);
+      return;
+    }
+
     // NOW check track_quest for completion (green = already done!)
+    // Only do this if NO new requirements were found
     const qbId = this.getQuestQbId(quest);
     const trackQuest = $(`#track_quest_${qbId}`);
     if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
@@ -1658,18 +1673,6 @@ const AFO_DAILY = {
         this.verifyAndCompleteQuest(quest);
         return;
       }
-    }
-
-    // Dialog still open - check if there are NEW requirements
-    const newRequires = this.parseQuestRequirements();
-
-    if (newRequires && newRequires.type !== 'ACTION' && newRequires.current < newRequires.target) {
-      // New stage with new requirements!
-      console.log('[AFO_DAILY] New requirements after finish:', newRequires.type, newRequires.current, '/', newRequires.target);
-      DAILY._finishClicked = false;
-      $('#quest_con').hide();
-      this.handleQuestRequirement(quest, newRequires);
-      return;
     }
 
     // Still has finish button? Continue clicking
@@ -2287,11 +2290,12 @@ const AFO_DAILY = {
     DAILY._combatRequires = requires;
 
     // Check if quest uses combat location (useCombatLocation flag in JSON)
-    // OR if combatLoc is not 'current' and quest stages include BOT_KILL
+    // ONLY use combat location when quest.useCombatLocation is explicitly true
+    // If not set or false, fight at current location (where the quest is)
     console.log('[AFO_DAILY] Combat loc check - quest.useCombatLocation:', quest.useCombatLocation, 'DAILY.combatLoc:', DAILY.combatLoc);
 
-    const useCombatLoc = quest.useCombatLocation ||
-      (DAILY.combatLoc && DAILY.combatLoc !== 'current');
+    // Only teleport to combat location if quest explicitly requires it
+    const useCombatLoc = quest.useCombatLocation === true;
 
     if (useCombatLoc && DAILY.combatLoc && DAILY.combatLoc !== 'current') {
       // Save original location to return after combat
@@ -2415,8 +2419,12 @@ const AFO_DAILY = {
     }
 
     // Check if requirements met via #track_quest element (updates in real-time)
-    const qbId = this.getQuestQbId(quest);
+    // Use originalQbId if available (saved before teleporting to combat location)
+    // because after teleporting, findQuestByName won't find the quest in DOM
+    const qbId = requires.originalQbId || this.getQuestQbId(quest);
     const trackQuest = $(`#track_quest_${qbId}`);
+
+    console.log('[AFO_DAILY] Combat progress check - qbId:', qbId, 'trackQuest found:', trackQuest.length > 0);
 
     // First check track_quest - it has green class when complete
     if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
@@ -2428,9 +2436,11 @@ const AFO_DAILY = {
     // Also check quest_warunek span
     const questSpan = $(`.quest_warunek${qbId}`);
     let currentProgress = 0;
+    let target = requires.target;
+
     if (questSpan.length > 0) {
       currentProgress = parseInt(questSpan.attr('data-count')) || 0;
-      const target = parseInt(questSpan.attr('data-max')) || requires.target;
+      target = parseInt(questSpan.attr('data-max')) || requires.target;
 
       if (currentProgress >= target) {
         console.log('[AFO_DAILY] Combat requirements met:', currentProgress, '/', target);
@@ -2439,6 +2449,12 @@ const AFO_DAILY = {
       }
 
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
+    } else {
+      // quest_warunek not found - we may be on a different location (useCombatLocation)
+      // Use requires values as fallback (updated by server socket events)
+      currentProgress = requires.current || 0;
+      console.log('[AFO_DAILY] quest_warunek not found, using requires fallback:', currentProgress, '/', target);
+      this.updateStatus(`${quest.name}: ${currentProgress}/${target} (walka)`);
     }
 
     // Stuck detection - check if progress is being made
