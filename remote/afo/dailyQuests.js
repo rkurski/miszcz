@@ -651,6 +651,7 @@ const AFO_DAILY = {
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q))
+      .filter(q => q.enabled !== false)  // Skip disabled quests from JSON
       .filter(q => !DAILY.skippedQuests.includes(q.name))
       .filter(q => !DAILY.completedQuests.includes(q.name))
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
@@ -1897,15 +1898,20 @@ const AFO_DAILY = {
       };
     }
 
-    // PvM POINTS: "Zdobyte punkty PvM 0/500" - same as BOT_KILL
-    const pvmMatch = desc.match(/punkty\s+PvM.*?(\d+)\/(\d+)/i);
+    // PvM POINTS: "Zdobyte punkty PvM 0/500" or "17 412/500" - same as BOT_KILL
+    // Note: numbers may have space as thousands separator (e.g. "17 412" = 17412)
+    // Use \s+ after PvM to skip whitespace, then capture digits with optional spaces until /
+    const pvmMatch = desc.match(/punkty\s+PvM\s+([\d\s]+)\/([\d\s]+)/i);
     if (pvmMatch) {
+      const currentVal = parseInt(pvmMatch[1].replace(/\s/g, ''));  // Remove spaces: "17 412" -> 17412
+      const targetVal = parseInt(pvmMatch[2].replace(/\s/g, ''));
+      console.log('[AFO_DAILY] PvM points parsed:', currentVal, '/', targetVal);
       return {
         type: 'BOT_KILL',  // Treat as bot kill - just fight on current location
         mob: 'any',
         rank: null,  // No specific rank
-        current: parseInt(pvmMatch[1]),
-        target: parseInt(pvmMatch[2]),
+        current: currentVal,
+        target: targetVal,
         isPvmPoints: true  // Flag to indicate it's PvM points, not specific mob
       };
     }
@@ -1956,6 +1962,20 @@ const AFO_DAILY = {
       };
     }
 
+    // WYDROPIONE PRZEDMIOTY: "Wydropione przedmioty 0/5 000" - dropped items from killing mobs
+    const wydroppedMatch = desc.match(/[Ww]ydropione\s+przedmioty[^\d]*([\d\s]+)\/([\d\s]+)/i);
+    if (wydroppedMatch) {
+      console.log('[AFO_DAILY] Wydropione przedmioty detected:', wydroppedMatch[1], '/', wydroppedMatch[2]);
+      return {
+        type: 'BOT_KILL',
+        mob: 'any',
+        rank: null,
+        current: parseInt(wydroppedMatch[1].replace(/\s/g, '')),
+        target: parseInt(wydroppedMatch[2].replace(/\s/g, '')),
+        isDroppedItems: true
+      };
+    }
+
     // ZDOBYTE PRZEDMIOTY: "Zdobyte przedmioty 0/5" - dropped items, treat as BOT_KILL
     const droppedItemsMatch = desc.match(/Zdobyte\s+przedmioty[^\d]*([\d\s]+)\/([\d\s]+)/i);
     if (droppedItemsMatch) {
@@ -1982,6 +2002,28 @@ const AFO_DAILY = {
         current: parseInt(getFromMatch[4].replace(/\s/g, '')),
         target: parseInt(getFromMatch[5].replace(/\s/g, '')),
         isGetItem: true
+      };
+    }
+
+    // EXPEDITION: "Udaj się na wyprawy 0/10"
+    const expeditionMatch = desc.match(/[Uu]daj\s+się\s+na\s+wyprawy.*?(\d+)\/(\d+)/i);
+    if (expeditionMatch) {
+      console.log('[AFO_DAILY] Expedition detected:', expeditionMatch[1], '/', expeditionMatch[2]);
+      return {
+        type: 'EXPEDITION',
+        current: parseInt(expeditionMatch[1]),
+        target: parseInt(expeditionMatch[2])
+      };
+    }
+
+    // BOUNTY: "Wykonane Listy Gończe PvM 0/60"
+    const bountyMatch = desc.match(/[Ww]ykonane\s+[Ll]isty\s+[Gg]ończe.*?(\d+)\/(\d+)/i);
+    if (bountyMatch) {
+      console.log('[AFO_DAILY] Bounty detected:', bountyMatch[1], '/', bountyMatch[2]);
+      return {
+        type: 'BOUNTY',
+        current: parseInt(bountyMatch[1]),
+        target: parseInt(bountyMatch[2])
       };
     }
 
@@ -2038,6 +2080,12 @@ const AFO_DAILY = {
       case 'WAIT':
         this.handleWaitQuest(quest, requires);
         break;
+      case 'EXPEDITION':
+        this.handleExpedition(quest, requires);
+        break;
+      case 'BOUNTY':
+        this.handleBounty(quest, requires);
+        break;
       default:
         // Unknown type, try to continue
         setTimeout(() => this.continueDialog(quest), 500);
@@ -2086,21 +2134,32 @@ const AFO_DAILY = {
 
     // If useCompressor is enabled, use compressor to skip timer
     if (DAILY.useCompressor) {
-      console.log('[AFO_DAILY] useCompressor enabled - skipping timer');
+      console.log('[AFO_DAILY] useCompressor enabled - attempting to use compressor');
       this.updateStatus(`${quest.name}: Używam zegarka...`);
 
-      // Click the compress_items button if visible, or emit directly
-      const compressBtn = $(`button[data-option="compress_items"][data-qb_id="${qbId}"]`);
-      if (compressBtn.length > 0) {
-        compressBtn.click();
-      } else {
-        // Fallback: emit compress
-        GAME.socket.emit('ga', { a: 22, type: 10, qb_id: qbId });
-      }
+      // Check if compressor button is visible in dialog
+      const compressBtn = $('button[data-option="compress_items"]');
 
-      // Wait and continue dialog to check if quest can be finished
-      setTimeout(() => this.continueDialog(quest), 1500);
-      return;
+      if (compressBtn.length > 0 && GAME.compress_items && GAME.compress_items[0] && GAME.compress_items[0].stack > 0) {
+        // Use the compressor - same logic as combat.js useCompressor()
+        const compressorQbId = compressBtn.attr('data-qb_id');
+        console.log('[AFO_DAILY] Using compressor with item:', GAME.compress_items[0].id, 'on quest:', compressorQbId);
+
+        GAME.socket.emit('ga', {
+          a: 22,
+          type: 10,
+          item_id: GAME.compress_items[0].id,
+          qb_id: compressorQbId
+        });
+
+        // Wait and continue dialog to check if quest can be finished
+        setTimeout(() => this.continueDialog(quest), 1500);
+        return;
+      } else {
+        // No compressor available or no items - fall back to waiting queue
+        console.log('[AFO_DAILY] Compressor button not found or no items, falling back to wait queue');
+        // Don't return - let it fall through to waiting queue logic below
+      }
     }
 
     // Get end time from track_quest timer data-end attribute (reuse trackQuest from above)
@@ -2148,6 +2207,36 @@ const AFO_DAILY = {
 
     // Advance to next quest - waiting quests will be checked at end
     this.advanceQuestQueue();
+  },
+
+  /**
+   * Handle expedition quests - requires manual completion
+   * For now, skip and mark as requiring manual action
+   */
+  handleExpedition(quest, requires) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Expedition quest detected:', quest.name, requires.current, '/', requires.target);
+    this.updateStatus(`${quest.name}: Wymaga wypraw (${requires.current}/${requires.target})`);
+    GAME.komunikat(`[DZIENNE] ${quest.name} wymaga ręcznego wykonania wypraw`);
+
+    $('#quest_con').hide();
+    this.skipQuestWithMark(quest, 'Wymaga ręcznych wypraw');
+  },
+
+  /**
+   * Handle bounty quests - requires completing bounty hunts
+   * For now, skip and mark as requiring manual action
+   */
+  handleBounty(quest, requires) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Bounty quest detected:', quest.name, requires.current, '/', requires.target);
+    this.updateStatus(`${quest.name}: Wymaga listów gończych (${requires.current}/${requires.target})`);
+    GAME.komunikat(`[DZIENNE] ${quest.name} wymaga listów gończych`);
+
+    $('#quest_con').hide();
+    this.skipQuestWithMark(quest, 'Wymaga listów gończych');
   },
 
   handleResourceCollect(quest, requires) {
@@ -2288,6 +2377,13 @@ const AFO_DAILY = {
     DAILY.killCount = requires.current;
     DAILY._combatQuest = quest;
     DAILY._combatRequires = requires;
+
+    // ALWAYS save NPC coords so we can return after combat (even with unstuck moves)
+    // This is separate from _originalLocId which is only for combat location teleports
+    if (quest.location?.coords) {
+      DAILY._npcCoords = { x: quest.location.coords.x, y: quest.location.coords.y };
+      console.log('[AFO_DAILY] Saved NPC coords for return:', DAILY._npcCoords);
+    }
 
     // Check if quest uses combat location (useCombatLocation flag in JSON)
     // ONLY use combat location when quest.useCombatLocation is explicitly true
@@ -2506,27 +2602,57 @@ const AFO_DAILY = {
     DAILY._lastProgressTime = 0;
     DAILY._stuckAttempts = 0;
 
-    // Check if we need to return to original location
+    // Check if we need to return to original location (from useCombatLocation)
     if (DAILY._originalLocId && GAME.char_data.loc !== DAILY._originalLocId) {
       console.log('[AFO_DAILY] Returning to quest location:', DAILY._originalLocId);
       this.updateStatus(`${quest.name}: Wracam do questa...`);
 
+      // Use proper teleport handling - set flags so afterTeleport handles navigation
+      // after map_quests is loaded (not just a timeout)
+      DAILY.isTeleporting = true;
+      DAILY._currentQuest = quest;
+      DAILY._returnFromCombat = true;  // Flag to indicate we're returning from combat
+
       // Teleport back to quest location
       GAME.socket.emit('ga', { a: 12, type: 18, loc: DAILY._originalLocId });
 
-      // Wait for teleport, then navigate to NPC
-      setTimeout(() => {
-        if (DAILY.stop || DAILY.paused) return;
-        DAILY._originalLocId = null;
-        DAILY._originalCoords = null;
-        this.navigateToQuestNPC(quest);
-      }, 2000);
+      // Clear original location after sending teleport
+      DAILY._originalLocId = null;
+      DAILY._originalCoords = null;
+
+      // afterTeleport will be called by handleSockets when 'gr' event fires
+      // with the new map data, and will navigate to NPC
       return;
     }
 
     // Clear original location data
     DAILY._originalLocId = null;
     DAILY._originalCoords = null;
+
+    // If we have saved NPC coords (from unstuck moves on same location)
+    // navigate back to NPC before opening dialog
+    if (DAILY._npcCoords) {
+      const npcCoords = DAILY._npcCoords;
+      DAILY._npcCoords = null;
+
+      const currentX = GAME.char_data.x;
+      const currentY = GAME.char_data.y;
+
+      // Check if we're not already at NPC position
+      if (currentX !== npcCoords.x || currentY !== npcCoords.y) {
+        console.log('[AFO_DAILY] Returning to NPC coords:', npcCoords.x, npcCoords.y, 'from', currentX, currentY);
+        this.updateStatus(`${quest.name}: Wracam do NPC...`);
+        this.navigateToCoords(npcCoords.x, npcCoords.y, () => {
+          const questData = this.findQuestByName(quest.name);
+          if (questData) {
+            setTimeout(() => this.startDialog(quest, questData.qb_id), 500);
+          } else {
+            this.onQuestComplete(quest);
+          }
+        });
+        return;
+      }
+    }
 
     // Re-open dialog to continue
     const questData = this.findQuestByName(quest.name);
@@ -2890,16 +3016,18 @@ const AFO_DAILY = {
           GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
           // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
         } else {
-          // Normal quests (like "Zadanie PvP") - teleport to quest location
+          // Normal quests (like "Zadanie PvP") - check if already on quest location
           const locId = quest.location?.locId;
-          if (locId) {
+          if (locId && GAME.char_data.loc !== locId) {
+            // Need to teleport
             this.updateStatus('Teleport do lokacji questa...');
             DAILY.isTeleporting = true;
             DAILY._currentQuest = quest;
             GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
             // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
           } else {
-            console.log('[AFO_DAILY] No locId, navigating to NPC directly');
+            // Already on location or no locId - just navigate to NPC
+            console.log('[AFO_DAILY] Already on quest location, navigating to NPC directly');
             setTimeout(() => this.navigateToQuestNPC(quest), 500);
           }
         }
@@ -2937,11 +3065,21 @@ const AFO_DAILY = {
         return;
       }
 
-      // Try to open dialog and finish it
+      // Try to open dialog and check for requirements
       if (qbId) {
         GAME.socket.emit('ga', { a: 22, type: 1, id: qbId });
         setTimeout(() => {
-          // Click finish if available
+          // First check if there are new requirements in the dialog
+          const newRequires = this.parseQuestRequirements();
+          if (newRequires && newRequires.type !== 'ACTION' && newRequires.current < newRequires.target) {
+            console.log('[AFO_DAILY] Found new requirements during verification:', newRequires.type);
+            DAILY._verifyAttempts = 0;
+            $('#quest_con').hide();
+            this.handleQuestRequirement(quest, newRequires);
+            return;
+          }
+
+          // No new requirements - click finish if available
           const finishBtn = $('button[data-option=finish_quest]').first();
           if (finishBtn.length > 0) {
             const btnQbId = finishBtn.attr('data-qb_id');
@@ -2983,25 +3121,35 @@ const AFO_DAILY = {
 
   // Check if on special location and exit with a:16
   exitSpecialLocationIfNeeded(callback) {
-    const currentQuest = DAILY.questQueue[DAILY.currentQuestIdx - 1] || DAILY._currentQuest;
+    // Use CURRENT quest (the one we just completed), not previous index
+    const currentQuest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
 
     // Check what type of location we're on (locationType is at quest level, not location.type)
     const locType = currentQuest?.locationType;
-    const needsExit = locType === 'private_planet' || locType === 'clan_planet' || locType === 'empire_hq';
+    const isSpecialLoc = locType === 'private_planet' || locType === 'clan_planet' || locType === 'empire_hq';
 
-    console.log('[AFO_DAILY] Checking exit for locationType:', locType, 'needsExit:', needsExit);
+    // Check if NEXT quest is on the same special location type
+    const nextQuest = DAILY.questQueue[DAILY.currentQuestIdx + 1];
+    const nextLocType = nextQuest?.locationType;
+    const nextIsSameType = nextLocType === locType;
 
-    if (needsExit) {
+    console.log('[AFO_DAILY] Checking exit for locationType:', locType, 'isSpecial:', isSpecialLoc, 'nextLocType:', nextLocType);
+
+    // Only exit if we're on special location AND next quest is NOT on the same type
+    if (isSpecialLoc && !nextIsSameType) {
       console.log('[AFO_DAILY] Exiting special location:', locType);
       this.updateStatus('Wychodzę z lokacji...');
       GAME.socket.emit('ga', { a: 16 });
 
-      // Wait for exit to complete
+      // Wait for exit to complete (with cooldown buffer)
       setTimeout(() => {
         if (DAILY.stop || DAILY.paused) return;
         callback();
-      }, 1000);
+      }, 1500);  // Increased from 1000 to avoid cooldown issues
     } else {
+      if (isSpecialLoc && nextIsSameType) {
+        console.log('[AFO_DAILY] Staying on special location - next quest is same type');
+      }
       callback();
     }
   },
@@ -3110,6 +3258,25 @@ const AFO_DAILY = {
         this.processNextQuest();
         return;
       }
+
+      // If returning from combat location, use saved NPC coords directly
+      if (DAILY._returnFromCombat && DAILY._npcCoords) {
+        console.log('[AFO_DAILY] Returning from combat, navigating to saved NPC coords:', DAILY._npcCoords);
+        DAILY._returnFromCombat = false;
+        const npcCoords = DAILY._npcCoords;
+        DAILY._npcCoords = null;
+        this.navigateToCoords(npcCoords.x, npcCoords.y, () => {
+          const questData = this.findQuestByName(quest.name);
+          if (questData) {
+            this.startDialog(quest, questData.qb_id);
+          } else {
+            // Quest not found - might be complete
+            this.onQuestComplete(quest);
+          }
+        });
+        return;
+      }
+      DAILY._returnFromCombat = false;  // Clear flag if set but no coords
 
       // Wait for GAME.map_quests to be populated
       this.waitForMapQuests(quest, 0);
