@@ -1014,6 +1014,13 @@ const AFO_DAILY = {
     this.updateStatus(`Quest: ${quest.name}`);
     console.log('[AFO_DAILY] Processing quest:', quest.name);
 
+    // SPECIAL CASE: Anielska karta quests (batch process lvl1-3 together)
+    if (quest.name.startsWith('Anielska karta[LvL') && !DAILY._anielskaBatchActive) {
+      console.log('[AFO_DAILY] Detected Anielska karta quest - starting batch handler');
+      this.handleAnielskaBatch(quest);
+      return;
+    }
+
     // Navigate based on location type
     switch (quest.locationType) {
       case 'private_planet':
@@ -1048,7 +1055,18 @@ const AFO_DAILY = {
     // If already on location - skip teleport (optimization for multi-quest on same loc)
     if (GAME.char_data.loc === locId) {
       console.log('[AFO_DAILY] Already on location', locId, '- skipping teleport');
-      this.navigateToQuestNPC(quest);
+
+      // Check map_quests immediately - same logic as waitForMapQuests
+      const questData = this.findQuestByName(quest.name);
+      if (questData) {
+        console.log('[AFO_DAILY] Quest found on map, navigating to NPC');
+        this.navigateToQuestNPC(quest);
+      } else {
+        // Quest not on map = already completed
+        console.log('[AFO_DAILY] Quest not in map_quests - already completed:', quest.name);
+        this.markQuestComplete(quest.name);
+        this.advanceQuestQueue();
+      }
       return;
     }
 
@@ -1069,6 +1087,14 @@ const AFO_DAILY = {
   },
 
   goToPrivatePlanet(quest) {
+    // Check if already on private planet - skip return+teleport
+    if (this.isOnPrivatePlanet()) {
+      console.log('[AFO_DAILY] Already on private planet, skipping teleport');
+      DAILY._currentQuest = quest;
+      this.navigateToQuestNPC(quest);
+      return;
+    }
+
     // First do return action to leave current location cleanly
     this.updateStatus('Powrót...');
     GAME.socket.emit('ga', { a: 16 });
@@ -1079,10 +1105,18 @@ const AFO_DAILY = {
       DAILY.isTeleporting = true;
       DAILY._currentQuest = quest;
       GAME.socket.emit('ga', { a: 15, type: 13 });
-    }, 800);
+    }, 1000);  // 1s delay for server sync
   },
 
   goToClanPlanet(quest) {
+    // Check if already on clan planet - skip return+teleport
+    if (this.isOnClanPlanet()) {
+      console.log('[AFO_DAILY] Already on clan planet, skipping teleport');
+      DAILY._currentQuest = quest;
+      this.navigateToQuestNPC(quest);
+      return;
+    }
+
     // First do return action
     this.updateStatus('Powrót...');
     GAME.socket.emit('ga', { a: 16 });
@@ -1093,10 +1127,19 @@ const AFO_DAILY = {
       DAILY.isTeleporting = true;
       DAILY._currentQuest = quest;
       GAME.socket.emit('ga', { a: 39, type: 32 });
-    }, 800);
+    }, 1000);  // 1s delay for server sync
   },
 
   goToEmpireHQ(quest) {
+    // Check if already on own empire HQ - skip return+teleport
+    if (this.isOnOwnEmpireHQ()) {
+      console.log('[AFO_DAILY] Already on empire HQ, skipping teleport');
+      DAILY._currentQuest = quest;
+      DAILY.inEmpire = true;
+      this.navigateToQuestNPC(quest);
+      return;
+    }
+
     // First do return action
     this.updateStatus('Powrót...');
     GAME.socket.emit('ga', { a: 16 });
@@ -1108,7 +1151,26 @@ const AFO_DAILY = {
       DAILY.inEmpire = true;
       DAILY._currentQuest = quest;
       GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
-    }, 800);
+    }, 1000);  // 1s delay for server sync
+  },
+
+  // Helper: Check if on private planet
+  isOnPrivatePlanet() {
+    const locName = GAME.current_loc?.name || '';
+    return locName.includes('Prywatna') || locName.includes('prywatna');
+  },
+
+  // Helper: Check if on clan planet
+  isOnClanPlanet() {
+    const locName = GAME.current_loc?.name || '';
+    return locName.includes('Klanow') || locName.includes('klanow');
+  },
+
+  // Helper: Check if on own empire HQ
+  isOnOwnEmpireHQ() {
+    const locName = GAME.current_loc?.name || '';
+    // Empire HQ names typically include "Siedziba" and empire indicator
+    return locName.includes('Siedziba') && DAILY.inEmpire;
   },
 
   goToPortalEntry(quest) {
@@ -1198,6 +1260,14 @@ const AFO_DAILY = {
 
     if (questData) {
       const [x, y] = questData.coords;
+
+      // Save NPC coords for return navigation (dynamic quests like private/clan planet)
+      // These coords are from GAME.map_quests which reflect the actual quest position
+      if (quest.locationType === 'private_planet' || quest.locationType === 'clan_planet') {
+        DAILY._dynamicNpcCoords = { x, y, locationType: quest.locationType };
+        console.log('[AFO_DAILY] Saved dynamic NPC coords:', DAILY._dynamicNpcCoords);
+      }
+
       this.updateStatus(`Idę do NPC (${x}, ${y})`);
       this.navigateToCoords(x, y, () => {
         this.startDialog(quest, questData.qb_id);
@@ -2369,6 +2439,481 @@ const AFO_DAILY = {
     }
   },
 
+  // ============================================
+  // SPECIAL HANDLER: ANIELSKA KARTA BATCH
+  // ============================================
+
+  /**
+   * Special handler for "Anielska karta" quests from Nowa niebiańska kuźnia
+   * Flow: Accept LvL1-3 -> teleport to combat -> progressive filter fight -> return and complete all + LvL4
+   */
+  handleAnielskaBatch(triggerQuest) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Starting Anielska karta batch handler');
+    DAILY._anielskaBatchActive = true;
+
+    // Find all Anielska karta quests from queue that need BOT_KILL (LvL1-3)
+    // LvL4 and LvL5 are ACTION only, handled separately
+    const anielskaCombatQuests = DAILY.questQueue.filter(q =>
+      q.name.startsWith('Anielska karta[LvL') &&
+      q.stages?.some(s => s.type === 'BOT_KILL') &&
+      !DAILY.completedQuests.includes(q.name) &&
+      !DAILY.skippedQuests.includes(q.name)
+    );
+
+    // Find LvL4 (ACTION only, premium)
+    const lvl4Quest = DAILY.questQueue.find(q =>
+      q.name === 'Anielska karta[LvL4]' &&
+      !DAILY.completedQuests.includes(q.name) &&
+      !DAILY.skippedQuests.includes(q.name)
+    );
+
+    console.log('[AFO_DAILY] Anielska combat quests:', anielskaCombatQuests.map(q => q.name));
+    console.log('[AFO_DAILY] Anielska LvL4:', lvl4Quest?.name || 'none');
+
+    if (anielskaCombatQuests.length === 0) {
+      // No combat quests, just process LvL4 if available
+      DAILY._anielskaBatchActive = false;
+      if (lvl4Quest) {
+        this.processQuest(lvl4Quest);
+      } else {
+        // Skip all anielska quests from queue
+        this.skipAnielskaBatch();
+      }
+      return;
+    }
+
+    // Store for later
+    DAILY._anielskaCombatQuests = anielskaCombatQuests;
+    DAILY._anielskaCombatIdx = 0;
+    DAILY._anielskLvl4Quest = lvl4Quest;
+    DAILY._anielskAcceptedQbIds = [];
+
+    // Step 1: Go to location and accept all quests
+    this.updateStatus('Anielska: Pobieram zadania...');
+    this.anielskaTeleportAndAccept();
+  },
+
+  anielskaTeleportAndAccept() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const locId = 1245; // Nowa niebiańska kuźnia
+
+    if (GAME.char_data.loc === locId) {
+      // Already there, start accepting
+      setTimeout(() => this.anielskaAcceptNext(), 500);
+    } else {
+      // Teleport - use direct setTimeout, don't rely on afterTeleport callback
+      console.log('[AFO_DAILY] Anielska: Teleporting to location', locId);
+      DAILY._anielskaTeleporting = true;  // Flag to bypass normal afterTeleport flow
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+      // Wait 2s for teleport to complete, then start accepting
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
+        DAILY._anielskaTeleporting = false;
+        console.log('[AFO_DAILY] Anielska: Teleport complete, starting accept');
+        this.anielskaAcceptNext();
+      }, 2000);
+    }
+  },
+
+  anielskaAcceptNext() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quests = DAILY._anielskaCombatQuests;
+    const idx = DAILY._anielskaCombatIdx;
+
+    if (idx >= quests.length) {
+      // All quests accepted, also accept LvL4 if available
+      if (DAILY._anielskLvl4Quest) {
+        console.log('[AFO_DAILY] Anielska: Accepting LvL4');
+        this.anielskaAcceptLvl4();
+      } else {
+        // Go to combat
+        console.log('[AFO_DAILY] Anielska: All quests accepted, starting combat');
+        setTimeout(() => this.anielskaStartCombat(), 500);
+      }
+      return;
+    }
+
+    const quest = quests[idx];
+    console.log('[AFO_DAILY] Anielska: Accepting quest', quest.name);
+    this.updateStatus(`Anielska: ${quest.name}`);
+
+    // Find quest on map
+    const questData = this.findQuestByName(quest.name);
+    if (!questData) {
+      console.log('[AFO_DAILY] Anielska: Quest not on map, skipping:', quest.name);
+      DAILY._anielskaCombatIdx++;
+      setTimeout(() => this.anielskaAcceptNext(), 300);
+      return;
+    }
+
+    // Save qb_id for later tracking
+    DAILY._anielskAcceptedQbIds.push({ name: quest.name, qbId: questData.qb_id });
+
+    // Navigate to NPC and start dialog loop
+    this.navigateToCoords(questData.coords[0], questData.coords[1], () => {
+      // Open dialog
+      GAME.emitOrder({ a: 22, type: 1, id: questData.qb_id });
+
+      // Start looping through dialog stages until we see BOT_KILL requirement
+      setTimeout(() => this.anielskaDialogLoop(quest, questData.qb_id, 0), 800);
+    });
+  },
+
+  /**
+   * Loop through dialog stages until we reach BOT_KILL requirement (Dowolny przeciwnik)
+   * Then close dialog and move to next quest
+   */
+  anielskaDialogLoop(quest, qbId, attempts) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Safety limit
+    if (attempts > 15) {
+      console.warn('[AFO_DAILY] Anielska: Too many dialog attempts for', quest.name);
+      $('#quest_con').hide();
+      DAILY._anielskaCombatIdx++;
+      setTimeout(() => this.anielskaAcceptNext(), 500);
+      return;
+    }
+
+    // Check if we've reached the BOT_KILL stage (Dowolny przeciwnik)
+    const questDesc = $('.quest_desc').text();
+    if (questDesc.includes('Dowolny przeciwnik') || questDesc.includes('Pokonaj:')) {
+      // We're at BOT_KILL stage - quest is "accepted", close and move on
+      console.log('[AFO_DAILY] Anielska: Quest', quest.name, 'reached BOT_KILL stage');
+      $('#quest_con').hide();
+      DAILY._anielskaCombatIdx++;
+      setTimeout(() => this.anielskaAcceptNext(), 500);
+      return;
+    }
+
+    // Not at BOT_KILL yet - click finish button to advance dialog
+    const finishBtn = $('button[data-option=finish_quest]').first();
+    if (finishBtn.length > 0) {
+      const btnQbId = finishBtn.attr('data-qb_id');
+      const button = parseInt(finishBtn.attr('data-button')) || 1;
+      console.log('[AFO_DAILY] Anielska: Dialog step', attempts, 'for', quest.name);
+      GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: btnQbId });
+
+      // Wait and check again
+      setTimeout(() => this.anielskaDialogLoop(quest, qbId, attempts + 1), 800);
+    } else {
+      // No finish button - maybe dialog closed or still loading
+      console.log('[AFO_DAILY] Anielska: No finish button, waiting...');
+      setTimeout(() => this.anielskaDialogLoop(quest, qbId, attempts + 1), 500);
+    }
+  },
+
+  anielskaAcceptLvl4() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quest = DAILY._anielskLvl4Quest;
+    const questData = this.findQuestByName(quest.name);
+
+    if (!questData) {
+      console.log('[AFO_DAILY] Anielska: LvL4 not on map');
+      setTimeout(() => this.anielskaStartCombat(), 500);
+      return;
+    }
+
+    // Navigate to LvL4 NPC and accept
+    this.navigateToCoords(questData.coords[0], questData.coords[1], () => {
+      GAME.emitOrder({ a: 22, type: 1, id: questData.qb_id });
+
+      setTimeout(() => {
+        const finishBtn = $('button[data-option=finish_quest]').first();
+        if (finishBtn.length > 0) {
+          const qbId = finishBtn.attr('data-qb_id');
+          const button = parseInt(finishBtn.attr('data-button')) || 1;
+          console.log('[AFO_DAILY] Anielska: Clicking accept for LvL4');
+          GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: qbId });
+        }
+
+        setTimeout(() => {
+          $('#quest_con').hide();
+          this.anielskaStartCombat();
+        }, 800);
+      }, 800);
+    });
+  },
+
+  anielskaStartCombat() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Check if useCombatLocation and teleport if needed
+    if (DAILY.combatLoc && DAILY.combatLoc !== 'current') {
+      const locId = parseInt(DAILY.combatLoc);
+      if (GAME.char_data.loc !== locId) {
+        console.log('[AFO_DAILY] Anielska: Teleporting to combat location', locId);
+        this.updateStatus('Anielska: Teleport do walki...');
+        GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          this.anielskaSetFilterAndFight();
+        }, 2000);
+        return;
+      }
+    }
+
+    this.anielskaSetFilterAndFight();
+  },
+
+  anielskaSetFilterAndFight() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Anielska: Starting combat with progressive filter');
+    this.updateStatus('Anielska: Walka...');
+
+    // Set initial filter: legendary + epic + mystic (indexes 3, 4, 5)
+    // Ignore: normal(0), champion(1), elite(2)
+    DAILY._anielskaIgnore = [true, true, true, false, false, false];
+    this.setSpawnerCheckboxes(DAILY._anielskaIgnore);
+
+    // Start combat loop
+    this.anielskaCombatLoop();
+  },
+
+  anielskaCombatLoop() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    // Check progress for each quest
+    const qbIds = DAILY._anielskAcceptedQbIds;
+    let allComplete = true;
+    let lvl1Done = false;
+    let lvl2Done = false;
+    let lvl3Done = false;
+
+    for (const item of qbIds) {
+      const trackQuest = $(`#track_quest_${item.qbId}`);
+      const isGreen = trackQuest.find('.green').length > 0;
+
+      if (item.name.includes('LvL1]')) lvl1Done = isGreen;
+      else if (item.name.includes('LvL2]')) lvl2Done = isGreen;
+      else if (item.name.includes('LvL3]')) lvl3Done = isGreen;
+
+      if (!isGreen) allComplete = false;
+    }
+
+    console.log('[AFO_DAILY] Anielska progress - LvL1:', lvl1Done, 'LvL2:', lvl2Done, 'LvL3:', lvl3Done);
+
+    if (allComplete) {
+      console.log('[AFO_DAILY] Anielska: All combat complete!');
+      this.anielskaReturnAndComplete();
+      return;
+    }
+
+    // Adjust filter based on progress
+    // LvL1 wants legendary, LvL2 wants epic, LvL3 wants mystic
+    let newIgnore = [...DAILY._anielskaIgnore];
+
+    if (lvl1Done && !newIgnore[3]) {
+      // Legendary done - stop spawning legendary
+      console.log('[AFO_DAILY] Anielska: LvL1 done, disabling legendary spawn');
+      newIgnore[3] = true;
+    }
+    if (lvl2Done && !newIgnore[4]) {
+      // Epic done - stop spawning epic
+      console.log('[AFO_DAILY] Anielska: LvL2 done, disabling epic spawn');
+      newIgnore[4] = true;
+    }
+
+    // Update filter if changed
+    if (JSON.stringify(newIgnore) !== JSON.stringify(DAILY._anielskaIgnore)) {
+      DAILY._anielskaIgnore = newIgnore;
+      this.setSpawnerCheckboxes(newIgnore);
+    }
+
+    // Update status
+    const remaining = [!lvl1Done && 'LvL1', !lvl2Done && 'LvL2', !lvl3Done && 'LvL3'].filter(Boolean);
+    this.updateStatus(`Anielska: ${remaining.join(', ')}`);
+
+    // Check prereqs and fight
+    if (this.checkCombatPrereqs()) {
+      setTimeout(() => this.anielskaCombatLoop(), 1700);
+      return;
+    }
+
+    // Fight using existing doFight logic but with our filter
+    const mobCount = this.getMobCount();
+    const spawnerIgnore = DAILY._anielskaIgnore;
+
+    if (mobCount > 0) {
+      const fm = GAME.field_mobs;
+      const fmf = GAME.field_mf;
+      const fmi = GAME.field_mob_id;
+
+      if (fmi && fm && fm[fmi - 1] &&
+        ((mobCount > 0 && fmf[fmi - 1] < 0) && fm[fmi - 1].ranks[0] ||
+          (mobCount > 0 && fmf[fmi - 1] < 1 && fm[fmi - 1].ranks[1]) ||
+          (mobCount > 0 && fmf[fmi - 1] < 2 && fm[fmi - 1].ranks[2]) ||
+          (mobCount > 0 && fmf[fmi - 1] < 3 && fm[fmi - 1].ranks[3]) ||
+          (mobCount > 0 && fmf[fmi - 1] < 4 && fm[fmi - 1].ranks[4]) ||
+          (mobCount > 0 && fmf[fmi - 1] < 5 && fm[fmi - 1].ranks[5]))) {
+        GAME.socket.emit('ga', { a: 7, order: 2, quick: 1, fo: GAME.map_options.ma });
+      } else if (this.getMobCount2() > 0) {
+        GAME.socket.emit('ga', { a: 13, mob_num: fmi, fo: GAME.map_options.ma });
+      } else {
+        GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
+      }
+    } else {
+      GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
+    }
+
+    setTimeout(() => this.anielskaCombatLoop(), DAILY.wait);
+  },
+
+  anielskaReturnAndComplete() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    console.log('[AFO_DAILY] Anielska: Returning to complete quests');
+    this.updateStatus('Anielska: Wracam zakończyć...');
+
+    const locId = 1245; // Nowa niebiańska kuźnia
+
+    if (GAME.char_data.loc !== locId) {
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
+        this.anielskaCompleteNext(0);
+      }, 2000);
+    } else {
+      setTimeout(() => this.anielskaCompleteNext(0), 500);
+    }
+  },
+
+  anielskaCompleteNext(idx) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quests = DAILY._anielskaCombatQuests;
+
+    if (idx >= quests.length) {
+      // All combat quests complete, now do LvL4
+      if (DAILY._anielskLvl4Quest) {
+        this.anielskaCompleteLvl4();
+      } else {
+        this.anielskaFinish();
+      }
+      return;
+    }
+
+    const quest = quests[idx];
+    console.log('[AFO_DAILY] Anielska: Completing', quest.name);
+    this.updateStatus(`Anielska: ${quest.name}`);
+
+    const questData = this.findQuestByName(quest.name);
+    if (!questData) {
+      // Already completed or not found
+      this.markQuestComplete(quest.name);
+      setTimeout(() => this.anielskaCompleteNext(idx + 1), 300);
+      return;
+    }
+
+    // Navigate and complete
+    this.navigateToCoords(questData.coords[0], questData.coords[1], () => {
+      GAME.emitOrder({ a: 22, type: 1, id: questData.qb_id });
+
+      setTimeout(() => {
+        // Click finish buttons until dialog closes
+        this.anielskaClickFinish(quest, idx);
+      }, 800);
+    });
+  },
+
+  anielskaClickFinish(quest, idx) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    if (!$('#quest_con').is(':visible')) {
+      // Dialog closed - quest complete
+      this.markQuestComplete(quest.name);
+      setTimeout(() => this.anielskaCompleteNext(idx + 1), 500);
+      return;
+    }
+
+    const finishBtn = $('button[data-option=finish_quest]').first();
+    if (finishBtn.length > 0) {
+      const qbId = finishBtn.attr('data-qb_id');
+      const button = parseInt(finishBtn.attr('data-button')) || 1;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: qbId });
+    }
+
+    setTimeout(() => this.anielskaClickFinish(quest, idx), 800);
+  },
+
+  anielskaCompleteLvl4() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quest = DAILY._anielskLvl4Quest;
+    console.log('[AFO_DAILY] Anielska: Completing LvL4');
+    this.updateStatus('Anielska: LvL4');
+
+    const questData = this.findQuestByName(quest.name);
+    if (!questData) {
+      this.markQuestComplete(quest.name);
+      this.anielskaFinish();
+      return;
+    }
+
+    this.navigateToCoords(questData.coords[0], questData.coords[1], () => {
+      GAME.emitOrder({ a: 22, type: 1, id: questData.qb_id });
+
+      setTimeout(() => {
+        this.anielskaClickFinishLvl4();
+      }, 800);
+    });
+  },
+
+  anielskaClickFinishLvl4() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    if (!$('#quest_con').is(':visible')) {
+      this.markQuestComplete(DAILY._anielskLvl4Quest.name);
+      this.anielskaFinish();
+      return;
+    }
+
+    const finishBtn = $('button[data-option=finish_quest]').first();
+    if (finishBtn.length > 0) {
+      const qbId = finishBtn.attr('data-qb_id');
+      const button = parseInt(finishBtn.attr('data-button')) || 1;
+      GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: qbId });
+    }
+
+    setTimeout(() => this.anielskaClickFinishLvl4(), 800);
+  },
+
+  anielskaFinish() {
+    console.log('[AFO_DAILY] Anielska: Batch complete!');
+    DAILY._anielskaBatchActive = false;
+    DAILY._anielskaCombatQuests = null;
+    DAILY._anielskLvl4Quest = null;
+    DAILY._anielskAcceptedQbIds = null;
+    DAILY._anielskaIgnore = null;
+
+    // Skip all anielska quests in queue (they're done)
+    this.skipAnielskaBatch();
+  },
+
+  skipAnielskaBatch() {
+    // Move queue index past all Anielska karta quests
+    while (DAILY.currentQuestIdx < DAILY.questQueue.length) {
+      const quest = DAILY.questQueue[DAILY.currentQuestIdx];
+      if (quest.name.startsWith('Anielska karta[LvL')) {
+        DAILY.currentQuestIdx++;
+      } else {
+        break;
+      }
+    }
+
+    DAILY._anielskaBatchActive = false;
+    setTimeout(() => this.processNextQuest(), 500);
+  },
+
+
   handleBotKill(quest, requires) {
     if (DAILY.stop || DAILY.paused) return;
 
@@ -2377,6 +2922,9 @@ const AFO_DAILY = {
     DAILY.killCount = requires.current;
     DAILY._combatQuest = quest;
     DAILY._combatRequires = requires;
+
+    // Cache spawner filter once at combat start (to avoid spam in doFight loop)
+    DAILY._spawnerIgnore = this.getSpawnerIgnore(requires?.rank);
 
     // ALWAYS save NPC coords so we can return after combat (even with unstuck moves)
     // This is separate from _originalLocId which is only for combat location teleports
@@ -2595,6 +3143,7 @@ const AFO_DAILY = {
     DAILY.isInCombat = false;
     DAILY._combatQuest = null;
     DAILY._combatRequires = null;
+    DAILY._spawnerIgnore = null;  // Clear spawner filter cache
     DAILY._lastRefresh = 0;
 
     // Reset stuck detection
@@ -2629,10 +3178,15 @@ const AFO_DAILY = {
     DAILY._originalLocId = null;
     DAILY._originalCoords = null;
 
-    // If we have saved NPC coords (from unstuck moves on same location)
-    // navigate back to NPC before opening dialog
-    if (DAILY._npcCoords) {
-      const npcCoords = DAILY._npcCoords;
+    // Use dynamic NPC coords for private/clan planet quests (saved in navigateToQuestNPC)
+    // These are more accurate than _npcCoords for quests with dynamic NPC positions
+    const npcCoords = DAILY._dynamicNpcCoords || DAILY._npcCoords;
+
+    if (npcCoords) {
+      console.log('[AFO_DAILY] Using NPC coords for return:', npcCoords, 'quest type:', quest.locationType);
+
+      // Clear both coord sources
+      DAILY._dynamicNpcCoords = null;
       DAILY._npcCoords = null;
 
       const currentX = GAME.char_data.x;
@@ -2740,7 +3294,9 @@ const AFO_DAILY = {
 
     const requires = DAILY._combatRequires;
     const mobCount = this.getMobCount();
-    const spawnerIgnore = this.getSpawnerIgnore(requires?.rank);
+
+    // Use cached spawner filter (set once at combat start) to avoid spam
+    const spawnerIgnore = DAILY._spawnerIgnore || this.getSpawnerIgnore(requires?.rank);
 
     if (mobCount > 0) {
       // Fight mobs - use multifight if available (like RESP.fight())
@@ -3003,7 +3559,7 @@ const AFO_DAILY = {
       GAME.socket.emit('ga', { a: 16 });
       DAILY.targetEmpire = 0;
 
-      // Wait 1s, then return to appropriate location
+      // Wait 1s for exit to complete, then return to appropriate location
       setTimeout(() => {
         if (DAILY.stop || DAILY.paused) return;
 
@@ -3016,20 +3572,27 @@ const AFO_DAILY = {
           GAME.socket.emit('ga', { a: 50, type: 5, e: DAILY.ownEmpire });
           // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
         } else {
-          // Normal quests (like "Zadanie PvP") - check if already on quest location
-          const locId = quest.location?.locId;
-          if (locId && GAME.char_data.loc !== locId) {
-            // Need to teleport
-            this.updateStatus('Teleport do lokacji questa...');
-            DAILY.isTeleporting = true;
-            DAILY._currentQuest = quest;
-            GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
-            // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
-          } else {
-            // Already on location or no locId - just navigate to NPC
-            console.log('[AFO_DAILY] Already on quest location, navigating to NPC directly');
-            setTimeout(() => this.navigateToQuestNPC(quest), 500);
-          }
+          // Normal quests (like "Zadanie PvP") - wait for loc sync then check
+          // Additional 1s delay to ensure GAME.char_data.loc has synced
+          setTimeout(() => {
+            if (DAILY.stop || DAILY.paused) return;
+
+            const locId = quest.location?.locId;
+            console.log('[AFO_DAILY] After exit - current loc:', GAME.char_data.loc, 'quest locId:', locId);
+
+            if (locId && GAME.char_data.loc !== locId) {
+              // Need to teleport
+              this.updateStatus('Teleport do lokacji questa...');
+              DAILY.isTeleporting = true;
+              DAILY._currentQuest = quest;
+              GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+              // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
+            } else {
+              // Already on location or no locId - just navigate to NPC
+              console.log('[AFO_DAILY] Already on quest location, navigating to NPC directly');
+              this.navigateToQuestNPC(quest);
+            }
+          }, 1000);  // Additional 1s delay for loc sync
         }
       }, 1000);
       return;
@@ -3249,6 +3812,12 @@ const AFO_DAILY = {
 
   // Called after any teleport - waits for map data then continues
   afterTeleport() {
+    // Skip if Anielska batch handler is managing its own teleport flow
+    if (DAILY._anielskaTeleporting || DAILY._anielskaBatchActive) {
+      console.log('[AFO_DAILY] afterTeleport skipped - Anielska batch active');
+      return;
+    }
+
     // Wait a bit for map data to load, then continue to quest NPC
     setTimeout(() => {
       if (DAILY.stop || DAILY.paused) return;
@@ -3286,8 +3855,16 @@ const AFO_DAILY = {
   waitForMapQuests(quest, attempts) {
     if (DAILY.stop || DAILY.paused) return;
 
-    // Check if map_quests has data
-    if (GAME.map_quests && Object.keys(GAME.map_quests).length > 0) {
+    // Check if map_quests is loaded (exists and is an object)
+    // Empty {} means loaded but no quests = quest already completed
+    // undefined/null/false means not yet loaded from server
+    const mapQuestsLoaded = GAME.map_quests !== undefined &&
+      GAME.map_quests !== null &&
+      typeof GAME.map_quests === 'object';
+
+    console.log('[AFO_DAILY] waitForMapQuests - loaded:', mapQuestsLoaded, 'map_quests:', GAME.map_quests);
+
+    if (mapQuestsLoaded) {
       // Check if quest exists on map (not false/completed)
       const questData = this.findQuestByName(quest.name);
       if (questData) {
@@ -3303,26 +3880,12 @@ const AFO_DAILY = {
         return;
       }
 
-      // Quest not found and no portal = might be in JSON coords or already completed
-      const coords = quest.location?.coords;
-      if (coords) {
-        console.log('[AFO_DAILY] Quest not on map, navigating to JSON coords:', coords);
-        this.navigateToCoords(coords.x, coords.y, () => {
-          // Check again after arriving
-          const found = this.findQuestByName(quest.name);
-          if (found) {
-            this.startDialog(quest, found.qb_id);
-          } else {
-            console.log('[AFO_DAILY] Quest still not found at coords - marking complete');
-            this.verifyAndCompleteQuest(quest);
-          }
-        });
-        return;
-      }
-
-      // No coords, no portal, not on map = likely completed
-      console.log('[AFO_DAILY] Quest not available on map - already completed:', quest.name);
-      this.verifyAndCompleteQuest(quest);
+      // Quest not found and no portal = ALREADY COMPLETED
+      // Don't navigate to JSON coords - just mark complete immediately
+      // This handles the case where quest was completed in previous session
+      console.log('[AFO_DAILY] Quest not in map_quests after teleport - already completed:', quest.name);
+      this.markQuestComplete(quest.name);
+      this.advanceQuestQueue();
       return;
     }
 

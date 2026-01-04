@@ -8,6 +8,245 @@
   },
   "quests": [
     {
+      "name": "Symbol Wymiarów",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Alternatywny Pałac Wszechmogącego",
+        "locId": 379,
+        "coords": {
+          "x": 29,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Ermita",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Knieja",
+        "locId": 535,
+        "coords": {
+          "x": 21,
+          "y": 3
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Najlepszy kucharz",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Ścieżka Lasu",
+        "locId": 1170,
+        "coords": {
+          "x": 2,
+          "y": 5
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Dziwny medyk",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Ścieżka pustyni",
+        "locId": 1172,
+        "coords": {
+          "x": 10,
+          "y": 4
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Rozwój Planety",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "private_planet",
+      "location": {
+        "name": "Prywatna planeta",
+        "coords": {
+          "x": 10,
+          "y": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Klanowe",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "clan_planet",
+      "location": {
+        "name": "Planeta Klanowa",
+        "coords": {
+          "x": 20,
+          "y": 24
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie premium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "premium": true,
+      "priority": 2,
+      "locationType": "clan_planet",
+      "location": {
+        "name": "Planeta Klanowa",
+        "coords": {
+          "x": 23,
+          "y": 16
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Imperium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "empire_hq",
+      "location": {
+        "name": "Siedziba Imperium",
+        "coords": {
+          "x": 10,
+          "y": 7
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        },
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        }
+      ]
+    },
+    {
       "name": "Zadanie PvM",
       "born": [
         0,
@@ -103,6 +342,98 @@
         3,
         4,
         5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvM II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvP II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Symboli II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Substancji II",
+      "born": [
         6
       ],
       "enabled": true,
@@ -445,132 +776,6 @@
       ]
     },
     {
-      "name": "Zadanie Imperium",
-      "born": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 2,
-      "locationType": "empire_hq",
-      "location": {
-        "name": "Siedziba Imperium",
-        "coords": {
-          "x": 10,
-          "y": 7
-        }
-      },
-      "stages": [
-        {
-          "type": "PLAYER_KILL",
-          "dynamic": true,
-          "targetEmpire": "dynamic"
-        },
-        {
-          "type": "PLAYER_KILL",
-          "dynamic": true,
-          "targetEmpire": "dynamic"
-        }
-      ]
-    },
-    {
-      "name": "Zadanie Klanowe",
-      "born": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 2,
-      "locationType": "clan_planet",
-      "location": {
-        "name": "Planeta Klanowa",
-        "coords": {
-          "x": 20,
-          "y": 24
-        }
-      },
-      "stages": [
-        {
-          "type": "BOT_KILL",
-          "dynamic": true,
-          "anyEnemy": false
-        }
-      ]
-    },
-    {
-      "name": "Zadanie Premium Klanowe",
-      "born": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "premium": true,
-      "priority": 2,
-      "locationType": "clan_planet",
-      "location": {
-        "name": "Planeta Klanowa",
-        "coords": {
-          "x": 23,
-          "y": 16
-        }
-      },
-      "stages": [
-        {
-          "type": "ACTION",
-          "dynamic": false
-        }
-      ]
-    },
-    {
-      "name": "Rozwój Planety",
-      "born": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 2,
-      "locationType": "private_planet",
-      "location": {
-        "name": "Prywatna planeta",
-        "coords": {
-          "x": 10,
-          "y": 6
-        }
-      },
-      "stages": [
-        {
-          "type": "BOT_KILL",
-          "dynamic": true,
-          "anyEnemy": false
-        },
-        {
-          "type": "BOT_KILL",
-          "dynamic": true,
-          "anyEnemy": false
-        }
-      ]
-    },
-    {
       "name": "Fasolki",
       "born": [
         2,
@@ -610,35 +815,7 @@
       ]
     },
     {
-      "name": "Symbol Wymiarów",
-      "born": [
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 1,
-      "locationType": "normal",
-      "location": {
-        "name": "Alternatywny Pałac Wszechmogącego",
-        "locId": 379,
-        "coords": {
-          "x": 29,
-          "y": 2
-        }
-      },
-      "stages": [
-        {
-          "type": "ACTION"
-        },
-        {
-          "type": "WAIT"
-        }
-      ]
-    },
-    {
-      "name": "Soki Trawienne",
+      "name": "Wymiana Chi",
       "born": [
         3,
         4,
@@ -667,38 +844,6 @@
         },
         {
           "type": "ACTION"
-        }
-      ]
-    },
-    {
-      "name": "Ermita",
-      "born": [
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 1,
-      "locationType": "normal",
-      "location": {
-        "name": "Knieja",
-        "locId": 535,
-        "coords": {
-          "x": 21,
-          "y": 3
-        }
-      },
-      "stages": [
-        {
-          "type": "ACTION"
-        },
-        {
-          "type": "BOT_KILL",
-          "dynamic": true
-        },
-        {
-          "type": "WAIT"
         }
       ]
     },
@@ -785,42 +930,6 @@
       ]
     },
     {
-      "name": "Nowy Przedmiot",
-      "born": [
-        3,
-        4,
-        5,
-        6
-      ],
-      "enabled": false,
-      "priority": 99,
-      "locationType": "normal",
-      "location": {
-        "name": "Siedziba Dawnych Bogów",
-        "locId": 620,
-        "coords": {
-          "x": 23,
-          "y": 11
-        }
-      },
-      "stages": [
-        {
-          "type": "ACTION"
-        },
-        {
-          "type": "RESOURCE",
-          "dynamic": true
-        },
-        {
-          "type": "BOT_KILL",
-          "dynamic": true
-        },
-        {
-          "type": "ACTION"
-        }
-      ]
-    },
-    {
       "name": "Dostawca",
       "born": [
         3,
@@ -855,7 +964,7 @@
         5,
         6
       ],
-      "enabled": true,
+      "enabled": false,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1080,7 +1189,7 @@
         6
       ],
       "enabled": false,
-      "priority": 99,
+      "priority": 4,
       "locationType": "normal",
       "location": {
         "name": "Dom Urunai Baby",
@@ -1105,8 +1214,8 @@
         5,
         6
       ],
-      "enabled": false,
-      "priority": 99,
+      "enabled": true,
+      "priority": 3,
       "locationType": "normal",
       "location": {
         "name": "Pobojowisko Skaliste",
@@ -1229,86 +1338,6 @@
       ]
     },
     {
-      "name": "Paser",
-      "born": [
-        5,
-        6
-      ],
-      "enabled": false,
-      "priority": 99,
-      "locationType": "normal",
-      "location": {
-        "name": "Pod Barierą",
-        "locId": 1076,
-        "coords": {
-          "x": 6,
-          "y": 6
-        }
-      },
-      "stages": [
-        {
-          "type": "PLAYER_KILL",
-          "dynamic": true
-        },
-        {
-          "type": "ACTION"
-        }
-      ]
-    },
-    {
-      "name": "Najlepszy kucharz",
-      "born": [
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 1,
-      "locationType": "normal",
-      "location": {
-        "name": "Ścieżka Lasu",
-        "locId": 1170,
-        "coords": {
-          "x": 2,
-          "y": 5
-        }
-      },
-      "stages": [
-        {
-          "type": "ACTION"
-        },
-        {
-          "type": "WAIT"
-        }
-      ]
-    },
-    {
-      "name": "Dziwny medyk",
-      "born": [
-        5,
-        6
-      ],
-      "enabled": true,
-      "priority": 1,
-      "locationType": "normal",
-      "location": {
-        "name": "Ścieżka pustyni",
-        "locId": 1172,
-        "coords": {
-          "x": 10,
-          "y": 4
-        }
-      },
-      "stages": [
-        {
-          "type": "BOT_KILL",
-          "dynamic": true
-        },
-        {
-          "type": "WAIT"
-        }
-      ]
-    },
-    {
       "name": "Scalacze Hiper",
       "born": [
         5,
@@ -1337,94 +1366,142 @@
       ]
     },
     {
-      "name": "Zadanie PvM II",
+      "name": "Anielska karta[LvL1]",
       "born": [
+        5,
         6
       ],
       "enabled": true,
       "priority": 2,
       "locationType": "normal",
+      "useCombatLocation": true,
       "location": {
-        "name": "Pałac Wszechmogącego",
-        "locId": 27,
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
         "coords": {
-          "x": 7,
+          "x": 5,
           "y": 2
         }
       },
       "stages": [
+        {
+          "type": "ACTION"
+        },
         {
           "type": "BOT_KILL",
-          "dynamic": false
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 300
         }
       ]
     },
     {
-      "name": "Zadanie PvP II",
+      "name": "Anielska karta[LvL2]",
       "born": [
+        5,
         6
       ],
       "enabled": true,
       "priority": 2,
       "locationType": "normal",
+      "useCombatLocation": true,
       "location": {
-        "name": "Pałac Wszechmogącego",
-        "locId": 27,
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
         "coords": {
-          "x": 7,
-          "y": 2
+          "x": 5,
+          "y": 3
         }
       },
       "stages": [
         {
-          "type": "PLAYER_KILL",
-          "dynamic": false
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 2000
         }
       ]
     },
     {
-      "name": "Zadanie Symboli II",
+      "name": "Anielska karta[LvL3]",
       "born": [
+        5,
         6
       ],
       "enabled": true,
       "priority": 2,
       "locationType": "normal",
+      "useCombatLocation": true,
       "location": {
-        "name": "Pałac Wszechmogącego",
-        "locId": 27,
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
         "coords": {
-          "x": 7,
-          "y": 2
+          "x": 15,
+          "y": 8
         }
       },
       "stages": [
         {
-          "type": "ACTION",
-          "dynamic": false
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 100000
         }
       ]
     },
     {
-      "name": "Zadanie Substancji II",
+      "name": "Anielska karta[LvL4]",
       "born": [
+        5,
         6
       ],
       "enabled": true,
+      "premium": true,
       "priority": 2,
       "locationType": "normal",
+      "useCombatLocation": true,
       "location": {
-        "name": "Pałac Wszechmogącego",
-        "locId": 27,
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
         "coords": {
-          "x": 7,
-          "y": 2
+          "x": 20,
+          "y": 9
         }
       },
       "stages": [
         {
-          "type": "ACTION",
-          "dynamic": false
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL5]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": false,
+      "premium": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 5,
+          "y": 14
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
         }
       ]
     },
