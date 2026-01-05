@@ -398,11 +398,20 @@ const ClickHandlersMixin = {
     $("body").on("click", ".qlink.load_afo", () => {
       if (typeof this.afo_is_loaded == 'undefined') {
         this.afo_is_loaded = true;
-        $.get(getGieniobotUrl('remote/afo/loader.js'), (data) => {
-          $("body").append(`<script>${data}<\/script>`);
-        }).fail(() => {
-          GAME.komunikat("Wystąpił błąd w ładowaniu skryptu, odśwież stronę i spróbuj ponownie!");
-        });
+        fetch(getGieniobotUrl('remote/afo/loader.js'))
+          .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.text();
+          })
+          .then(data => {
+            const script = document.createElement('script');
+            script.textContent = data;
+            document.body.appendChild(script);
+          })
+          .catch(() => {
+            this.afo_is_loaded = undefined;
+            GAME.komunikat("Wystąpił błąd w ładowaniu skryptu, odśwież stronę i spróbuj ponownie!");
+          });
       } else {
         GAME.komunikat("Wystąpił błąd w ładowaniu skryptu, odśwież stronę i spróbuj ponownie!");
       }

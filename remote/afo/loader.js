@@ -49,6 +49,24 @@ if (typeof GAME === 'undefined') {
 
       let loadedCount = 0;
 
+      // Load script using fetch + textContent (works with raw.githubusercontent.com)
+      const loadScript = (url, moduleName) => {
+        return fetch(url)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.text();
+          })
+          .then(code => {
+            const script = document.createElement('script');
+            script.textContent = code;
+            script.dataset.source = moduleName;
+            document.body.appendChild(script);
+            console.log(`[AFO Loader] Loaded: ${moduleName}`);
+          });
+      };
+
       // Simple sequential loader
       const loadNext = () => {
         if (loadedCount >= modules.length) {
@@ -64,15 +82,14 @@ if (typeof GAME === 'undefined') {
         }
 
         const module = modules[loadedCount];
-        $.getScript(getAFOUrl(module))
-          .done(() => {
-            console.log(`[AFO Loader] Loaded: ${module}`);
+        loadScript(getAFOUrl(module), module)
+          .then(() => {
             loadedCount++;
             loadNext();
           })
-          .fail((jqxhr, settings, exception) => {
+          .catch((error) => {
             // Try to continue even if a module fails
-            console.warn(`[AFO Loader] Failed to load ${module}:`, exception);
+            console.warn(`[AFO Loader] Failed to load ${module}:`, error);
             loadedCount++;
             loadNext();
           });
