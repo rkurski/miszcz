@@ -704,6 +704,7 @@ const AFO_DAILY = {
 
     DAILY.paused = true;
     PVP.stop = true;  // Stop AFO_PVP if running
+    this.stopLPVM();  // Stop LPVM if running (bounty quests)
     $('#daily_pause_btn').text('WZNÓW');
     this.updateStatus('⏸ Wstrzymano');
     console.log('[AFO_DAILY] Paused');
@@ -721,6 +722,13 @@ const AFO_DAILY = {
     if (DAILY._anielskaBatchActive) {
       console.log('[AFO_DAILY] Resuming Anielska batch combat');
       setTimeout(() => this.anielskaCombatLoop(), 300);
+      return;
+    }
+
+    // Handle bounty quest - resume bounty loop
+    if (DAILY._bountyQuest) {
+      console.log('[AFO_DAILY] Resuming bounty loop');
+      setTimeout(() => this.bountyLoop(), 300);
       return;
     }
 
@@ -747,6 +755,11 @@ const AFO_DAILY = {
     DAILY.isTeleporting = false;
     DAILY.isInCombat = false;
     PVP.stop = true;  // Stop AFO_PVP if running
+    this.stopLPVM();  // Stop LPVM if running (bounty quests)
+
+    // Clear bounty state
+    DAILY._bountyQuest = null;
+    DAILY._bountyRequires = null;
 
     // Update UI - show START, hide PAUZA and PRZERWIJ
     $('#daily_start_btn').removeClass('hidden');
@@ -767,9 +780,12 @@ const AFO_DAILY = {
 
   groupPortalQuests(quests) {
     // Group quests by portal (same innerLocId and same startLoc)
+    // IMPORTANT: Maintain the original priority order - quests are already sorted by priority
     const groups = {};
-    const nonPortal = [];
+    const result = [];
+    const processedGroups = new Set();
 
+    // First pass: identify portal groups
     quests.forEach(quest => {
       const portal = quest.location?.portal;
       if (portal && portal.innerLocId) {
@@ -778,21 +794,27 @@ const AFO_DAILY = {
           groups[key] = [];
         }
         groups[key].push(quest);
-      } else {
-        nonPortal.push(quest);
       }
     });
 
-    // Flatten: non-portal quests first, then grouped portal quests
-    const result = [...nonPortal];
-
-    Object.values(groups).forEach(group => {
-      // Mark first quest in group as portal entry point
-      if (group.length > 0) {
-        group[0]._isPortalGroupStart = true;
-        group[0]._portalGroup = group;
-        result.push(group[0]);
-        // Additional quests in group will be processed within portal
+    // Second pass: build result maintaining priority order
+    // When we encounter a portal quest, add entire group (if not already processed)
+    quests.forEach(quest => {
+      const portal = quest.location?.portal;
+      if (portal && portal.innerLocId) {
+        const key = `${quest.location.locId}_${portal.innerLocId}`;
+        if (!processedGroups.has(key)) {
+          // First time seeing this group - add the first quest as entry point
+          const group = groups[key];
+          group[0]._isPortalGroupStart = true;
+          group[0]._portalGroup = group;
+          result.push(group[0]);
+          processedGroups.add(key);
+        }
+        // Other quests in group will be processed within portal
+      } else {
+        // Non-portal quest - add directly maintaining priority order
+        result.push(quest);
       }
     });
 
@@ -4016,6 +4038,32 @@ const AFO_DAILY = {
     DAILY.portalGroupIdx = 0;
     DAILY._currentQuest = null;
     DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
+
+    // Check if there are quests at current location that should be done first
+    // This handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is
+    const currentLocId = GAME.char_data.loc;
+    const remainingQuests = DAILY.questQueue.slice(DAILY.currentQuestIdx);
+
+    // Find quest at current location that's later in queue
+    const questAtCurrentLoc = remainingQuests.find((q, idx) => {
+      if (idx === 0) return false;  // Skip first quest (it's already next)
+      return q.location?.locId === currentLocId &&
+        !DAILY.completedQuests.includes(q.name) &&
+        !DAILY.skippedQuests.includes(q.name);
+    });
+
+    if (questAtCurrentLoc) {
+      console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
+
+      // Move this quest to current position
+      const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
+      if (questIdx > DAILY.currentQuestIdx) {
+        // Swap: move found quest to current position
+        DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
+        DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
+        console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+      }
+    }
 
     setTimeout(() => this.processNextQuest(), 500);
   },
