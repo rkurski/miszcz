@@ -704,6 +704,7 @@ const AFO_DAILY = {
 
     DAILY.paused = true;
     PVP.stop = true;  // Stop AFO_PVP if running
+    this.stopLPVM();  // Stop LPVM if running (bounty quests)
     $('#daily_pause_btn').text('WZNÓW');
     this.updateStatus('⏸ Wstrzymano');
     console.log('[AFO_DAILY] Paused');
@@ -721,6 +722,13 @@ const AFO_DAILY = {
     if (DAILY._anielskaBatchActive) {
       console.log('[AFO_DAILY] Resuming Anielska batch combat');
       setTimeout(() => this.anielskaCombatLoop(), 300);
+      return;
+    }
+
+    // Handle bounty quest - resume bounty loop
+    if (DAILY._bountyQuest) {
+      console.log('[AFO_DAILY] Resuming bounty loop');
+      setTimeout(() => this.bountyLoop(), 300);
       return;
     }
 
@@ -747,6 +755,11 @@ const AFO_DAILY = {
     DAILY.isTeleporting = false;
     DAILY.isInCombat = false;
     PVP.stop = true;  // Stop AFO_PVP if running
+    this.stopLPVM();  // Stop LPVM if running (bounty quests)
+
+    // Clear bounty state
+    DAILY._bountyQuest = null;
+    DAILY._bountyRequires = null;
 
     // Update UI - show START, hide PAUZA and PRZERWIJ
     $('#daily_start_btn').removeClass('hidden');
@@ -767,9 +780,12 @@ const AFO_DAILY = {
 
   groupPortalQuests(quests) {
     // Group quests by portal (same innerLocId and same startLoc)
+    // IMPORTANT: Maintain the original priority order - quests are already sorted by priority
     const groups = {};
-    const nonPortal = [];
+    const result = [];
+    const processedGroups = new Set();
 
+    // First pass: identify portal groups
     quests.forEach(quest => {
       const portal = quest.location?.portal;
       if (portal && portal.innerLocId) {
@@ -778,21 +794,27 @@ const AFO_DAILY = {
           groups[key] = [];
         }
         groups[key].push(quest);
-      } else {
-        nonPortal.push(quest);
       }
     });
 
-    // Flatten: non-portal quests first, then grouped portal quests
-    const result = [...nonPortal];
-
-    Object.values(groups).forEach(group => {
-      // Mark first quest in group as portal entry point
-      if (group.length > 0) {
-        group[0]._isPortalGroupStart = true;
-        group[0]._portalGroup = group;
-        result.push(group[0]);
-        // Additional quests in group will be processed within portal
+    // Second pass: build result maintaining priority order
+    // When we encounter a portal quest, add entire group (if not already processed)
+    quests.forEach(quest => {
+      const portal = quest.location?.portal;
+      if (portal && portal.innerLocId) {
+        const key = `${quest.location.locId}_${portal.innerLocId}`;
+        if (!processedGroups.has(key)) {
+          // First time seeing this group - add the first quest as entry point
+          const group = groups[key];
+          group[0]._isPortalGroupStart = true;
+          group[0]._portalGroup = group;
+          result.push(group[0]);
+          processedGroups.add(key);
+        }
+        // Other quests in group will be processed within portal
+      } else {
+        // Non-portal quest - add directly maintaining priority order
+        result.push(quest);
       }
     });
 
@@ -1052,10 +1074,21 @@ const AFO_DAILY = {
 
   goToNormalLocation(quest) {
     const locId = quest.location.locId;
+    const portal = quest.location.portal;
 
-    // Check if need portal entry first
-    if (quest.location.portal && !DAILY.inPortal) {
+    // Check if need portal entry first (only if portal has entry coords)
+    if (portal && portal.entry && !DAILY.inPortal) {
       this.goToPortalEntry(quest);
+      return;
+    }
+
+    // Special case: quest has portal.exit but no portal.entry
+    // This means we're already inside the portal location (e.g. Boski Ulepszacz on Vestria)
+    if (portal && portal.exit && !portal.entry && GAME.char_data.loc === locId) {
+      console.log('[AFO_DAILY] Already inside portal location (no entry needed):', locId);
+      DAILY.inPortal = true;
+      DAILY._currentQuest = quest;
+      this.navigateToQuestNPC(quest);
       return;
     }
 
@@ -1271,7 +1304,12 @@ const AFO_DAILY = {
       // Save NPC coords for return navigation (dynamic quests like private/clan planet)
       // These coords are from GAME.map_quests which reflect the actual quest position
       if (quest.locationType === 'private_planet' || quest.locationType === 'clan_planet') {
-        DAILY._dynamicNpcCoords = { x, y, locationType: quest.locationType };
+        // Keep persisting the same coords throughout the entire quest
+        // Important for multi-stage quests like "Rozwój Planety"
+        if (!DAILY._questNpcCoords || DAILY._questNpcCoords.questName !== quest.name) {
+          DAILY._questNpcCoords = { x, y, locationType: quest.locationType, questName: quest.name };
+        }
+        DAILY._dynamicNpcCoords = DAILY._questNpcCoords;
         console.log('[AFO_DAILY] Saved dynamic NPC coords:', DAILY._dynamicNpcCoords);
       }
 
@@ -2302,18 +2340,197 @@ const AFO_DAILY = {
   },
 
   /**
-   * Handle bounty quests - requires completing bounty hunts
-   * For now, skip and mark as requiring manual action
+   * Handle bounty quests using LPVM module
+   * Uses GAME.char_data.reborn, decreases born on issues, min born=2
    */
   handleBounty(quest, requires) {
     if (DAILY.stop || DAILY.paused) return;
 
     console.log('[AFO_DAILY] Bounty quest detected:', quest.name, requires.current, '/', requires.target);
-    this.updateStatus(`${quest.name}: Wymaga listów gończych (${requires.current}/${requires.target})`);
-    GAME.komunikat(`[DZIENNE] ${quest.name} wymaga listów gończych`);
 
+    // Initialize bounty tracking state
+    DAILY._bountyQuest = quest;
+    DAILY._bountyRequires = requires;
+    DAILY._bountyBorn = GAME.char_data.reborn;  // Start with current reborn
+    DAILY._bountyLastProgress = requires.current;
+    DAILY._bountyLastProgressTime = Date.now();
+    DAILY._bountyTeleportTime = 0;
+    DAILY._bountyLastLocId = GAME.char_data.loc;
+
+    this.updateStatus(`${quest.name}: Listy gończe (${requires.current}/${requires.target})`);
+
+    // Close dialog before starting LPVM
     $('#quest_con').hide();
-    this.skipQuestWithMark(quest, 'Wymaga listów gończych');
+
+    // Start bounty loop
+    this.bountyLoop();
+  },
+
+  /**
+   * Main bounty loop - monitors LPVM progress and handles issues
+   */
+  bountyLoop() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quest = DAILY._bountyQuest;
+    const requires = DAILY._bountyRequires;
+
+    if (!quest || !requires) {
+      console.warn('[AFO_DAILY] Bounty state lost, skipping');
+      this.skipQuestWithMark(quest || { name: 'Unknown' }, 'Błąd stanu bounty');
+      return;
+    }
+
+    const qbId = requires.originalQbId || this.getQuestQbId(quest);
+    const trackQuest = $(`#track_quest_${qbId}`);
+
+    // Check if requirements met (green status)
+    if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
+      console.log('[AFO_DAILY] Bounty quest complete!');
+      this.onBountyComplete(quest);
+      return;
+    }
+
+    // Get current progress
+    let currentProgress = requires.current;
+    const questSpan = $(`.quest_warunek${qbId}`);
+    if (questSpan.length > 0) {
+      currentProgress = parseInt(questSpan.attr('data-count')) || 0;
+    }
+
+    this.updateStatus(`${quest.name}: ${currentProgress}/${requires.target}`);
+
+    const now = Date.now();
+
+    // Check for stuck conditions
+    let shouldReduceBorn = false;
+    let stuckReason = '';
+
+    // Condition 1: Teleport didn't change location within 2s
+    if (DAILY._bountyTeleportTime > 0 &&
+      now - DAILY._bountyTeleportTime > 2000 &&
+      GAME.char_data.loc === DAILY._bountyLastLocId) {
+      console.warn('[AFO_DAILY] Bounty: Teleport failed to change location');
+      shouldReduceBorn = true;
+      stuckReason = 'Teleport nie działa';
+      DAILY._bountyTeleportTime = 0;  // Reset
+    }
+
+    // Condition 2: No progress for 10 seconds
+    if (currentProgress > DAILY._bountyLastProgress) {
+      // Progress made - reset tracking
+      DAILY._bountyLastProgress = currentProgress;
+      DAILY._bountyLastProgressTime = now;
+    } else if (now - DAILY._bountyLastProgressTime > 10000) {
+      console.warn('[AFO_DAILY] Bounty: No progress for 10 seconds');
+      shouldReduceBorn = true;
+      stuckReason = 'Brak postępu przez 10s';
+      DAILY._bountyLastProgressTime = now;  // Reset timer
+    }
+
+    // Handle born reduction
+    if (shouldReduceBorn) {
+      if (DAILY._bountyBorn > 2) {
+        DAILY._bountyBorn--;
+        console.log('[AFO_DAILY] Bounty: Reducing born to', DAILY._bountyBorn, 'reason:', stuckReason);
+        GAME.komunikat(`[DZIENNE] ${stuckReason} - zmniejszam born do ${DAILY._bountyBorn}`);
+
+        // Restart LPVM with new born
+        this.stopLPVM();
+        setTimeout(() => this.startLPVM(), 500);
+      } else {
+        // Already at minimum born - skip quest
+        console.warn('[AFO_DAILY] Bounty: At minimum born, skipping quest');
+        this.stopLPVM();
+        this.skipQuestWithMark(quest, 'Nie udało się na born 2');
+        return;
+      }
+    }
+
+    // Ensure LPVM is running
+    if (LPVM.Stop) {
+      this.startLPVM();
+    }
+
+    // Update teleport tracking (detect when LPVM teleports)
+    if (GAME.char_data.loc !== DAILY._bountyLastLocId) {
+      DAILY._bountyLastLocId = GAME.char_data.loc;
+      DAILY._bountyTeleportTime = 0;  // Clear - teleport succeeded
+    }
+
+    // Continue monitoring
+    setTimeout(() => this.bountyLoop(), 1000);
+  },
+
+  /**
+   * Start LPVM for bounty hunting
+   */
+  startLPVM() {
+    if (typeof AFO_LPVM === 'undefined' || typeof LPVM === 'undefined') {
+      console.warn('[AFO_DAILY] LPVM module not available');
+      this.skipQuestWithMark(DAILY._bountyQuest, 'LPVM niedostępny');
+      return;
+    }
+
+    console.log('[AFO_DAILY] Starting LPVM with born:', DAILY._bountyBorn);
+
+    // Configure LPVM
+    LPVM.Born = DAILY._bountyBorn;
+    LPVM.limit = true;
+    LPVM.limit2 = 100;  // Max 100 bounties per run
+    LPVM.pvm_killed = 0;
+    LPVM.Stop = false;
+
+    // Stop other modules
+    RESP.stop = true;
+    RES.stop = true;
+    PVP.stop = true;
+    CODE.stop = true;
+
+    // Track when teleport starts
+    DAILY._bountyLastLocId = GAME.char_data.loc;
+    DAILY._bountyTeleportTime = Date.now();
+
+    // Start LPVM
+    AFO_LPVM.Start();
+  },
+
+  /**
+   * Stop LPVM
+   */
+  stopLPVM() {
+    if (typeof LPVM !== 'undefined') {
+      LPVM.Stop = true;
+    }
+  },
+
+  /**
+   * Called when bounty quest requirements are met
+   */
+  onBountyComplete(quest) {
+    console.log('[AFO_DAILY] Bounty quest complete:', quest.name);
+
+    // Stop LPVM
+    this.stopLPVM();
+
+    // Clear bounty state
+    DAILY._bountyQuest = null;
+    DAILY._bountyRequires = null;
+    DAILY._bountyBorn = 0;
+
+    // Return to quest location and complete dialog
+    const locId = quest.location?.locId;
+    if (locId && GAME.char_data.loc !== locId) {
+      console.log('[AFO_DAILY] Returning to quest location:', locId);
+      this.updateStatus(`${quest.name}: Wracam zakończyć...`);
+      DAILY.isTeleporting = true;
+      DAILY._currentQuest = quest;
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+      // Continue via handleSockets -> afterTeleport -> navigateToQuestNPC
+    } else {
+      // Already on location
+      this.navigateToQuestNPC(quest);
+    }
   },
 
   handleResourceCollect(quest, requires) {
@@ -3738,6 +3955,15 @@ const AFO_DAILY = {
       return;
     }
 
+    // Check if quest has portal.exit but no portal.entry (special portal like Vestria)
+    // Need to exit via portal before continuing
+    const portal = quest.location?.portal;
+    if (DAILY.inPortal && portal && portal.exit && !portal.entry) {
+      console.log('[AFO_DAILY] Exiting special portal location via exit coords');
+      this.exitPortal();
+      return;
+    }
+
     // Check if we need to exit special location first
     this.exitSpecialLocationIfNeeded(() => {
       this.advanceQuestQueue();
@@ -3811,6 +4037,33 @@ const AFO_DAILY = {
     DAILY.portalGroup = [];
     DAILY.portalGroupIdx = 0;
     DAILY._currentQuest = null;
+    DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
+
+    // Check if there are quests at current location that should be done first
+    // This handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is
+    const currentLocId = GAME.char_data.loc;
+    const remainingQuests = DAILY.questQueue.slice(DAILY.currentQuestIdx);
+
+    // Find quest at current location that's later in queue
+    const questAtCurrentLoc = remainingQuests.find((q, idx) => {
+      if (idx === 0) return false;  // Skip first quest (it's already next)
+      return q.location?.locId === currentLocId &&
+        !DAILY.completedQuests.includes(q.name) &&
+        !DAILY.skippedQuests.includes(q.name);
+    });
+
+    if (questAtCurrentLoc) {
+      console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
+
+      // Move this quest to current position
+      const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
+      if (questIdx > DAILY.currentQuestIdx) {
+        // Swap: move found quest to current position
+        DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
+        DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
+        console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+      }
+    }
 
     setTimeout(() => this.processNextQuest(), 500);
   },

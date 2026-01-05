@@ -965,7 +965,7 @@
         5,
         6
       ],
-      "enabled": false,
+      "enabled": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1073,7 +1073,7 @@
         5,
         6
       ],
-      "enabled": false,
+      "enabled": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1098,7 +1098,7 @@
         5,
         6
       ],
-      "enabled": false,
+      "enabled": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1107,6 +1107,14 @@
         "coords": {
           "x": 3,
           "y": 6
+        },
+        "portal": {
+          "exit": {
+            "x": 1,
+            "y": 18
+          },
+          "innerLocId": 693,
+          "innerQuests": 1
         }
       },
       "stages": [
