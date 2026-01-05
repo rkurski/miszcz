@@ -102,6 +102,7 @@
       "enabled": true,
       "priority": 1,
       "locationType": "normal",
+      "useCombatLocation": true,
       "location": {
         "name": "Ścieżka pustyni",
         "locId": 1172,
