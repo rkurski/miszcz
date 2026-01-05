@@ -1,0 +1,1571 @@
+{
+  "config": {
+    "defaultSubstance": "ostateczna",
+    "defaultCombatLocation": "current",
+    "defaultCombatLocByBorn": {
+      "6": 1402
+    }
+  },
+  "quests": [
+    {
+      "name": "Symbol Wymiarów",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Alternatywny Pałac Wszechmogącego",
+        "locId": 379,
+        "coords": {
+          "x": 29,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Ermita",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Knieja",
+        "locId": 535,
+        "coords": {
+          "x": 21,
+          "y": 3
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Najlepszy kucharz",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Ścieżka Lasu",
+        "locId": 1170,
+        "coords": {
+          "x": 2,
+          "y": 5
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Dziwny medyk",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 1,
+      "locationType": "normal",
+      "location": {
+        "name": "Ścieżka pustyni",
+        "locId": 1172,
+        "coords": {
+          "x": 10,
+          "y": 4
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        },
+        {
+          "type": "WAIT"
+        }
+      ]
+    },
+    {
+      "name": "Rozwój Planety",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "private_planet",
+      "location": {
+        "name": "Prywatna planeta",
+        "coords": {
+          "x": 10,
+          "y": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Klanowe",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "clan_planet",
+      "location": {
+        "name": "Planeta Klanowa",
+        "coords": {
+          "x": 20,
+          "y": 24
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie premium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "premium": true,
+      "priority": 2,
+      "locationType": "clan_planet",
+      "location": {
+        "name": "Planeta Klanowa",
+        "coords": {
+          "x": 23,
+          "y": 16
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Imperium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "empire_hq",
+      "location": {
+        "name": "Siedziba Imperium",
+        "coords": {
+          "x": 10,
+          "y": 7
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        },
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": true,
+          "targetEmpire": "dynamic"
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvM",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvP",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Symboli",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Substancji",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvM II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie PvP II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "PLAYER_KILL",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Symboli II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Substancji II",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pałac Wszechmogącego",
+        "locId": 27,
+        "coords": {
+          "x": 7,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV1]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 2,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV2]",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 9,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV3]",
+      "born": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 16,
+          "y": 2
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV4]",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 16,
+          "y": 6
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Studnia Życzeń [LV5]",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 9,
+          "y": 6
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Modlitwa",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Studnia Życzeń",
+        "locId": 27,
+        "coords": {
+          "x": 6,
+          "y": 11
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 7
+          },
+          "exit": {
+            "x": 3,
+            "y": 3
+          },
+          "innerLocId": 566,
+          "innerQuests": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Zadanie Premium",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "premium": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Siedziba Czterech Szkół",
+        "locId": 73,
+        "coords": {
+          "x": 7,
+          "y": 7
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 15
+          },
+          "exit": {
+            "x": 10,
+            "y": 10
+          },
+          "innerLocId": 531,
+          "innerQuests": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Reputacja",
+      "born": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Siedziba Czterech Szkół",
+        "locId": 73,
+        "coords": {
+          "x": 14,
+          "y": 7
+        },
+        "portal": {
+          "entry": {
+            "x": 13,
+            "y": 15
+          },
+          "exit": {
+            "x": 10,
+            "y": 10
+          },
+          "innerLocId": 531,
+          "innerQuests": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Fasolki",
+      "born": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Hodowla Yajirobe",
+        "locId": 353,
+        "coords": {
+          "x": 5,
+          "y": 5
+        },
+        "portal": {
+          "entry": {
+            "x": 3,
+            "y": 1
+          },
+          "exit": {
+            "x": 4,
+            "y": 1
+          },
+          "innerLocId": 368,
+          "innerQuests": 1
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION",
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "name": "Wymiana Chi",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Wnętrze Cerbera",
+        "locId": 396,
+        "coords": {
+          "x": 3,
+          "y": 9
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "RESOURCE",
+          "dynamic": true,
+          "count": 10
+        },
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Wymiana",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Wieczny Mrok",
+        "locId": 414,
+        "coords": {
+          "x": 14,
+          "y": 22
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Mistyk",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Zamarznięte Jezioro",
+        "locId": 418,
+        "coords": {
+          "x": 30,
+          "y": 11
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Nuda",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 2,
+      "useCombatLocation": true,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Bogów Wschód",
+        "locId": 618,
+        "coords": {
+          "x": 2,
+          "y": 19
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "name": "Dostawca",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Zachodnia stolica",
+        "locId": 650,
+        "coords": {
+          "x": 15,
+          "y": 17
+        }
+      },
+      "stages": [
+        {
+          "type": "RESOURCE",
+          "dynamic": true,
+          "count": 5
+        }
+      ]
+    },
+    {
+      "name": "Boska moc",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Beerusa",
+        "locId": 661,
+        "coords": {
+          "x": 32,
+          "y": 10
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        },
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Rozgrzewka",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Beerusa",
+        "locId": 661,
+        "coords": {
+          "x": 26,
+          "y": 12
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "name": "Przedmioty super",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Bezimienna Planeta",
+        "locId": 671,
+        "coords": {
+          "x": 11,
+          "y": 18
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Tajemniczy Handlarz",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Potaufeu",
+        "locId": 692,
+        "coords": {
+          "x": 20,
+          "y": 11
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Tajemniczy Portal",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Potaufeu",
+        "locId": 692,
+        "coords": {
+          "x": 2,
+          "y": 15
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Boski Ulepszacz",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Vestria - Centrum",
+        "locId": 693,
+        "coords": {
+          "x": 3,
+          "y": 6
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "name": "Dziwny Handlarz",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Zniszczone Miasto - Wschód",
+        "locId": 714,
+        "coords": {
+          "x": 17,
+          "y": 4
+        },
+        "portal": {
+          "entry": {
+            "x": 15,
+            "y": 8
+          },
+          "exit": {
+            "x": 1,
+            "y": 15
+          },
+          "innerLocId": 706,
+          "innerQuests": 1
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Dziwny Handlarz",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Pola Kaishin",
+        "locId": 715,
+        "coords": {
+          "x": 13,
+          "y": 13
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "CZAS PODRÓŻNIKÓW",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": false,
+      "priority": 4,
+      "locationType": "normal",
+      "location": {
+        "name": "Dom Urunai Baby",
+        "locId": 861,
+        "coords": {
+          "x": 19,
+          "y": 12
+        }
+      },
+      "stages": [
+        {
+          "type": "EXPEDITION",
+          "count": 10
+        }
+      ]
+    },
+    {
+      "name": "Strażnik Porządku",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 3,
+      "locationType": "normal",
+      "location": {
+        "name": "Pobojowisko Skaliste",
+        "locId": 863,
+        "coords": {
+          "x": 6,
+          "y": 13
+        }
+      },
+      "stages": [
+        {
+          "type": "BOUNTY",
+          "count": 60
+        }
+      ]
+    },
+    {
+      "name": "Mroczny Handlarz",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Kraniec",
+        "locId": 938,
+        "coords": {
+          "x": 21,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Mroczny Handlarz II ",
+      "born": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Obrzeża Areny",
+        "locId": 935,
+        "coords": {
+          "x": 14,
+          "y": 16
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Codzienny instynkt",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Centrum Wszechświata",
+        "locId": 985,
+        "coords": {
+          "x": 14,
+          "y": 14
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true
+        }
+      ]
+    },
+    {
+      "name": "Hiper Scalacz",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Planeta Liguira",
+        "locId": 991,
+        "coords": {
+          "x": 26,
+          "y": 10
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "name": "Scalacze Hiper",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Planeta Nebuloria",
+        "locId": 1282,
+        "coords": {
+          "x": 4,
+          "y": 4
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL1]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 5,
+          "y": 2
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 300
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL2]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 5,
+          "y": 3
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 2000
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL3]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 15,
+          "y": 8
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        },
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 100000
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL4]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": true,
+      "premium": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 20,
+          "y": 9
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Anielska karta[LvL5]",
+      "born": [
+        5,
+        6
+      ],
+      "enabled": false,
+      "premium": true,
+      "priority": 2,
+      "locationType": "normal",
+      "useCombatLocation": true,
+      "location": {
+        "name": "Nowa niebiańska kuźnia",
+        "locId": 1245,
+        "coords": {
+          "x": 5,
+          "y": 14
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    },
+    {
+      "name": "Scalacz MEGA",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Cephiro",
+        "locId": 1402,
+        "coords": {
+          "x": 5,
+          "y": 5
+        }
+      },
+      "stages": [
+        {
+          "type": "BOT_KILL",
+          "dynamic": true,
+          "anyEnemy": true,
+          "count": 25000
+        }
+      ]
+    },
+    {
+      "name": "Wymiana Zeni",
+      "born": [
+        6
+      ],
+      "enabled": true,
+      "priority": 2,
+      "locationType": "normal",
+      "location": {
+        "name": "Kanguria",
+        "locId": 1437,
+        "coords": {
+          "x": 6,
+          "y": 15
+        }
+      },
+      "stages": [
+        {
+          "type": "ACTION"
+        }
+      ]
+    }
+  ],
+  "questTypes": {
+    "ACTION": "Kliknij akcje/dialog (oddaj przedmiot, poziom, etc.)",
+    "BOT_KILL": "Pokonaj X botów / zdobądź przedmiot od moba",
+    "PLAYER_KILL": "Pokonaj X graczy / członków imperium",
+    "RESOURCE": "Zbierz X zasobów",
+    "WAIT": "Poczekaj na timer",
+    "EXPEDITION": "Wykonaj X wypraw (na razie pomijane)",
+    "BOUNTY": "Wykonaj X listów gończych (na razie pomijane)"
+  },
+  "locationTypes": {
+    "normal": "Zwykła lokacja - wymaga locId i coords",
+    "private_planet": "Prywatna planeta - wymaga tylko coords",
+    "clan_planet": "Planeta klanowa - wymaga tylko coords",
+    "empire_hq": "Siedziba imperium - wymaga tylko coords"
+  }
+}

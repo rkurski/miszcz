@@ -1,0 +1,30 @@
+{
+  "blessItems": {
+    "1": { "base": 1801, "buff": 100 },
+    "2": { "base": 1628, "buff": 53 },
+    "3": { "base": 1630, "buff": 55 },
+    "4": { "base": 1796, "buff": 96 },
+    "5": { "base": 1794, "buff": 94 },
+    "6": { "base": 1792, "buff": 92 },
+    "7": { "base": 1790, "buff": 90 },
+    "8": { "base": 1745, "buff": 74 },
+    "9": { "base": 1608, "buff": 52 },
+    "10": { "base": 1559, "buff": 50 },
+    "11": { "base": 1795, "buff": 95 },
+    "12": { "base": 1793, "buff": 93 },
+    "13": { "base": 1753, "buff": 82 },
+    "14": { "base": 1752, "buff": 81 },
+    "15": { "base": 1751, "buff": 80 },
+    "16": { "base": 1742, "buff": 71 },
+    "17": { "base": 1747, "buff": 76 },
+    "18": { "base": 1746, "buff": 75 }
+  },
+  "senzuIds": {
+    "SENZU_BLUE": 1244,
+    "SENZU_PURPLE": 1259,
+    "SENZU_MAGIC": 1309,
+    "SENZU_GREEN": 1242,
+    "SENZU_YELLOW": 1260,
+    "SENZU_RED": 1243
+  }
+}
