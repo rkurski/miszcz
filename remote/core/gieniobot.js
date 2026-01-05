@@ -35,12 +35,12 @@
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
-const GIENIOBOT_DEV_MODE = true;
+const GIENIOBOT_DEV_MODE = false;
 
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');
 const GIENIOBOT_LOCAL_URL = configEl ? configEl.dataset.extensionUrl : '';
-const GIENIOBOT_GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/develop/';
+const GIENIOBOT_GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/main/';
 
 // Helper function to get correct URL for resources
 function getGieniobotUrl(path) {
