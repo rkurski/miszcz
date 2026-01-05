@@ -131,7 +131,7 @@ const AFO_BALL_SEARCHER = {
         font-size: 14px;
         margin: 0;
         overflow: hidden;
-        width: 320px;
+        width: 310px;
       }
       #ball_searcher_popup .content {
         padding: 15px;
@@ -545,7 +545,7 @@ const AFO_BALL_SEARCHER = {
 
     // Wait a moment for map data to load
     setTimeout(() => {
-      if (!GAME.map_balls || Object.keys(GAME.map_balls).length === 0) {
+      if (!GAME.map_balls) {
         console.log('[BALL_SEARCHER] No balls on this map');
         this.updatePopupStatus('Brak kul, następna lokacja...');
         this.currentLocationIndex++;
@@ -553,12 +553,25 @@ const AFO_BALL_SEARCHER = {
         return;
       }
 
-      // Get first ball coordinates
-      const ballKeys = Object.keys(GAME.map_balls);
-      const ballCoordsStr = ballKeys[0];
+      // Filter out balls with value false (already picked up)
+      // GAME.map_balls format: { "x_y": 1 } for available, { "x_y": false } for picked
+      const availableBalls = Object.entries(GAME.map_balls)
+        .filter(([key, value]) => value !== false && value)
+        .map(([key]) => key);
+
+      if (availableBalls.length === 0) {
+        console.log('[BALL_SEARCHER] No available balls on this map (all picked or none)');
+        this.updatePopupStatus('Brak kul, następna lokacja...');
+        this.currentLocationIndex++;
+        setTimeout(() => this.processNextLocation(), 500);
+        return;
+      }
+
+      // Get first available ball coordinates
+      const ballCoordsStr = availableBalls[0];
       const [ballX, ballY] = ballCoordsStr.split('_').map(Number);
 
-      console.log(`[BALL_SEARCHER] Found ball at ${ballX},${ballY}`);
+      console.log(`[BALL_SEARCHER] Found available ball at ${ballX},${ballY} (${availableBalls.length} total available)`);
       this.currentBallTarget = { x: ballX, y: ballY };
 
       // Check if we're already at the ball

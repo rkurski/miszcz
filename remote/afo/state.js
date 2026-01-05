@@ -216,6 +216,10 @@ var DAILY = {
   // User preferences
   substance: 'x20',           // 'x20' or 'ostateczna' - x20 by default
   combatLoc: 'current',       // 'current', 'private', or locId
+  useCompressor: false,       // Use compressor (zegarek) for timer quests
+
+  // Waiting quests (timer quests in progress)
+  waitingQuests: [],          // [{name, quest, requires, endTime, qbId}]
 
   // Timing
   wait: 100
