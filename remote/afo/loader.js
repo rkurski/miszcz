@@ -24,7 +24,7 @@ if (typeof GAME === 'undefined') {
         const configEl = document.getElementById('__gieniobot_config__');
         const devMode = typeof GIENIOBOT_DEV_MODE !== 'undefined' && GIENIOBOT_DEV_MODE;
         const localUrl = configEl ? configEl.dataset.extensionUrl : '';
-        const githubUrl = 'https://raw.githubusercontent.com/rkurski/miszcz/develop/';
+        const githubUrl = 'https://raw.githubusercontent.com/rkurski/miszcz/main/';
 
         if (devMode && localUrl) {
           return localUrl + 'remote/afo/' + path;

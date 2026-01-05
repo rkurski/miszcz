@@ -12,9 +12,9 @@
   // ============================================
   // DEVELOPMENT MODE - zmień na false przed pushem
   // ============================================
-  const DEV_MODE = true;
+  const DEV_MODE = false;
 
-  const GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/develop/';
+  const GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/main/';
 
   // Extension URL - will be received from content script
   let EXTENSION_URL = '';
