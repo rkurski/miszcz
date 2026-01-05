@@ -717,6 +717,13 @@ const AFO_DAILY = {
     this.updateStatus('Wznawianie...');
     console.log('[AFO_DAILY] Resumed');
 
+    // Handle Anielska karta batch - resume combat loop
+    if (DAILY._anielskaBatchActive) {
+      console.log('[AFO_DAILY] Resuming Anielska batch combat');
+      setTimeout(() => this.anielskaCombatLoop(), 300);
+      return;
+    }
+
     // If we were in combat, resume combat loop, otherwise continue quest processing
     if (DAILY.isInCombat && DAILY._combatQuest) {
       setTimeout(() => this.combatLoop(), 300);
@@ -2681,6 +2688,24 @@ const AFO_DAILY = {
   anielskaCombatLoop() {
     if (DAILY.stop || DAILY.paused) return;
 
+    // Periodic refresh - every 5 seconds, pause for 1.5 seconds to let game catch up
+    // This mirrors the logic in combatLoop() for regular BOT_KILL quests
+    const now = Date.now();
+    if (!DAILY._anielskaLastRefresh) DAILY._anielskaLastRefresh = now;
+
+    if (now - DAILY._anielskaLastRefresh >= 5000) {
+      DAILY._anielskaLastRefresh = now;
+      console.log('[AFO_DAILY] Anielska: Refresh pause for counter update');
+      this.updateStatus('Anielska: Odświeżanie...');
+
+      // Wait 1.5 seconds for game to process drops and update counters
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
+        this.anielskaCombatLoop();
+      }, 1500);
+      return;
+    }
+
     // Check progress for each quest
     const qbIds = DAILY._anielskAcceptedQbIds;
     let allComplete = true;
@@ -2708,18 +2733,23 @@ const AFO_DAILY = {
     }
 
     // Adjust filter based on progress
-    // LvL1 wants legendary, LvL2 wants epic, LvL3 wants mystic
+    // LvL1 wants mystic (index 5), LvL2 wants epic (index 4), LvL3 wants legendary (index 3)
     let newIgnore = [...DAILY._anielskaIgnore];
 
-    if (lvl1Done && !newIgnore[3]) {
-      // Legendary done - stop spawning legendary
-      console.log('[AFO_DAILY] Anielska: LvL1 done, disabling legendary spawn');
-      newIgnore[3] = true;
+    if (lvl1Done && !newIgnore[5]) {
+      // Mystic done (LvL1) - stop spawning mystic
+      console.log('[AFO_DAILY] Anielska: LvL1 done, disabling mystic spawn');
+      newIgnore[5] = true;
     }
     if (lvl2Done && !newIgnore[4]) {
-      // Epic done - stop spawning epic
+      // Epic done (LvL2) - stop spawning epic
       console.log('[AFO_DAILY] Anielska: LvL2 done, disabling epic spawn');
       newIgnore[4] = true;
+    }
+    if (lvl3Done && !newIgnore[3]) {
+      // Legendary done (LvL3) - stop spawning legendary
+      console.log('[AFO_DAILY] Anielska: LvL3 done, disabling legendary spawn');
+      newIgnore[3] = true;
     }
 
     // Update filter if changed
@@ -2893,6 +2923,7 @@ const AFO_DAILY = {
     DAILY._anielskLvl4Quest = null;
     DAILY._anielskAcceptedQbIds = null;
     DAILY._anielskaIgnore = null;
+    DAILY._anielskaLastRefresh = 0;
 
     // Skip all anielska quests in queue (they're done)
     this.skipAnielskaBatch();
@@ -2928,9 +2959,15 @@ const AFO_DAILY = {
 
     // ALWAYS save NPC coords so we can return after combat (even with unstuck moves)
     // This is separate from _originalLocId which is only for combat location teleports
+    // For private/clan planet quests - prefer dynamic coords saved earlier in navigateToQuestNPC
     if (quest.location?.coords) {
-      DAILY._npcCoords = { x: quest.location.coords.x, y: quest.location.coords.y };
-      console.log('[AFO_DAILY] Saved NPC coords for return:', DAILY._npcCoords);
+      if ((quest.locationType === 'private_planet' || quest.locationType === 'clan_planet')
+        && DAILY._dynamicNpcCoords) {
+        console.log('[AFO_DAILY] Keeping existing dynamic NPC coords for', quest.locationType);
+      } else {
+        DAILY._npcCoords = { x: quest.location.coords.x, y: quest.location.coords.y };
+        console.log('[AFO_DAILY] Saved NPC coords for return:', DAILY._npcCoords);
+      }
     }
 
     // Check if quest uses combat location (useCombatLocation flag in JSON)
@@ -3153,7 +3190,8 @@ const AFO_DAILY = {
 
     // Check if we need to return to original location (from useCombatLocation)
     if (DAILY._originalLocId && GAME.char_data.loc !== DAILY._originalLocId) {
-      console.log('[AFO_DAILY] Returning to quest location:', DAILY._originalLocId);
+      const targetLocId = DAILY._originalLocId;
+      console.log('[AFO_DAILY] Returning to quest location:', targetLocId);
       this.updateStatus(`${quest.name}: Wracam do questa...`);
 
       // Use proper teleport handling - set flags so afterTeleport handles navigation
@@ -3163,11 +3201,28 @@ const AFO_DAILY = {
       DAILY._returnFromCombat = true;  // Flag to indicate we're returning from combat
 
       // Teleport back to quest location
-      GAME.socket.emit('ga', { a: 12, type: 18, loc: DAILY._originalLocId });
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: targetLocId });
 
       // Clear original location after sending teleport
       DAILY._originalLocId = null;
       DAILY._originalCoords = null;
+
+      // Fallback: if teleport doesn't complete in 5 seconds, retry
+      setTimeout(() => {
+        if (DAILY.isTeleporting && GAME.char_data.loc !== targetLocId) {
+          console.warn('[AFO_DAILY] Teleport return timeout, retrying...');
+          GAME.socket.emit('ga', { a: 12, type: 18, loc: targetLocId });
+
+          // Final fallback after another 4s
+          setTimeout(() => {
+            if (DAILY.isTeleporting) {
+              console.warn('[AFO_DAILY] Final teleport fallback, forcing afterTeleport');
+              DAILY.isTeleporting = false;
+              this.afterTeleport();
+            }
+          }, 4000);
+        }
+      }, 5000);
 
       // afterTeleport will be called by handleSockets when 'gr' event fires
       // with the new map data, and will navigate to NPC
@@ -3180,14 +3235,21 @@ const AFO_DAILY = {
 
     // Use dynamic NPC coords for private/clan planet quests (saved in navigateToQuestNPC)
     // These are more accurate than _npcCoords for quests with dynamic NPC positions
-    const npcCoords = DAILY._dynamicNpcCoords || DAILY._npcCoords;
+    let npcCoords = DAILY._dynamicNpcCoords || DAILY._npcCoords;
+
+    // IMPORTANT: Check if npcCoords.locationType matches current quest locationType
+    // This prevents using stale coords from a previous different quest type
+    if (npcCoords && npcCoords.locationType && npcCoords.locationType !== quest.locationType) {
+      console.log('[AFO_DAILY] NPC coords locationType mismatch - ignoring stale coords. Coords type:', npcCoords.locationType, 'Quest type:', quest.locationType);
+      npcCoords = null; // Ignore stale coords from different quest type
+    }
+
+    // Clear both coord sources regardless (to prevent future contamination)
+    DAILY._dynamicNpcCoords = null;
+    DAILY._npcCoords = null;
 
     if (npcCoords) {
       console.log('[AFO_DAILY] Using NPC coords for return:', npcCoords, 'quest type:', quest.locationType);
-
-      // Clear both coord sources
-      DAILY._dynamicNpcCoords = null;
-      DAILY._npcCoords = null;
 
       const currentX = GAME.char_data.x;
       const currentY = GAME.char_data.y;
