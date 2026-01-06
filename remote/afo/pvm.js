@@ -116,12 +116,21 @@ const AFO_LPVM = {
       parseInt(GAME.map_wanteds.x) - 1,
       parseInt(GAME.map_wanteds.y) - 1,
       (path) => {
-        if (path !== null) {
+        if (path !== null && path.length > 0) {
           if (path[0].x == GAME.char_data.x - 1 && path[0].y == GAME.char_data.y - 1) {
             path.shift();
           }
-          LPVM.Path = path;
-          setTimeout(() => this.Move(), LPVM.wait);
+          if (path.length > 0) {
+            LPVM.Path = path;
+            setTimeout(() => this.Move(), LPVM.wait);
+          } else {
+            // Path empty after shift - already at target, try kill
+            setTimeout(() => this.KillWanted(), 500);
+          }
+        } else {
+          // No path found - retry after delay
+          console.warn('[AFO_LPVM] No path found, retrying...');
+          setTimeout(() => this.Teleport(), 1000);
         }
       }
     );
@@ -130,6 +139,13 @@ const AFO_LPVM = {
 
   Move() {
     if (LPVM.Stop) return;
+
+    // Safety check for empty path
+    if (!LPVM.Path || LPVM.Path.length === 0) {
+      console.warn('[AFO_LPVM] Path empty in Move, going to target');
+      setTimeout(() => this.KillWanted(), 500);
+      return;
+    }
 
     let target = LPVM.Path[0];
     let cx = GAME.char_data.x - 1;

@@ -646,13 +646,12 @@ const AFO_DAILY = {
     }
 
     // Build quest queue from checked quests (not in skippedQuests)
-    // JSON 'enabled' flag only sets default checkbox state, user's checkbox state is final
+    // JSON 'enabled' flag only sets default checkbox state, skippedQuests reflects actual user choice
     const currentBorn = GAME.char_data.reborn;
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q))
-      .filter(q => q.enabled !== false)  // Skip disabled quests from JSON
-      .filter(q => !DAILY.skippedQuests.includes(q.name))
+      .filter(q => !DAILY.skippedQuests.includes(q.name))  // User unchecked = skip
       .filter(q => !DAILY.completedQuests.includes(q.name))
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
@@ -705,6 +704,7 @@ const AFO_DAILY = {
     DAILY.paused = true;
     PVP.stop = true;  // Stop AFO_PVP if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
+    this.stopAutoExpeditions();  // Stop auto expeditions if running
     $('#daily_pause_btn').text('WZNÓW');
     this.updateStatus('⏸ Wstrzymano');
     console.log('[AFO_DAILY] Paused');
@@ -732,6 +732,13 @@ const AFO_DAILY = {
       return;
     }
 
+    // Handle expedition quest - resume expedition loop
+    if (DAILY._expeditionQuest) {
+      console.log('[AFO_DAILY] Resuming expedition loop');
+      setTimeout(() => this.expeditionLoop(), 300);
+      return;
+    }
+
     // If we were in combat, resume combat loop, otherwise continue quest processing
     if (DAILY.isInCombat && DAILY._combatQuest) {
       setTimeout(() => this.combatLoop(), 300);
@@ -756,10 +763,15 @@ const AFO_DAILY = {
     DAILY.isInCombat = false;
     PVP.stop = true;  // Stop AFO_PVP if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
+    this.stopAutoExpeditions();  // Stop auto expeditions if running
 
     // Clear bounty state
     DAILY._bountyQuest = null;
     DAILY._bountyRequires = null;
+
+    // Clear expedition state
+    DAILY._expeditionQuest = null;
+    DAILY._expeditionRequires = null;
 
     // Update UI - show START, hide PAUZA and PRZERWIJ
     $('#daily_start_btn').removeClass('hidden');
@@ -2325,18 +2337,107 @@ const AFO_DAILY = {
   },
 
   /**
-   * Handle expedition quests - requires manual completion
-   * For now, skip and mark as requiring manual action
+   * Handle expedition quests using AUTO EXPEDITIONS system
+   * Starts auto expeditions, monitors progress, stops when complete
    */
   handleExpedition(quest, requires) {
     if (DAILY.stop || DAILY.paused) return;
 
     console.log('[AFO_DAILY] Expedition quest detected:', quest.name, requires.current, '/', requires.target);
-    this.updateStatus(`${quest.name}: Wymaga wypraw (${requires.current}/${requires.target})`);
-    GAME.komunikat(`[DZIENNE] ${quest.name} wymaga ręcznego wykonania wypraw`);
 
+    // Initialize expedition tracking state
+    DAILY._expeditionQuest = quest;
+    DAILY._expeditionRequires = requires;
+    DAILY._expeditionLastProgress = requires.current;
+
+    this.updateStatus(`${quest.name}: Wyprawy (${requires.current}/${requires.target})`);
+
+    // Close dialog before starting expeditions
     $('#quest_con').hide();
-    this.skipQuestWithMark(quest, 'Wymaga ręcznych wypraw');
+
+    // Start expedition loop
+    this.expeditionLoop();
+  },
+
+  /**
+   * Main expedition loop - monitors progress and handles completion
+   */
+  expeditionLoop() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const quest = DAILY._expeditionQuest;
+    const requires = DAILY._expeditionRequires;
+
+    if (!quest || !requires) {
+      console.warn('[AFO_DAILY] Expedition state lost, skipping');
+      this.skipQuestWithMark(quest || { name: 'Unknown' }, 'Błąd stanu ekspedycji');
+      return;
+    }
+
+    const qbId = requires.originalQbId || this.getQuestQbId(quest);
+    const trackQuest = $(`#track_quest_${qbId}`);
+
+    // Check if requirements met (green status)
+    if (trackQuest.length > 0 && trackQuest.find('.green').length > 0) {
+      console.log('[AFO_DAILY] Expedition quest complete!');
+      this.onExpeditionComplete(quest);
+      return;
+    }
+
+    // Get current progress
+    let currentProgress = requires.current;
+    const questSpan = $(`.quest_warunek${qbId}`);
+    if (questSpan.length > 0) {
+      currentProgress = parseInt(questSpan.attr('data-count')) || 0;
+    }
+
+    this.updateStatus(`${quest.name}: ${currentProgress}/${requires.target}`);
+
+    // Update progress tracking
+    if (currentProgress > DAILY._expeditionLastProgress) {
+      DAILY._expeditionLastProgress = currentProgress;
+      console.log('[AFO_DAILY] Expedition progress:', currentProgress, '/', requires.target);
+    }
+
+    // Check if we've reached target-1 and expedition is in progress
+    // When at 9/10 and expedition started, we need to wait for it to finish
+    if (currentProgress >= requires.target - 1) {
+      // Check if auto expeditions is still needed
+      if (currentProgress >= requires.target) {
+        // Target reached, stop and complete
+        this.onExpeditionComplete(quest);
+        return;
+      }
+    }
+
+    // Ensure auto expeditions is running
+    if (typeof kws !== 'undefined' && !kws.autoExpeditions) {
+      console.log('[AFO_DAILY] Starting auto expeditions');
+      kws.manageAutoExpeditions();  // Toggle ON
+    }
+
+    // Continue monitoring every 5 seconds (expeditions take ~5 min each)
+    setTimeout(() => this.expeditionLoop(), 5000);
+  },
+
+  /**
+   * Called when expedition quest requirements are met
+   */
+  onExpeditionComplete(quest) {
+    console.log('[AFO_DAILY] Expedition quest complete:', quest.name);
+
+    // Stop auto expeditions if running
+    if (typeof kws !== 'undefined' && kws.autoExpeditions) {
+      console.log('[AFO_DAILY] Stopping auto expeditions');
+      kws.manageAutoExpeditions();  // Toggle OFF
+    }
+
+    // Clear expedition state
+    DAILY._expeditionQuest = null;
+    DAILY._expeditionRequires = null;
+
+    // Return to quest NPC to complete
+    this.navigateToQuestNPC(quest);
   },
 
   /**
@@ -2501,6 +2602,16 @@ const AFO_DAILY = {
   stopLPVM() {
     if (typeof LPVM !== 'undefined') {
       LPVM.Stop = true;
+    }
+  },
+
+  /**
+   * Stop auto expeditions if running
+   */
+  stopAutoExpeditions() {
+    if (typeof kws !== 'undefined' && kws.autoExpeditions) {
+      console.log('[AFO_DAILY] Stopping auto expeditions');
+      kws.manageAutoExpeditions();  // Toggle OFF
     }
   },
 
@@ -3176,11 +3287,13 @@ const AFO_DAILY = {
 
     // ALWAYS save NPC coords so we can return after combat (even with unstuck moves)
     // This is separate from _originalLocId which is only for combat location teleports
-    // For private/clan planet quests - prefer dynamic coords saved earlier in navigateToQuestNPC
+    // For private/clan planet quests - prefer persistent quest coords saved in navigateToQuestNPC
     if (quest.location?.coords) {
       if ((quest.locationType === 'private_planet' || quest.locationType === 'clan_planet')
-        && DAILY._dynamicNpcCoords) {
-        console.log('[AFO_DAILY] Keeping existing dynamic NPC coords for', quest.locationType);
+        && DAILY._questNpcCoords && DAILY._questNpcCoords.questName === quest.name) {
+        // Use persisted coords from navigateToQuestNPC (survives across stages)
+        DAILY._dynamicNpcCoords = DAILY._questNpcCoords;
+        console.log('[AFO_DAILY] Using persisted NPC coords for', quest.locationType, DAILY._questNpcCoords);
       } else {
         DAILY._npcCoords = { x: quest.location.coords.x, y: quest.location.coords.y };
         console.log('[AFO_DAILY] Saved NPC coords for return:', DAILY._npcCoords);
@@ -3220,17 +3333,18 @@ const AFO_DAILY = {
       } else {
         // Normal teleport by locId
         const locId = parseInt(DAILY.combatLoc);
+        DAILY._targetCombatLocId = locId;  // Save for verification
+
         if (GAME.char_data.loc === locId) {
           // Already on location
           console.log('[AFO_DAILY] Already on combat location, starting combat');
           this.combatLoop();
         } else {
           GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
-          // Wait for teleport, then start combat
+          // Wait for teleport, then verify we arrived
           setTimeout(() => {
             if (DAILY.stop || DAILY.paused) return;
-            console.log('[AFO_DAILY] Arrived at combat location, starting combat');
-            this.combatLoop();
+            this.verifyCombatLocation(locId, 0);
           }, 2000);
         }
       }
@@ -3239,6 +3353,45 @@ const AFO_DAILY = {
 
     // No combat location teleport needed - start combat immediately
     this.combatLoop();
+  },
+
+  /**
+   * Verify we arrived at combat location, retry teleport if not
+   * Uses GAME.current_loc.id for accurate location check
+   */
+  verifyCombatLocation(expectedLocId, attempts) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const currentLocId = GAME.current_loc?.id || GAME.char_data.loc;
+
+    if (currentLocId === expectedLocId) {
+      // Successfully arrived at combat location
+      console.log('[AFO_DAILY] Verified at combat location:', expectedLocId, '- starting combat');
+      this.combatLoop();
+      return;
+    }
+
+    // Not at expected location
+    console.warn('[AFO_DAILY] Combat location verification failed! Expected:', expectedLocId, 'Current:', currentLocId, 'Attempt:', attempts + 1);
+
+    if (attempts >= 3) {
+      // Max retries reached - skip quest
+      console.error('[AFO_DAILY] Failed to teleport to combat location after 3 attempts');
+      const quest = DAILY._combatQuest;
+      this.skipQuestWithMark(quest, 'Nie udało się teleportować do lokacji walki');
+      return;
+    }
+
+    // Retry teleport
+    console.log('[AFO_DAILY] Retrying teleport to combat location:', expectedLocId);
+    this.updateStatus(`Próba teleportu (${attempts + 2}/3)...`);
+    GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+
+    // Wait and verify again
+    setTimeout(() => {
+      if (DAILY.stop || DAILY.paused) return;
+      this.verifyCombatLocation(expectedLocId, attempts + 1);
+    }, 2500);
   },
 
   // Check if we need buffs/SSJ/substance before fighting (like RESP.check())

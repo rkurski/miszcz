@@ -906,7 +906,7 @@
         5,
         6
       ],
-      "enabled": false,
+      "enabled": true,
       "priority": 2,
       "useCombatLocation": true,
       "locationType": "normal",
