@@ -3176,11 +3176,13 @@ const AFO_DAILY = {
 
     // ALWAYS save NPC coords so we can return after combat (even with unstuck moves)
     // This is separate from _originalLocId which is only for combat location teleports
-    // For private/clan planet quests - prefer dynamic coords saved earlier in navigateToQuestNPC
+    // For private/clan planet quests - prefer persistent quest coords saved in navigateToQuestNPC
     if (quest.location?.coords) {
       if ((quest.locationType === 'private_planet' || quest.locationType === 'clan_planet')
-        && DAILY._dynamicNpcCoords) {
-        console.log('[AFO_DAILY] Keeping existing dynamic NPC coords for', quest.locationType);
+        && DAILY._questNpcCoords && DAILY._questNpcCoords.questName === quest.name) {
+        // Use persisted coords from navigateToQuestNPC (survives across stages)
+        DAILY._dynamicNpcCoords = DAILY._questNpcCoords;
+        console.log('[AFO_DAILY] Using persisted NPC coords for', quest.locationType, DAILY._questNpcCoords);
       } else {
         DAILY._npcCoords = { x: quest.location.coords.x, y: quest.location.coords.y };
         console.log('[AFO_DAILY] Saved NPC coords for return:', DAILY._npcCoords);
