@@ -71,7 +71,7 @@ const AFO_DAILY = {
         top: 450px;
         left: 65%;
         z-index: 9999;
-        width: 280px;
+        width: 320px;
         padding: 1px;
         border-radius: 5px;
         border-style: solid;
@@ -88,7 +88,7 @@ const AFO_DAILY = {
         background: rgba(0,0,0,0.9);
         filter: hue-rotate(196deg);
         background-size: 100% 100%;
-        width: 280px;
+        width: 320px;
         cursor: all-scroll;
       }
       #daily_Panel .daily_button {
@@ -195,6 +195,29 @@ const AFO_DAILY = {
       #daily_Panel .daily_options input[type="checkbox"] {
         margin-right: 4px;
       }
+      /* Quest icon sprites */
+      #daily_Panel .quest_icon {
+        width: 18px;
+        height: 18px;
+        margin-right: 5px;
+        flex-shrink: 0;
+        display: inline-block;
+        background-image: url('${getGieniobotUrl('images/daily.png')}');
+        background-repeat: no-repeat;
+        vertical-align: middle;
+      }
+      #daily_Panel .quest_icon.icon-action { background-position: -10px -10px; }
+      #daily_Panel .quest_icon.icon-certyfikat { background-position: -48px -10px; }
+      #daily_Panel .quest_icon.icon-kk { background-position: -10px -48px; }
+      #daily_Panel .quest_icon.icon-kp { background-position: -48px -48px; }
+      #daily_Panel .quest_icon.icon-lpvm { background-position: -86px -10px; }
+      #daily_Panel .quest_icon.icon-pvm { background-position: -86px -48px; }
+      #daily_Panel .quest_icon.icon-pvp { background-position: -10px -86px; }
+      #daily_Panel .quest_icon.icon-resource { background-position: -48px -86px; }
+      #daily_Panel .quest_icon.icon-smoczy-token { background-position: -86px -86px; }
+      #daily_Panel .quest_icon.icon-wyprawy { background-position: -124px -86px; width: 12px; height: 12px; }
+      #daily_Panel .quest_icon.icon-zegarek { background-position: -124px -10px; }
+      #daily_Panel .quest_icon.icon-zeni { background-position: -124px -48px; }
     `;
 
     if (!document.getElementById('daily_quests_css')) {
@@ -460,10 +483,18 @@ const AFO_DAILY = {
         }
       }
 
+      // Build icon HTML if quest has icon defined (uses CSS sprites)
+      let iconHtml = '';
+      if (quest.icon) {
+        // Icon name is like "action.png" - extract "action" for CSS class
+        const iconName = quest.icon.replace('.png', '').replace('_', '-');
+        iconHtml = `<span class="quest_icon icon-${iconName}"></span>`;
+      }
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
-          <span class="quest_name">${quest.name}</span>
+          ${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
         </div>
@@ -703,6 +734,7 @@ const AFO_DAILY = {
 
     DAILY.paused = true;
     PVP.stop = true;  // Stop AFO_PVP if running
+    RES.stop = true;  // Stop resource collection if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
     $('#daily_pause_btn').text('WZNÓW');
@@ -762,6 +794,7 @@ const AFO_DAILY = {
     DAILY.isTeleporting = false;
     DAILY.isInCombat = false;
     PVP.stop = true;  // Stop AFO_PVP if running
+    RES.stop = true;  // Stop resource collection if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
 
@@ -956,28 +989,128 @@ const AFO_DAILY = {
       clearInterval(DAILY._waitingCheckInterval);
     }
 
-    // Check every 5 seconds
+    // Start 1-second timer update for smooth countdown display
+    this.startWaitingTimerUpdate();
+
+    // Check every 5 seconds for quest completion
     DAILY._waitingCheckInterval = setInterval(() => {
       if (DAILY.stop || !DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
+        this.stopWaitingTimerUpdate();
         if (!DAILY.stop && DAILY.waitingQuests?.length === 0) {
           this.stop('Wykonano wszystkie questy!');
         }
         return;
       }
 
-      // Re-render to update timers
-      this.renderQuestList();
-
       // Check if any are ready
       if (this.checkWaitingQuests()) {
         // A quest became ready and is being processed
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
+        this.stopWaitingTimerUpdate();
       }
     }, 5000);
   },
+
+  /**
+   * Start 1-second interval to update waiting quest timers in UI
+   */
+  startWaitingTimerUpdate() {
+    if (DAILY._timerUpdateInterval) {
+      clearInterval(DAILY._timerUpdateInterval);
+    }
+
+    // Update timer display every second
+    DAILY._timerUpdateInterval = setInterval(() => {
+      if (DAILY.stop || !DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
+        this.stopWaitingTimerUpdate();
+        return;
+      }
+
+      // Update each waiting quest's timer display
+      DAILY.waitingQuests.forEach(waitData => {
+        if (!waitData.qbId) return;
+
+        const $item = $(`.daily_quest_item[data-quest-name="${waitData.name}"]`);
+        let $timer = $item.find('.quest_timer');
+
+        // Try to get timer from track_quest first (live game timer)
+        const trackTimer = $(`#track_quest_${waitData.qbId} .timer`);
+        let timerText = '';
+
+        if (trackTimer.length > 0) {
+          timerText = trackTimer.text().trim();
+        }
+
+        // Fallback to calculated time if track_quest not available
+        if (!timerText && waitData.endTime) {
+          const remaining = Math.max(0, waitData.endTime - Date.now());
+          const mins = Math.floor(remaining / 60000);
+          const secs = Math.floor((remaining % 60000) / 1000);
+          timerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        if (timerText) {
+          if ($timer.length > 0) {
+            $timer.text(`⏱ ${timerText}`);
+          } else {
+            // Insert timer span if not exists
+            $item.find('.quest_name').after(`<span class="quest_timer">⏱ ${timerText}</span>`);
+          }
+        }
+      });
+
+      // NOTE: Don't call updateWaitingStatus() here - it would override active task status
+      // The waiting status is only shown in standby mode (when all regular quests are done)
+    }, 1000);
+  },
+
+  /**
+   * Stop the timer update interval
+   */
+  stopWaitingTimerUpdate() {
+    if (DAILY._timerUpdateInterval) {
+      clearInterval(DAILY._timerUpdateInterval);
+      DAILY._timerUpdateInterval = null;
+    }
+  },
+
+  /**
+   * Update status bar with waiting quest info
+   */
+  updateWaitingStatus() {
+    if (!DAILY.waitingQuests || DAILY.waitingQuests.length === 0) return;
+
+    const now = Date.now();
+    let closestEnd = Infinity;
+
+    DAILY.waitingQuests.forEach(w => {
+      // Try to get accurate time from track_quest
+      if (w.qbId) {
+        const timerEl = $(`#track_quest_${w.qbId} .timer[data-end]`);
+        if (timerEl.length > 0) {
+          const dataEnd = parseInt(timerEl.attr('data-end'));
+          if (dataEnd > 0) {
+            w.endTime = dataEnd * 1000;
+          }
+        }
+      }
+
+      const remaining = Math.max(0, w.endTime - now);
+      if (remaining < closestEnd) {
+        closestEnd = remaining;
+      }
+    });
+
+    if (closestEnd < Infinity) {
+      const mins = Math.floor(closestEnd / 60000);
+      const secs = Math.floor((closestEnd % 60000) / 1000);
+      this.updateStatus(`Oczekujące: ${DAILY.waitingQuests.length} (następny za ${mins}:${secs.toString().padStart(2, '0')})`);
+    }
+  },
+
 
   /**
    * Update UI for waiting quests
@@ -2324,8 +2457,9 @@ const AFO_DAILY = {
       console.log('[AFO_DAILY] Added to waiting queue:', quest.name, 'until', new Date(endTime));
     }
 
-    // Update UI
+    // Update UI and start timer update interval for smooth countdown
     this.renderQuestList();
+    this.startWaitingTimerUpdate();  // Start 1-second timer updates immediately
     this.updateStatus(`${quest.name}: Czekam, kontynuuję inne`);
     GAME.komunikat(`[DZIENNE] ${quest.name} - czekam, kontynuuję inne questy`);
 
@@ -2695,11 +2829,19 @@ const AFO_DAILY = {
         return;
       }
 
-      // Also check quest_warunek span
+      // Also check quest_warunek span - parse TEXT not data-count (game updates text only!)
       const questSpan = $(`.quest_warunek${qbId}`);
       if (questSpan.length > 0) {
-        const current = parseInt(questSpan.attr('data-count')) || 0;
-        const target = parseInt(questSpan.attr('data-max')) || requires.target;
+        const spanText = questSpan.text().trim();
+        // Parse "7/10" or "5 140 /10 000" format
+        const slashIdx = spanText.indexOf('/');
+        let current = 0;
+        let target = requires.target;
+
+        if (slashIdx > -1) {
+          current = parseInt(spanText.substring(0, slashIdx).replace(/\s/g, '')) || 0;
+          target = parseInt(spanText.substring(slashIdx + 1).replace(/\s/g, '')) || requires.target;
+        }
 
         this.updateStatus(`${quest.name}: ${current}/${target}`);
 
@@ -3484,14 +3626,73 @@ const AFO_DAILY = {
       return;
     }
 
-    // Also check quest_warunek span
     const questSpan = $(`.quest_warunek${qbId}`);
     let currentProgress = 0;
     let target = requires.target;
 
+    // Helper function to parse progress from text like "5 140 /10 000" or "0/10 000"
+    // Use simple split on '/' - much more reliable than complex regex
+    const parseProgressText = (text) => {
+      // Find the last occurrence of pattern "number/number" by splitting on '/'
+      const slashIdx = text.lastIndexOf('/');
+      if (slashIdx === -1) return null;
+
+      // Extract parts before and after the slash
+      const beforeSlash = text.substring(0, slashIdx);
+      const afterSlash = text.substring(slashIdx + 1);
+
+      // Extract numbers (remove all non-digit characters except for finding the number)
+      // Get the last "word" before slash that contains digits
+      const beforeParts = beforeSlash.trim().split(/\s+/);
+      let currentStr = '';
+      for (let i = beforeParts.length - 1; i >= 0; i--) {
+        if (/\d/.test(beforeParts[i])) {
+          currentStr = beforeParts[i] + currentStr;
+          // Keep going back if previous part is also just digits/spaces
+          if (i > 0 && /^[\d\s]+$/.test(beforeParts[i - 1])) {
+            currentStr = beforeParts[i - 1] + ' ' + currentStr;
+            i--;
+          }
+        } else {
+          break;
+        }
+      }
+
+      // For after slash, just take all digits
+      const afterParts = afterSlash.trim().split(/\s+/);
+      let targetStr = '';
+      for (const part of afterParts) {
+        if (/\d/.test(part)) {
+          targetStr += part;
+        } else {
+          break;
+        }
+      }
+
+      const current = parseInt(currentStr.replace(/\s/g, '')) || 0;
+      const target = parseInt(targetStr.replace(/\s/g, '')) || 0;
+
+      if (target > 0) {
+        return { current, target };
+      }
+      return null;
+    };
+
     if (questSpan.length > 0) {
-      currentProgress = parseInt(questSpan.attr('data-count')) || 0;
-      target = parseInt(questSpan.attr('data-max')) || requires.target;
+      // Parse from span TEXT (game updates text, not data-count attribute!)
+      const spanText = questSpan.text().trim();
+      const parsed = parseProgressText(spanText);
+
+      if (parsed) {
+        currentProgress = parsed.current;
+        if (parsed.target > 0) target = parsed.target;
+        console.log('[AFO_DAILY] Parsed progress from quest_warunek text:', currentProgress, '/', target);
+      } else {
+        // Fallback to data-count if text parsing fails
+        currentProgress = parseInt(questSpan.attr('data-count')) || 0;
+        target = parseInt(questSpan.attr('data-max')) || requires.target;
+        console.log('[AFO_DAILY] Using quest_warunek data-count fallback:', currentProgress, '/', target);
+      }
 
       if (currentProgress >= target) {
         console.log('[AFO_DAILY] Combat requirements met:', currentProgress, '/', target);
@@ -3502,10 +3703,37 @@ const AFO_DAILY = {
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     } else {
       // quest_warunek not found - we may be on a different location (useCombatLocation)
-      // Use requires values as fallback (updated by server socket events)
-      currentProgress = requires.current || 0;
-      console.log('[AFO_DAILY] quest_warunek not found, using requires fallback:', currentProgress, '/', target);
-      this.updateStatus(`${quest.name}: ${currentProgress}/${target} (walka)`);
+      // First try to find quest_warunek span inside track_quest (most reliable)
+      const trackQuestSpan = trackQuest.find(`[class^="quest_warunek"]`);
+
+      if (trackQuestSpan.length > 0) {
+        const spanText = trackQuestSpan.text().trim();
+        const parsed = parseProgressText(spanText);
+        if (parsed) {
+          currentProgress = parsed.current;
+          if (parsed.target > 0) target = parsed.target;
+          console.log('[AFO_DAILY] Parsed progress from track_quest span:', currentProgress, '/', target);
+        }
+      } else if (trackQuest.length > 0) {
+        // Fallback: parse from full track_quest text
+        const trackText = trackQuest.text();
+        const parsed = parseProgressText(trackText);
+
+        if (parsed) {
+          currentProgress = parsed.current;
+          if (parsed.target > 0) target = parsed.target;
+          console.log('[AFO_DAILY] Parsed progress from track_quest HTML:', currentProgress, '/', target);
+        } else {
+          // Fallback to requires.current if parsing failed
+          currentProgress = requires.current || 0;
+          console.log('[AFO_DAILY] Could not parse progress from track_quest, using requires:', currentProgress, '/', target);
+        }
+      } else {
+        // No track_quest element at all - use requires fallback
+        currentProgress = requires.current || 0;
+        console.log('[AFO_DAILY] No track_quest found, using requires fallback:', currentProgress, '/', target);
+      }
+      this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     }
 
     // Stuck detection - check if progress is being made
