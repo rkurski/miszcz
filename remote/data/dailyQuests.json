@@ -16,10 +16,11 @@
         6
       ],
       "enabled": true,
+      "icon": "zegarek.png",
       "priority": 1,
       "locationType": "normal",
       "location": {
-        "name": "Alternatywny Pałac Wszechmogącego",
+        "name": "Alternatywny P. Wszechm.",
         "locId": 379,
         "coords": {
           "x": 29,
@@ -44,6 +45,7 @@
         6
       ],
       "enabled": true,
+      "icon": "zegarek.png",
       "priority": 1,
       "locationType": "normal",
       "location": {
@@ -74,6 +76,7 @@
         6
       ],
       "enabled": true,
+      "icon": "zegarek.png",
       "priority": 1,
       "locationType": "normal",
       "location": {
@@ -100,6 +103,7 @@
         6
       ],
       "enabled": true,
+      "icon": "zegarek.png",
       "priority": 1,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -133,6 +137,8 @@
         6
       ],
       "enabled": true,
+      "worth": true,
+      "icon": "pvm.png",
       "priority": 2,
       "locationType": "private_planet",
       "location": {
@@ -167,6 +173,8 @@
         6
       ],
       "enabled": true,
+      "worth": true,
+      "icon": "pvm.png",
       "priority": 2,
       "locationType": "clan_planet",
       "location": {
@@ -186,6 +194,7 @@
     },
     {
       "name": "Zadanie premium",
+      "icon": "kk.png",
       "born": [
         0,
         1,
@@ -225,6 +234,7 @@
         6
       ],
       "enabled": true,
+      "icon": "pvp.png",
       "priority": 2,
       "locationType": "empire_hq",
       "location": {
@@ -249,6 +259,7 @@
     },
     {
       "name": "Zadanie PvM",
+      "icon": "pvm.png",
       "born": [
         0,
         1,
@@ -278,6 +289,7 @@
     },
     {
       "name": "Zadanie PvP",
+      "icon": "pvp.png",
       "born": [
         0,
         1,
@@ -307,6 +319,7 @@
     },
     {
       "name": "Zadanie Symboli",
+      "icon": "action.png",
       "born": [
         0,
         1,
@@ -336,6 +349,7 @@
     },
     {
       "name": "Zadanie Substancji",
+      "icon": "action.png",
       "born": [
         0,
         1,
@@ -365,6 +379,7 @@
     },
     {
       "name": "Zadanie PvM II",
+      "icon": "pvm.png",
       "born": [
         6
       ],
@@ -388,6 +403,7 @@
     },
     {
       "name": "Zadanie PvP II",
+      "icon": "pvp.png",
       "born": [
         6
       ],
@@ -411,6 +427,7 @@
     },
     {
       "name": "Zadanie Symboli II",
+      "icon": "action.png",
       "born": [
         6
       ],
@@ -434,6 +451,7 @@
     },
     {
       "name": "Zadanie Substancji II",
+      "icon": "action.png",
       "born": [
         6
       ],
@@ -457,6 +475,7 @@
     },
     {
       "name": "Studnia Życzeń [LV1]",
+      "icon": "action.png",
       "born": [
         0,
         1,
@@ -498,6 +517,7 @@
     },
     {
       "name": "Studnia Życzeń [LV2]",
+      "icon": "action.png",
       "born": [
         0,
         1,
@@ -547,6 +567,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -585,6 +606,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -623,6 +645,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -654,6 +677,7 @@
     },
     {
       "name": "Modlitwa",
+      "icon": "certyfikat.png",
       "born": [
         0,
         1,
@@ -695,6 +719,7 @@
     },
     {
       "name": "Zadanie Premium",
+      "icon": "kk.png",
       "born": [
         0,
         1,
@@ -749,6 +774,7 @@
       "enabled": true,
       "priority": 2,
       "locationType": "normal",
+      "icon": "action.png",
       "location": {
         "name": "Siedziba Czterech Szkół",
         "locId": 73,
@@ -786,6 +812,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -817,6 +844,7 @@
     },
     {
       "name": "Wymiana Chi",
+      "icon": "resource.png",
       "born": [
         3,
         4,
@@ -857,6 +885,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -882,6 +911,7 @@
         6
       ],
       "enabled": true,
+      "icon": "action.png",
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -907,6 +937,7 @@
         6
       ],
       "enabled": true,
+      "icon": "pvm.png",
       "priority": 2,
       "useCombatLocation": true,
       "locationType": "normal",
@@ -932,6 +963,7 @@
     },
     {
       "name": "Dostawca",
+      "icon": "resource.png",
       "born": [
         3,
         4,
@@ -959,6 +991,7 @@
     },
     {
       "name": "Boska moc",
+      "icon": "action.png",
       "born": [
         3,
         4,
@@ -991,6 +1024,7 @@
     },
     {
       "name": "Rozgrzewka",
+      "icon": "action.png",
       "born": [
         3,
         4,
@@ -1017,6 +1051,7 @@
     },
     {
       "name": "Przedmioty super",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1042,6 +1077,7 @@
     },
     {
       "name": "Tajemniczy Handlarz",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1067,6 +1103,7 @@
     },
     {
       "name": "Tajemniczy Portal",
+      "icon": "action.png",
       "born": [
         3,
         4,
@@ -1092,6 +1129,7 @@
     },
     {
       "name": "Boski Ulepszacz",
+      "icon": "action.png",
       "born": [
         3,
         4,
@@ -1129,6 +1167,7 @@
     },
     {
       "name": "Dziwny Handlarz",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1166,6 +1205,7 @@
     },
     {
       "name": "Dziwny Handlarz",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1191,6 +1231,7 @@
     },
     {
       "name": "CZAS PODRÓŻNIKÓW",
+      "icon": "wyprawy.png",
       "born": [
         3,
         4,
@@ -1217,6 +1258,7 @@
     },
     {
       "name": "Strażnik Porządku",
+      "icon": "lpvm.png",
       "born": [
         3,
         4,
@@ -1243,6 +1285,7 @@
     },
     {
       "name": "Mroczny Handlarz",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1268,6 +1311,7 @@
     },
     {
       "name": "Mroczny Handlarz II ",
+      "icon": "smoczy-token.png",
       "born": [
         3,
         4,
@@ -1293,6 +1337,7 @@
     },
     {
       "name": "Codzienny instynkt",
+      "icon": "pvm.png",
       "born": [
         5,
         6
@@ -1321,11 +1366,13 @@
     },
     {
       "name": "Hiper Scalacz",
+      "icon": "pvm.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1348,11 +1395,13 @@
     },
     {
       "name": "Scalacze Hiper",
+      "icon": "pvm.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1376,11 +1425,13 @@
     },
     {
       "name": "Anielska karta[LvL1]",
+      "icon": "pvm.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1406,11 +1457,13 @@
     },
     {
       "name": "Anielska karta[LvL2]",
+      "icon": "pvm.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1436,11 +1489,13 @@
     },
     {
       "name": "Anielska karta[LvL3]",
+      "icon": "pvm.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1466,11 +1521,13 @@
     },
     {
       "name": "Anielska karta[LvL4]",
+      "icon": "kk.png",
       "born": [
         5,
         6
       ],
       "enabled": true,
+      "worth": true,
       "premium": true,
       "priority": 2,
       "locationType": "normal",
@@ -1491,6 +1548,7 @@
     },
     {
       "name": "Anielska karta[LvL5]",
+      "icon": "kp.png",
       "born": [
         5,
         6
@@ -1516,10 +1574,12 @@
     },
     {
       "name": "Scalacz MEGA",
+      "icon": "pvm.png",
       "born": [
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1540,7 +1600,8 @@
       ]
     },
     {
-      "name": "Wymiana Zeni",
+      "name": "Wymiana",
+      "icon": "zeni.png",
       "born": [
         6
       ],

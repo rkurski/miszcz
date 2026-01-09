@@ -235,10 +235,27 @@ const AFO_BALL_SEARCHER = {
     return bonus8 > GAME.getTime();
   },
 
+  getGlobalAvailableBallsCount() {
+    const reborn = GAME.char_data.reborn;
+    // Helper to find the panel - ensure we look at the right place
+    const dbPanel = $(`#mdbp_${reborn} .db_owners`);
+    if (dbPanel.length === 0) {
+      // If panel not found, proceed carefully, maybe 0 to stop or assume 7?
+      // If we can't see the panel, we probably shouldn't search blindly if strict.
+      // But let's assume 0 to be safe and avoid infinite loops.
+      return 0;
+    }
+
+    // "jeszcze nie odnaleziona" indicates the ball is on the map
+    return dbPanel.find('.ball_con:contains("jeszcze nie odnaleziona")').length;
+  },
+
   getTeleportCount() {
     const tpEl = document.getElementById('tp_char_tpp');
     if (tpEl) {
-      return parseInt(tpEl.textContent) || 0;
+      // Remove spaces (e.g. "1 512" -> "1512")
+      const text = tpEl.textContent.replace(/\s+/g, '');
+      return parseInt(text) || 0;
     }
     return 0;
   },
@@ -502,6 +519,19 @@ const AFO_BALL_SEARCHER = {
       this.stop(`Zebrano wszystkie ${this.maxBalls} kul!`);
       return;
     }
+
+    // Check global availability - stop if no balls are left on map
+    const globalAvailable = this.getGlobalAvailableBallsCount();
+    if (globalAvailable === 0) {
+      this.stop('Brak wolnych kul na serwerze (wszystkie zebrane)');
+      return;
+    }
+
+    // Check if we calculated how many we can actually get
+    // We can only get what is available + what we collected this session (if we started with 0)
+    // Actually, just checking globalAvailable > 0 is enough for "next iteration".
+    // But if we just collected one, globalAvailable might update or not depending on game sync.
+    // Assuming UI updates fast enough or we accept one extra teleport check.
 
     // Check if we checked all locations
     if (this.currentLocationIndex >= this.locations.length) {

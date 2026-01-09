@@ -71,7 +71,7 @@ const AFO_DAILY = {
         top: 450px;
         left: 65%;
         z-index: 9999;
-        width: 280px;
+        width: 320px;
         padding: 1px;
         border-radius: 5px;
         border-style: solid;
@@ -88,7 +88,7 @@ const AFO_DAILY = {
         background: rgba(0,0,0,0.9);
         filter: hue-rotate(196deg);
         background-size: 100% 100%;
-        width: 280px;
+        width: 320px;
         cursor: all-scroll;
       }
       #daily_Panel .daily_button {
@@ -195,6 +195,29 @@ const AFO_DAILY = {
       #daily_Panel .daily_options input[type="checkbox"] {
         margin-right: 4px;
       }
+      /* Quest icon sprites */
+      #daily_Panel .quest_icon {
+        width: 18px;
+        height: 18px;
+        margin-right: 5px;
+        flex-shrink: 0;
+        display: inline-block;
+        background-image: url('${getGieniobotUrl('images/daily.png')}');
+        background-repeat: no-repeat;
+        vertical-align: middle;
+      }
+      #daily_Panel .quest_icon.icon-action { background-position: -10px -10px; }
+      #daily_Panel .quest_icon.icon-certyfikat { background-position: -48px -10px; }
+      #daily_Panel .quest_icon.icon-kk { background-position: -10px -48px; }
+      #daily_Panel .quest_icon.icon-kp { background-position: -48px -48px; }
+      #daily_Panel .quest_icon.icon-lpvm { background-position: -86px -10px; }
+      #daily_Panel .quest_icon.icon-pvm { background-position: -86px -48px; }
+      #daily_Panel .quest_icon.icon-pvp { background-position: -10px -86px; }
+      #daily_Panel .quest_icon.icon-resource { background-position: -48px -86px; }
+      #daily_Panel .quest_icon.icon-smoczy-token { background-position: -86px -86px; }
+      #daily_Panel .quest_icon.icon-wyprawy { background-position: -124px -86px; width: 12px; height: 12px; }
+      #daily_Panel .quest_icon.icon-zegarek { background-position: -124px -10px; }
+      #daily_Panel .quest_icon.icon-zeni { background-position: -124px -48px; }
     `;
 
     if (!document.getElementById('daily_quests_css')) {
@@ -367,9 +390,10 @@ const AFO_DAILY = {
       <div id="daily_Panel">
         <div class="sekcja daily_dragg">DZIENNE QUESTY</div>
         <div class="daily_status" id="daily_status">Gotowy do startu</div>
-        <div class="daily_select_all" style="padding: 5px 10px; border-bottom: 1px solid #333;">
+        <div class="daily_select_all" style="padding: 5px 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; gap: 5px;">
           <button class="newBtn" id="daily_toggle_all_btn" style="font-size: 10px; padding: 2px 6px;">PRZEŁĄCZ</button>
-          <button class="newBtn" id="daily_reset_btn" style="font-size: 10px; padding: 2px 6px; margin-left: 5px;">ZERUJ</button>
+          <button class="newBtn" id="daily_important_btn" style="font-size: 10px; padding: 2px 6px;">ULUBIONE</button>
+          <button class="newBtn" id="daily_reset_btn" style="font-size: 10px; padding: 2px 6px;">ZERUJ</button>
         </div>
         <div class="daily_quest_list" id="daily_quest_list"></div>
         <div class="daily_options">
@@ -460,10 +484,18 @@ const AFO_DAILY = {
         }
       }
 
+      // Build icon HTML if quest has icon defined (uses CSS sprites)
+      let iconHtml = '';
+      if (quest.icon) {
+        // Icon name is like "action.png" - extract "action" for CSS class
+        const iconName = quest.icon.replace('.png', '').replace('_', '-');
+        iconHtml = `<span class="quest_icon icon-${iconName}"></span>`;
+      }
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
-          <span class="quest_name">${quest.name}</span>
+          ${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
         </div>
@@ -532,6 +564,8 @@ const AFO_DAILY = {
   loadSkippedQuests() {
     // skippedQuests = session only, start empty each time
     DAILY.skippedQuests = [];
+    // enabledQuests = quests user explicitly enabled (overriding enabled:false default)
+    DAILY.enabledQuests = [];
   },
 
   loadFailedQuests() {
@@ -551,12 +585,31 @@ const AFO_DAILY = {
   bindUIHandlers() {
     // Quest checkbox toggle
     $('#daily_quest_list').on('change', 'input[type="checkbox"]', (e) => {
-      const questName = $(e.target).closest('.daily_quest_item').data('quest-name');
+      const $item = $(e.target).closest('.daily_quest_item');
+      const questName = $item.data('quest-name');
+      const quest = DAILY.questData?.find(q => q.name === questName);
+      const defaultEnabled = quest?.enabled !== false;  // Default is enabled unless explicitly false
+
       if (e.target.checked) {
+        // User checked the box
         DAILY.skippedQuests = DAILY.skippedQuests.filter(n => n !== questName);
+
+        // If quest is disabled by default, track that user explicitly enabled it
+        if (!defaultEnabled) {
+          if (!DAILY.enabledQuests) DAILY.enabledQuests = [];
+          if (!DAILY.enabledQuests.includes(questName)) {
+            DAILY.enabledQuests.push(questName);
+          }
+        }
       } else {
+        // User unchecked the box
         if (!DAILY.skippedQuests.includes(questName)) {
           DAILY.skippedQuests.push(questName);
+        }
+
+        // Remove from enabledQuests if was there
+        if (DAILY.enabledQuests) {
+          DAILY.enabledQuests = DAILY.enabledQuests.filter(n => n !== questName);
         }
       }
     });
@@ -567,6 +620,18 @@ const AFO_DAILY = {
       const allChecked = $checkboxes.length > 0 && $checkboxes.filter(':not(:checked)').length === 0;
       $checkboxes.each((_, el) => {
         $(el).prop('checked', !allChecked).trigger('change');
+      });
+    });
+
+    // Important quests button - select only quests with worth: true flag (respecting born filter)
+    $('#daily_important_btn').on('click', () => {
+      $('#daily_quest_list input[type="checkbox"]:not(:disabled)').each((_, el) => {
+        const $item = $(el).closest('.daily_quest_item');
+        const questName = $item.data('quest-name');
+        const quest = DAILY.questData?.find(q => q.name === questName);
+        const isImportant = quest?.worth === true;
+
+        $(el).prop('checked', isImportant).trigger('change');
       });
     });
 
@@ -645,13 +710,28 @@ const AFO_DAILY = {
       return;
     }
 
-    // Build quest queue from checked quests (not in skippedQuests)
-    // JSON 'enabled' flag only sets default checkbox state, skippedQuests reflects actual user choice
+    // Build quest queue from checked quests
+    // Quest is checked if: not in skippedQuests AND (enabled !== false OR user explicitly enabled it)
+    // enabledQuests tracks quests user explicitly enabled (overriding enabled:false default)
     const currentBorn = GAME.char_data.reborn;
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q))
-      .filter(q => !DAILY.skippedQuests.includes(q.name))  // User unchecked = skip
+      .filter(q => {
+        // Check if quest should be executed based on checkbox state
+        // Same logic as renderQuestList uses for isEnabled
+        const isUserDisabled = DAILY.skippedQuests.includes(q.name);
+        const isUserEnabled = DAILY.enabledQuests?.includes(q.name);  // User explicitly enabled
+
+        // If user explicitly disabled (unchecked) -> skip
+        if (isUserDisabled) return false;
+
+        // If user explicitly enabled (checked despite enabled:false) -> include
+        if (isUserEnabled) return true;
+
+        // Otherwise use JSON default: enabled !== false means include
+        return q.enabled !== false;
+      })
       .filter(q => !DAILY.completedQuests.includes(q.name))
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
@@ -703,6 +783,7 @@ const AFO_DAILY = {
 
     DAILY.paused = true;
     PVP.stop = true;  // Stop AFO_PVP if running
+    RES.stop = true;  // Stop resource collection if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
     $('#daily_pause_btn').text('WZNÓW');
@@ -762,6 +843,7 @@ const AFO_DAILY = {
     DAILY.isTeleporting = false;
     DAILY.isInCombat = false;
     PVP.stop = true;  // Stop AFO_PVP if running
+    RES.stop = true;  // Stop resource collection if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
 
@@ -956,28 +1038,128 @@ const AFO_DAILY = {
       clearInterval(DAILY._waitingCheckInterval);
     }
 
-    // Check every 5 seconds
+    // Start 1-second timer update for smooth countdown display
+    this.startWaitingTimerUpdate();
+
+    // Check every 5 seconds for quest completion
     DAILY._waitingCheckInterval = setInterval(() => {
       if (DAILY.stop || !DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
+        this.stopWaitingTimerUpdate();
         if (!DAILY.stop && DAILY.waitingQuests?.length === 0) {
           this.stop('Wykonano wszystkie questy!');
         }
         return;
       }
 
-      // Re-render to update timers
-      this.renderQuestList();
-
       // Check if any are ready
       if (this.checkWaitingQuests()) {
         // A quest became ready and is being processed
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
+        this.stopWaitingTimerUpdate();
       }
     }, 5000);
   },
+
+  /**
+   * Start 1-second interval to update waiting quest timers in UI
+   */
+  startWaitingTimerUpdate() {
+    if (DAILY._timerUpdateInterval) {
+      clearInterval(DAILY._timerUpdateInterval);
+    }
+
+    // Update timer display every second
+    DAILY._timerUpdateInterval = setInterval(() => {
+      if (DAILY.stop || !DAILY.waitingQuests || DAILY.waitingQuests.length === 0) {
+        this.stopWaitingTimerUpdate();
+        return;
+      }
+
+      // Update each waiting quest's timer display
+      DAILY.waitingQuests.forEach(waitData => {
+        if (!waitData.qbId) return;
+
+        const $item = $(`.daily_quest_item[data-quest-name="${waitData.name}"]`);
+        let $timer = $item.find('.quest_timer');
+
+        // Try to get timer from track_quest first (live game timer)
+        const trackTimer = $(`#track_quest_${waitData.qbId} .timer`);
+        let timerText = '';
+
+        if (trackTimer.length > 0) {
+          timerText = trackTimer.text().trim();
+        }
+
+        // Fallback to calculated time if track_quest not available
+        if (!timerText && waitData.endTime) {
+          const remaining = Math.max(0, waitData.endTime - Date.now());
+          const mins = Math.floor(remaining / 60000);
+          const secs = Math.floor((remaining % 60000) / 1000);
+          timerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        if (timerText) {
+          if ($timer.length > 0) {
+            $timer.text(`⏱ ${timerText}`);
+          } else {
+            // Insert timer span if not exists
+            $item.find('.quest_name').after(`<span class="quest_timer">⏱ ${timerText}</span>`);
+          }
+        }
+      });
+
+      // NOTE: Don't call updateWaitingStatus() here - it would override active task status
+      // The waiting status is only shown in standby mode (when all regular quests are done)
+    }, 1000);
+  },
+
+  /**
+   * Stop the timer update interval
+   */
+  stopWaitingTimerUpdate() {
+    if (DAILY._timerUpdateInterval) {
+      clearInterval(DAILY._timerUpdateInterval);
+      DAILY._timerUpdateInterval = null;
+    }
+  },
+
+  /**
+   * Update status bar with waiting quest info
+   */
+  updateWaitingStatus() {
+    if (!DAILY.waitingQuests || DAILY.waitingQuests.length === 0) return;
+
+    const now = Date.now();
+    let closestEnd = Infinity;
+
+    DAILY.waitingQuests.forEach(w => {
+      // Try to get accurate time from track_quest
+      if (w.qbId) {
+        const timerEl = $(`#track_quest_${w.qbId} .timer[data-end]`);
+        if (timerEl.length > 0) {
+          const dataEnd = parseInt(timerEl.attr('data-end'));
+          if (dataEnd > 0) {
+            w.endTime = dataEnd * 1000;
+          }
+        }
+      }
+
+      const remaining = Math.max(0, w.endTime - now);
+      if (remaining < closestEnd) {
+        closestEnd = remaining;
+      }
+    });
+
+    if (closestEnd < Infinity) {
+      const mins = Math.floor(closestEnd / 60000);
+      const secs = Math.floor((closestEnd % 60000) / 1000);
+      this.updateStatus(`Oczekujące: ${DAILY.waitingQuests.length} (następny za ${mins}:${secs.toString().padStart(2, '0')})`);
+    }
+  },
+
 
   /**
    * Update UI for waiting quests
@@ -1088,6 +1270,28 @@ const AFO_DAILY = {
     const locId = quest.location.locId;
     const portal = quest.location.portal;
 
+    // BUG FIX: If we're inside a portal from a PREVIOUS quest, exit it first before going anywhere else
+    // This can happen when portal quest completes and next quest is on a different location
+    // We need to walk to portal exit and use a:6 to leave, then teleport normally
+    const prevQuest = DAILY.questQueue[DAILY.currentQuestIdx - 1];
+    const prevPortal = prevQuest?.location?.portal;
+    if (DAILY.inPortal && prevPortal?.innerLocId && GAME.char_data.loc === prevPortal.innerLocId) {
+      console.log('[AFO_DAILY] Still inside portal at', prevPortal.innerLocId, '- exiting first before teleporting to', locId);
+      this.navigateToCoords(prevPortal.exit.x, prevPortal.exit.y, () => {
+        console.log('[AFO_DAILY] At portal exit, using portal to leave');
+        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          console.log('[AFO_DAILY] Portal exit complete, now continuing to quest location');
+          DAILY.inPortal = false;
+          // Now proceed with normal teleport - call goToNormalLocation again
+          this.goToNormalLocation(quest);
+        }, 1500);
+      });
+      return;
+    }
+
     // Check if need portal entry first (only if portal has entry coords)
     if (portal && portal.entry && !DAILY.inPortal) {
       this.goToPortalEntry(quest);
@@ -1114,10 +1318,33 @@ const AFO_DAILY = {
         console.log('[AFO_DAILY] Quest found on map, navigating to NPC');
         this.navigateToQuestNPC(quest);
       } else {
-        // Quest not on map = already completed
-        console.log('[AFO_DAILY] Quest not in map_quests - already completed:', quest.name);
-        this.markQuestComplete(quest.name);
-        this.advanceQuestQueue();
+        // Quest not on map - try navigating to JSON coords before marking complete
+        const coords = quest.location?.coords;
+        if (coords) {
+          console.log('[AFO_DAILY] Quest not in map_quests, navigating to JSON coords:', coords);
+          this.navigateToCoords(coords.x, coords.y, () => {
+            const questDataAfterNav = this.findQuestByName(quest.name);
+            if (questDataAfterNav) {
+              this.startDialog(quest, questDataAfterNav.qb_id);
+            } else {
+              // Check if ANY quest is at these coords - name might differ
+              const anyQuestHere = this.findQuestAtCoords(coords.x, coords.y);
+              if (anyQuestHere) {
+                console.log('[AFO_DAILY] Found quest with different name:', anyQuestHere.data.name, '- starting dialog');
+                this.startDialog(quest, anyQuestHere.qb_id);
+              } else {
+                // Still not found - truly completed
+                console.log('[AFO_DAILY] Quest still not found after navigating - marking complete:', quest.name);
+                this.markQuestComplete(quest.name);
+                this.advanceQuestQueue();
+              }
+            }
+          });
+        } else {
+          console.log('[AFO_DAILY] Quest not in map_quests and no coords - marking complete:', quest.name);
+          this.markQuestComplete(quest.name);
+          this.advanceQuestQueue();
+        }
       }
       return;
     }
@@ -1134,7 +1361,19 @@ const AFO_DAILY = {
     console.log('[AFO_DAILY] Teleporting to location', locId);
     DAILY.isTeleporting = true;
     DAILY._currentQuest = quest;
+    DAILY._teleportStartTime = Date.now();
+    DAILY._expectedLocId = locId;
     GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+    // Teleport timeout - if no socket response within 2.5s, force afterTeleport
+    setTimeout(() => {
+      if (DAILY.isTeleporting && DAILY._teleportStartTime &&
+        Date.now() - DAILY._teleportStartTime >= 2000) {
+        console.warn('[AFO_DAILY] Teleport timeout - forcing afterTeleport');
+        DAILY.isTeleporting = false;
+        this.afterTeleport();
+      }
+    }, 2500);
     // Continue in handleSockets
   },
 
@@ -1360,16 +1599,53 @@ const AFO_DAILY = {
   findQuestByName(name) {
     if (!GAME.map_quests) return null;
 
+    let partialMatch = null;
+    const availableQuests = [];
+
     for (let coords in GAME.map_quests) {
       const questsAtCoords = GAME.map_quests[coords];
       if (Array.isArray(questsAtCoords)) {
         for (let quest of questsAtCoords) {
           // Skip if quest entry is false (quest already completed)
           if (quest === false) continue;
-          if (quest && quest.name === name) {
+          if (!quest || !quest.name) continue;
+
+          availableQuests.push(quest.name);
+
+          // Exact match - preferred
+          if (quest.name === name) {
             const [x, y] = coords.split('_').map(Number);
             return { qb_id: quest.qb_id, coords: [x, y], data: quest };
           }
+
+          // Partial match fallback - quest name starts with or contains our search name
+          if (!partialMatch && (quest.name.includes(name) || name.includes(quest.name))) {
+            const [x, y] = coords.split('_').map(Number);
+            partialMatch = { qb_id: quest.qb_id, coords: [x, y], data: quest };
+          }
+        }
+      }
+    }
+
+    // Log available quests for debugging when not found
+    if (!partialMatch && availableQuests.length > 0) {
+      console.log('[AFO_DAILY] Quest not found:', name, 'Available quests:', availableQuests);
+    }
+
+    return partialMatch;
+  },
+
+  // Find any quest at given coords (when quest name doesn't match)
+  findQuestAtCoords(x, y) {
+    if (!GAME.map_quests) return null;
+
+    const coordsKey = `${x}_${y}`;
+    const questsAtCoords = GAME.map_quests[coordsKey];
+
+    if (Array.isArray(questsAtCoords)) {
+      for (let quest of questsAtCoords) {
+        if (quest && quest !== false && quest.qb_id) {
+          return { qb_id: quest.qb_id, coords: [x, y], data: quest };
         }
       }
     }
@@ -1553,6 +1829,12 @@ const AFO_DAILY = {
 
     this.updateStatus(`Dialog: ${quest.name}`);
     console.log('[AFO_DAILY] Starting dialog for quest:', quest.name, 'qb_id:', qb_id);
+
+    // Always save original qbId when starting dialog - crucial for PvP quests
+    // After going to enemy empire, findQuestByName returns THEIR quests, not ours
+    if (qb_id) {
+      DAILY._originalQbId = qb_id;
+    }
 
     // Track dialog attempts to prevent infinite loop
     DAILY._dialogAttempts = (DAILY._dialogAttempts || 0) + 1;
@@ -2182,10 +2464,17 @@ const AFO_DAILY = {
 
     // Save original qbId BEFORE we leave the location (important for empire quests!)
     // After going to enemy empire, findQuestByName returns quests from THAT location, not ours
-    const questData = this.findQuestByName(quest.name);
-    if (questData && questData.qb_id) {
-      requires.originalQbId = questData.qb_id;
-      console.log('[AFO_DAILY] Saved originalQbId:', requires.originalQbId);
+    // First check if we have a globally saved qbId from startDialog (most reliable)
+    if (DAILY._originalQbId) {
+      requires.originalQbId = DAILY._originalQbId;
+      console.log('[AFO_DAILY] Using saved _originalQbId:', requires.originalQbId);
+    } else {
+      // Fallback to findQuestByName
+      const questData = this.findQuestByName(quest.name);
+      if (questData && questData.qb_id) {
+        requires.originalQbId = questData.qb_id;
+        console.log('[AFO_DAILY] Saved originalQbId from findQuestByName:', requires.originalQbId);
+      }
     }
 
     if (requires.current >= requires.target) {
@@ -2324,8 +2613,9 @@ const AFO_DAILY = {
       console.log('[AFO_DAILY] Added to waiting queue:', quest.name, 'until', new Date(endTime));
     }
 
-    // Update UI
+    // Update UI and start timer update interval for smooth countdown
     this.renderQuestList();
+    this.startWaitingTimerUpdate();  // Start 1-second timer updates immediately
     this.updateStatus(`${quest.name}: Czekam, kontynuuję inne`);
     GAME.komunikat(`[DZIENNE] ${quest.name} - czekam, kontynuuję inne questy`);
 
@@ -2457,6 +2747,10 @@ const AFO_DAILY = {
     DAILY._bountyLastProgressTime = Date.now();
     DAILY._bountyTeleportTime = 0;
     DAILY._bountyLastLocId = GAME.char_data.loc;
+
+    // Remember if we're in portal so we can return to innerLocId later
+    const innerLocId = quest.location?.portal?.innerLocId;
+    DAILY._wasInPortal = DAILY.inPortal || (innerLocId && GAME.char_data.loc === innerLocId);
 
     this.updateStatus(`${quest.name}: Listy gończe (${requires.current}/${requires.target})`);
 
@@ -2630,16 +2924,30 @@ const AFO_DAILY = {
     DAILY._bountyBorn = 0;
 
     // Return to quest location and complete dialog
+    // If quest has portal, return to innerLocId (inside portal), not locId (outside)
     const locId = quest.location?.locId;
-    if (locId && GAME.char_data.loc !== locId) {
-      console.log('[AFO_DAILY] Returning to quest location:', locId);
+    const innerLocId = quest.location?.portal?.innerLocId;
+    const currentLoc = GAME.char_data.loc;
+
+    // Check if we should return to inner portal location
+    const returnLocId = (innerLocId && DAILY._wasInPortal) ? innerLocId : locId;
+
+    if (returnLocId && currentLoc !== returnLocId) {
+      console.log('[AFO_DAILY] Returning to quest location:', returnLocId, '(innerLocId:', innerLocId, 'wasInPortal:', DAILY._wasInPortal, ')');
       this.updateStatus(`${quest.name}: Wracam zakończyć...`);
       DAILY.isTeleporting = true;
       DAILY._currentQuest = quest;
-      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+      // If returning to inner portal, set inPortal flag
+      if (returnLocId === innerLocId) {
+        DAILY.inPortal = true;
+      }
+
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: returnLocId });
       // Continue via handleSockets -> afterTeleport -> navigateToQuestNPC
     } else {
       // Already on location
+      DAILY._wasInPortal = false;  // Clear flag
       this.navigateToQuestNPC(quest);
     }
   },
@@ -2650,6 +2958,10 @@ const AFO_DAILY = {
     DAILY.isInCombat = true;  // Reuse combat flag for resource collection
     DAILY._combatQuest = quest;
     DAILY._combatRequires = requires;
+
+    // Remember if we're in portal so we can return to innerLocId later
+    const innerLocId = quest.location?.portal?.innerLocId;
+    DAILY._wasInPortal = DAILY.inPortal || (innerLocId && GAME.char_data.loc === innerLocId);
 
     this.updateStatus(`${quest.name}: Zbieram ${requires.resourceName || 'zasoby'} ${requires.current}/${requires.target}`);
     console.log('[AFO_DAILY] Starting resource collection for:', requires.resourceName);
@@ -2695,11 +3007,20 @@ const AFO_DAILY = {
         return;
       }
 
-      // Also check quest_warunek span
+      // Also check quest_warunek span - parse TEXT (game updates text, NOT data-count!)
       const questSpan = $(`.quest_warunek${qbId}`);
       if (questSpan.length > 0) {
-        const current = parseInt(questSpan.attr('data-count')) || 0;
-        const target = parseInt(questSpan.attr('data-max')) || requires.target;
+        // Parse from text "7/10" or "5 140/10 000" format using regex
+        // IMPORTANT: Game updates the TEXT content, not the data-count attribute!
+        const spanText = questSpan.text().trim();
+        const progressMatch = spanText.match(/^([\d\s]+)\/([\d\s]+)/);
+        let current = 0;
+        let target = requires.target;
+
+        if (progressMatch) {
+          current = parseInt(progressMatch[1].replace(/\s/g, '')) || 0;
+          target = parseInt(progressMatch[2].replace(/\s/g, '')) || requires.target;
+        }
 
         this.updateStatus(`${quest.name}: ${current}/${target}`);
 
@@ -2757,19 +3078,34 @@ const AFO_DAILY = {
     }
 
     // Need to return to quest location first, then reopen dialog
+    // If quest has portal, return to innerLocId (inside portal), not locId (outside)
     const locId = quest.location?.locId;
+    const innerLocId = quest.location?.portal?.innerLocId;
     const currentLoc = GAME.char_data.loc;
 
-    if (locId && currentLoc !== locId) {
+    // Determine correct return location
+    // If quest has portal and we need to return inside it
+    const returnLocId = (innerLocId && DAILY._wasInPortal) ? innerLocId : locId;
+
+    console.log('[AFO_DAILY] Return location - locId:', locId, 'innerLocId:', innerLocId, 'returnTo:', returnLocId, 'wasInPortal:', DAILY._wasInPortal);
+
+    if (returnLocId && currentLoc !== returnLocId) {
       // Teleport back to quest location
-      console.log('[AFO_DAILY] Returning to quest location:', locId);
+      console.log('[AFO_DAILY] Returning to quest location:', returnLocId);
       this.updateStatus('Wracam do lokacji questa...');
       DAILY.isTeleporting = true;
       DAILY._currentQuest = quest;
-      GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+      // If returning to inner portal location, set inPortal flag
+      if (returnLocId === innerLocId) {
+        DAILY.inPortal = true;
+      }
+
+      GAME.socket.emit('ga', { a: 12, type: 18, loc: returnLocId });
       // Continue in handleSockets -> afterTeleport -> navigateToQuestNPC
     } else {
       // Already on correct location - just navigate to NPC
+      DAILY._wasInPortal = false;  // Clear flag
       setTimeout(() => this.navigateToQuestNPC(quest), 800);
     }
   },
@@ -2989,6 +3325,25 @@ const AFO_DAILY = {
 
         setTimeout(() => {
           if (DAILY.stop || DAILY.paused) return;
+
+          // VERIFY teleport succeeded before starting combat!
+          if (GAME.char_data.loc !== locId) {
+            DAILY._anielskaTeleportRetries = (DAILY._anielskaTeleportRetries || 0) + 1;
+            console.warn('[AFO_DAILY] Anielska: Combat teleport failed! Expected:', locId, 'Current:', GAME.char_data.loc, 'Retry:', DAILY._anielskaTeleportRetries);
+
+            if (DAILY._anielskaTeleportRetries >= 3) {
+              console.error('[AFO_DAILY] Anielska: Combat teleport failed after 3 retries - skipping');
+              DAILY._anielskaTeleportRetries = 0;
+              this.skipAnielskaBatch();
+              return;
+            }
+
+            // Retry teleport
+            this.anielskaStartCombat();
+            return;
+          }
+          DAILY._anielskaTeleportRetries = 0;
+
           this.anielskaSetFilterAndFight();
         }, 2000);
         return;
@@ -3282,6 +3637,10 @@ const AFO_DAILY = {
     DAILY._combatQuest = quest;
     DAILY._combatRequires = requires;
 
+    // Remember if we're in portal so we can return to innerLocId later
+    const innerLocId = quest.location?.portal?.innerLocId;
+    DAILY._wasInPortal = DAILY.inPortal || (innerLocId && GAME.char_data.loc === innerLocId);
+
     // Cache spawner filter once at combat start (to avoid spam in doFight loop)
     DAILY._spawnerIgnore = this.getSpawnerIgnore(requires?.rank);
 
@@ -3484,14 +3843,73 @@ const AFO_DAILY = {
       return;
     }
 
-    // Also check quest_warunek span
     const questSpan = $(`.quest_warunek${qbId}`);
     let currentProgress = 0;
     let target = requires.target;
 
+    // Helper function to parse progress from text like "5 140 /10 000" or "0/10 000"
+    // Use simple split on '/' - much more reliable than complex regex
+    const parseProgressText = (text) => {
+      // Find the last occurrence of pattern "number/number" by splitting on '/'
+      const slashIdx = text.lastIndexOf('/');
+      if (slashIdx === -1) return null;
+
+      // Extract parts before and after the slash
+      const beforeSlash = text.substring(0, slashIdx);
+      const afterSlash = text.substring(slashIdx + 1);
+
+      // Extract numbers (remove all non-digit characters except for finding the number)
+      // Get the last "word" before slash that contains digits
+      const beforeParts = beforeSlash.trim().split(/\s+/);
+      let currentStr = '';
+      for (let i = beforeParts.length - 1; i >= 0; i--) {
+        if (/\d/.test(beforeParts[i])) {
+          currentStr = beforeParts[i] + currentStr;
+          // Keep going back if previous part is also just digits/spaces
+          if (i > 0 && /^[\d\s]+$/.test(beforeParts[i - 1])) {
+            currentStr = beforeParts[i - 1] + ' ' + currentStr;
+            i--;
+          }
+        } else {
+          break;
+        }
+      }
+
+      // For after slash, just take all digits
+      const afterParts = afterSlash.trim().split(/\s+/);
+      let targetStr = '';
+      for (const part of afterParts) {
+        if (/\d/.test(part)) {
+          targetStr += part;
+        } else {
+          break;
+        }
+      }
+
+      const current = parseInt(currentStr.replace(/\s/g, '')) || 0;
+      const target = parseInt(targetStr.replace(/\s/g, '')) || 0;
+
+      if (target > 0) {
+        return { current, target };
+      }
+      return null;
+    };
+
     if (questSpan.length > 0) {
-      currentProgress = parseInt(questSpan.attr('data-count')) || 0;
-      target = parseInt(questSpan.attr('data-max')) || requires.target;
+      // Parse from span TEXT (game updates text, not data-count attribute!)
+      const spanText = questSpan.text().trim();
+      const parsed = parseProgressText(spanText);
+
+      if (parsed) {
+        currentProgress = parsed.current;
+        if (parsed.target > 0) target = parsed.target;
+        console.log('[AFO_DAILY] Parsed progress from quest_warunek text:', currentProgress, '/', target);
+      } else {
+        // Fallback to data-count if text parsing fails
+        currentProgress = parseInt(questSpan.attr('data-count')) || 0;
+        target = parseInt(questSpan.attr('data-max')) || requires.target;
+        console.log('[AFO_DAILY] Using quest_warunek data-count fallback:', currentProgress, '/', target);
+      }
 
       if (currentProgress >= target) {
         console.log('[AFO_DAILY] Combat requirements met:', currentProgress, '/', target);
@@ -3502,10 +3920,37 @@ const AFO_DAILY = {
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     } else {
       // quest_warunek not found - we may be on a different location (useCombatLocation)
-      // Use requires values as fallback (updated by server socket events)
-      currentProgress = requires.current || 0;
-      console.log('[AFO_DAILY] quest_warunek not found, using requires fallback:', currentProgress, '/', target);
-      this.updateStatus(`${quest.name}: ${currentProgress}/${target} (walka)`);
+      // First try to find quest_warunek span inside track_quest (most reliable)
+      const trackQuestSpan = trackQuest.find(`[class^="quest_warunek"]`);
+
+      if (trackQuestSpan.length > 0) {
+        const spanText = trackQuestSpan.text().trim();
+        const parsed = parseProgressText(spanText);
+        if (parsed) {
+          currentProgress = parsed.current;
+          if (parsed.target > 0) target = parsed.target;
+          console.log('[AFO_DAILY] Parsed progress from track_quest span:', currentProgress, '/', target);
+        }
+      } else if (trackQuest.length > 0) {
+        // Fallback: parse from full track_quest text
+        const trackText = trackQuest.text();
+        const parsed = parseProgressText(trackText);
+
+        if (parsed) {
+          currentProgress = parsed.current;
+          if (parsed.target > 0) target = parsed.target;
+          console.log('[AFO_DAILY] Parsed progress from track_quest HTML:', currentProgress, '/', target);
+        } else {
+          // Fallback to requires.current if parsing failed
+          currentProgress = requires.current || 0;
+          console.log('[AFO_DAILY] Could not parse progress from track_quest, using requires:', currentProgress, '/', target);
+        }
+      } else {
+        // No track_quest element at all - use requires fallback
+        currentProgress = requires.current || 0;
+        console.log('[AFO_DAILY] No track_quest found, using requires fallback:', currentProgress, '/', target);
+      }
+      this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     }
 
     // Stuck detection - check if progress is being made
@@ -3519,7 +3964,7 @@ const AFO_DAILY = {
       DAILY._stuckAttempts++;
       console.warn('[AFO_DAILY] No progress for 10s, attempt', DAILY._stuckAttempts);
 
-      if (DAILY._stuckAttempts >= 3) {
+      if (DAILY._stuckAttempts >= 2) {
         console.warn('[AFO_DAILY] Stuck too long, trying random movement');
         this.attemptUnstuckMove();
         DAILY._lastProgressTime = now;
@@ -4089,9 +4534,39 @@ const AFO_DAILY = {
       }
     }
 
-    // Quest is not in field_opts_con = truly complete!
+    // Quest verified not in field_opts_con... but is it REALLY gone from map data?
+    // Check GAME.map_quests again (findQuestByName checks map_quests)
+    // Sometimes UI updates faster/slower than data, or dialog closes but quest remains
+    const currentQuestData = this.findQuestByName(quest.name);
+
+    if (currentQuestData) {
+      console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name);
+
+      // Track verification attempts for map existence to avoid infinite loops
+      DAILY._verifyMapAttempts = (DAILY._verifyMapAttempts || 0) + 1;
+
+      if (DAILY._verifyMapAttempts > 5) {
+        console.warn('[AFO_DAILY] Too many map verify attempts (5), assuming stuck/ghost and marking complete');
+        DAILY._verifyMapAttempts = 0;
+        this.onQuestComplete(quest);
+        return;
+      }
+
+      // Quest exists - try to continue it
+      if (currentQuestData.qb_id) {
+        console.log('[AFO_DAILY] Restarting dialog for incomplete quest, attempt:', DAILY._verifyMapAttempts);
+        setTimeout(() => this.startDialog(quest, currentQuestData.qb_id), 800);
+      } else {
+        // Weird state, just wait and verify again
+        setTimeout(() => this.verifyAndCompleteQuest(quest), 800);
+      }
+      return;
+    }
+
+    // Quest is not in field_opts_con AND not in map_quests = truly complete!
     DAILY._verifyAttempts = 0;
-    console.log('[AFO_DAILY] Quest verified complete:', quest.name);
+    DAILY._verifyMapAttempts = 0;
+    console.log('[AFO_DAILY] Quest verified complete (UI + Map Data):', quest.name);
     this.onQuestComplete(quest);
   },
 
@@ -4184,6 +4659,30 @@ const AFO_DAILY = {
   },
 
   advanceQuestQueue() {
+    // BUG FIX: Check if we're inside a portal and need to exit BEFORE clearing inPortal flag
+    // This handles case where "Tajemniczy Portal" teleports to Vestria but user skips "Boski Ulepszacz"
+    const completedQuest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
+    const completedPortal = completedQuest?.location?.portal;
+
+    if (DAILY.inPortal && completedPortal?.innerLocId && GAME.char_data.loc === completedPortal.innerLocId) {
+      console.log('[AFO_DAILY] Still inside portal at', completedPortal.innerLocId, '- exiting before advancing queue');
+      this.updateStatus('Wychodzę z portalu...');
+
+      this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
+        console.log('[AFO_DAILY] At portal exit, using portal to leave');
+        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
+          DAILY.inPortal = false;
+          // Now actually advance the queue (recursive call with inPortal=false)
+          this.advanceQuestQueue();
+        }, 1500);
+      });
+      return;
+    }
+
     DAILY.currentQuestIdx++;
     DAILY.currentStageIdx = 0;
     DAILY.inPortal = false;
@@ -4296,6 +4795,36 @@ const AFO_DAILY = {
         return;
       }
 
+      // Verify teleport success for normal locations with locId
+      // Also accept innerLocId if quest has portal (we might be inside portal)
+      const expectedLocId = quest.location?.locId;
+      const innerLocId = quest.location?.portal?.innerLocId;
+      const currentLoc = GAME.char_data.loc;
+
+      // Valid location: either at expectedLocId OR at innerLocId (inside portal)
+      const isAtExpectedLoc = expectedLocId && currentLoc === expectedLocId;
+      const isAtInnerLoc = innerLocId && currentLoc === innerLocId;
+      const isValidLocation = isAtExpectedLoc || isAtInnerLoc || DAILY.inPortal;
+
+      if (expectedLocId && !isValidLocation) {
+        DAILY._teleportRetries = (DAILY._teleportRetries || 0) + 1;
+        console.warn('[AFO_DAILY] Teleport verification failed! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', currentLoc, 'Retry:', DAILY._teleportRetries);
+
+        if (DAILY._teleportRetries >= 3) {
+          console.error('[AFO_DAILY] Teleport failed after 3 retries - skipping quest');
+          DAILY._teleportRetries = 0;
+          this.skipQuestWithMark(quest, 'Teleport nie powiódł się');
+          return;
+        }
+
+        // Retry teleport
+        console.log('[AFO_DAILY] Retrying teleport to:', expectedLocId);
+        DAILY.isTeleporting = true;
+        GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+        return;
+      }
+      DAILY._teleportRetries = 0;  // Reset on success
+
       // If returning from combat location, use saved NPC coords directly
       if (DAILY._returnFromCombat && DAILY._npcCoords) {
         console.log('[AFO_DAILY] Returning from combat, navigating to saved NPC coords:', DAILY._npcCoords);
@@ -4348,10 +4877,75 @@ const AFO_DAILY = {
         return;
       }
 
-      // Quest not found and no portal = ALREADY COMPLETED
-      // Don't navigate to JSON coords - just mark complete immediately
-      // This handles the case where quest was completed in previous session
-      console.log('[AFO_DAILY] Quest not in map_quests after teleport - already completed:', quest.name);
+      // Quest not found and no portal
+      // Verify we're on correct location before marking as completed
+      const expectedLocId = quest.location?.locId;
+      const innerLocId = quest.location?.portal?.innerLocId;
+      const currentLoc = GAME.char_data.loc;
+
+      // For special location types (clan_planet, empire_hq, private_planet) without locId,
+      // we can't verify by locId - instead try to navigate to NPC coords from JSON
+      const isSpecialLocationType = ['clan_planet', 'empire_hq', 'private_planet'].includes(quest.locationType);
+
+      if (isSpecialLocationType && !expectedLocId) {
+        // Special location without locId - quest might still be active but not in map_quests
+        // Try to navigate to JSON coords and start dialog
+        const coords = quest.location?.coords;
+        if (coords) {
+          console.log('[AFO_DAILY] Special location quest not in map_quests, navigating to JSON coords:', coords);
+          this.navigateToCoords(coords.x, coords.y, () => {
+            const questData = this.findQuestByName(quest.name);
+            if (questData) {
+              this.startDialog(quest, questData.qb_id);
+            } else {
+              // Still not found after navigating - truly doesn't exist
+              console.log('[AFO_DAILY] Quest still not found after navigating - marking complete:', quest.name);
+              this.markQuestComplete(quest.name);
+              this.advanceQuestQueue();
+            }
+          });
+          return;
+        }
+      }
+
+      // Valid if at expectedLocId OR innerLocId OR inPortal flag is set
+      const isAtExpectedLoc = expectedLocId && currentLoc === expectedLocId;
+      const isAtInnerLoc = innerLocId && currentLoc === innerLocId;
+      const isValidLocation = isAtExpectedLoc || isAtInnerLoc || DAILY.inPortal;
+
+      if (expectedLocId && !isValidLocation) {
+        console.warn('[AFO_DAILY] Quest not in map_quests but wrong location! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', currentLoc);
+        this.skipQuestWithMark(quest, 'Błąd teleportu - zła lokacja');
+        return;
+      }
+      // Quest not found in map_quests but we're on valid location
+      // Try navigating to NPC coords from JSON before marking as completed
+      const coords = quest.location?.coords;
+      if (coords) {
+        console.log('[AFO_DAILY] Quest not in map_quests, navigating to JSON coords:', coords);
+        this.navigateToCoords(coords.x, coords.y, () => {
+          const questDataAfterNav = this.findQuestByName(quest.name);
+          if (questDataAfterNav) {
+            this.startDialog(quest, questDataAfterNav.qb_id);
+          } else {
+            // Check if ANY quest is at these coords - name might differ
+            const anyQuestHere = this.findQuestAtCoords(coords.x, coords.y);
+            if (anyQuestHere) {
+              console.log('[AFO_DAILY] Found quest with different name:', anyQuestHere.data.name, '- starting dialog');
+              this.startDialog(quest, anyQuestHere.qb_id);
+            } else {
+              // Truly not found after navigating - mark complete
+              console.log('[AFO_DAILY] Quest not found after navigating - marking complete:', quest.name);
+              this.markQuestComplete(quest.name);
+              this.advanceQuestQueue();
+            }
+          }
+        });
+        return;
+      }
+
+      // No coords available - mark as completed
+      console.log('[AFO_DAILY] Quest not in map_quests and no coords - marking complete:', quest.name);
       this.markQuestComplete(quest.name);
       this.advanceQuestQueue();
       return;
