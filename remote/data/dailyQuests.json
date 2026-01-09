@@ -137,7 +137,8 @@
         6
       ],
       "enabled": true,
-      "icon": "zegarek.png",
+      "worth": true,
+      "icon": "pvm.png",
       "priority": 2,
       "locationType": "private_planet",
       "location": {
@@ -172,6 +173,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "icon": "pvm.png",
       "priority": 2,
       "locationType": "clan_planet",
@@ -1370,6 +1372,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
@@ -1398,6 +1401,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1427,6 +1431,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1458,6 +1463,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1489,6 +1495,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "useCombatLocation": true,
@@ -1520,6 +1527,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "premium": true,
       "priority": 2,
       "locationType": "normal",
@@ -1571,6 +1579,7 @@
         6
       ],
       "enabled": true,
+      "worth": true,
       "priority": 2,
       "locationType": "normal",
       "location": {
