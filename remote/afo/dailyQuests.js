@@ -1007,6 +1007,9 @@ const AFO_DAILY = {
       // Remove from waiting list
       DAILY.waitingQuests = DAILY.waitingQuests.filter(w => w.name !== waitData.name);
 
+      // Set flag to prevent scheduleWaitingCheck from calling stop() while we're processing
+      DAILY._processingWaitingQuest = true;
+
       this.updateStatus(`${waitData.name}: Timer zakończony, kończę quest`);
       this.renderQuestList();
 
@@ -1047,7 +1050,8 @@ const AFO_DAILY = {
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
         this.stopWaitingTimerUpdate();
-        if (!DAILY.stop && DAILY.waitingQuests?.length === 0) {
+        // Only stop if not currently processing a waiting quest
+        if (!DAILY.stop && !DAILY._processingWaitingQuest && DAILY.waitingQuests?.length === 0) {
           this.stop('Wykonano wszystkie questy!');
         }
         return;
@@ -1200,6 +1204,10 @@ const AFO_DAILY = {
    * Go to quest location for waiting quest completion
    */
   goToQuestLocation(quest, callback) {
+    // Always set _currentQuest so afterTeleport() knows which quest we're processing
+    // This is crucial for waiting quests where quest is not in questQueue
+    DAILY._currentQuest = quest;
+
     switch (quest.locationType) {
       case 'private_planet':
         this.goToPrivatePlanet(quest);
@@ -1220,7 +1228,6 @@ const AFO_DAILY = {
         if (locId && GAME.char_data.loc !== locId) {
           this.updateStatus(`Teleport: ${quest.location.name || locId}`);
           DAILY.isTeleporting = true;
-          DAILY._currentQuest = quest;
           DAILY._afterTeleportCallback = callback;
           GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
         } else {
@@ -4591,6 +4598,7 @@ const AFO_DAILY = {
     this.markQuestComplete(quest.name);
 
     DAILY.isInCombat = false;
+    DAILY._processingWaitingQuest = false;  // Clear flag - waiting quest processing done
 
     // Check if in portal group
     if (DAILY.inPortal && DAILY.portalGroup.length > 0) {
@@ -4684,18 +4692,28 @@ const AFO_DAILY = {
       console.log('[AFO_DAILY] Still inside portal at', completedPortal.innerLocId, '- exiting before advancing queue');
       this.updateStatus('Wychodzę z portalu...');
 
-      this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
-        console.log('[AFO_DAILY] At portal exit, using portal to leave');
-        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+      // Small delay to ensure any previous navigation state is fully cleared
+      // This prevents conflicts when advanceQuestQueue is called from a navigation callback
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
 
-        setTimeout(() => {
-          if (DAILY.stop || DAILY.paused) return;
-          console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
-          DAILY.inPortal = false;
-          // Now actually advance the queue (recursive call with inPortal=false)
-          this.advanceQuestQueue();
-        }, 1500);
-      });
+        // Reset navigation state explicitly before starting portal exit navigation
+        DAILY.isNavigating = false;
+        DAILY._navCallback = null;
+
+        this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
+          console.log('[AFO_DAILY] At portal exit, using portal to leave');
+          GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+
+          setTimeout(() => {
+            if (DAILY.stop || DAILY.paused) return;
+            console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
+            DAILY.inPortal = false;
+            // Now actually advance the queue (recursive call with inPortal=false)
+            this.advanceQuestQueue();
+          }, 1500);
+        });
+      }, 300);
       return;
     }
 
@@ -4804,6 +4822,16 @@ const AFO_DAILY = {
     // Wait a bit for map data to load, then continue to quest NPC
     setTimeout(() => {
       if (DAILY.stop || DAILY.paused) return;
+
+      // Check for callback from goToQuestLocation (used by waiting quests)
+      // This ensures waiting quests properly continue to NPC after teleport
+      if (DAILY._afterTeleportCallback) {
+        const callback = DAILY._afterTeleportCallback;
+        DAILY._afterTeleportCallback = null;
+        console.log('[AFO_DAILY] Executing _afterTeleportCallback for waiting quest');
+        callback();
+        return;
+      }
 
       const quest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
       if (!quest) {
