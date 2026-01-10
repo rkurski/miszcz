@@ -3509,14 +3509,68 @@ const AFO_DAILY = {
     const locId = 1245; // Nowa niebiańska kuźnia
 
     if (GAME.char_data.loc !== locId) {
+      console.log('[AFO_DAILY] Anielska: Teleporting to quest location', locId);
+      DAILY._anielskaTeleporting = true;
+      DAILY._anielskaTargetLoc = locId;
       GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
-      setTimeout(() => {
-        if (DAILY.stop || DAILY.paused) return;
-        this.anielskaCompleteNext(0);
-      }, 2000);
-    } else {
-      setTimeout(() => this.anielskaCompleteNext(0), 500);
+
+      // Wait for teleport confirmation via anielskaAfterReturnTeleport
+      // Called from handleSockets when a:12 with show_map is received
+      return;
     }
+
+    // Already at location - wait for map_quests to load
+    this.anielskaWaitForMapQuests(0);
+  },
+
+  // Called after return teleport completes (from handleSockets)
+  anielskaAfterReturnTeleport() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    DAILY._anielskaTeleporting = false;
+    const locId = DAILY._anielskaTargetLoc || 1245;
+
+    // Verify teleport succeeded
+    if (GAME.char_data.loc !== locId) {
+      DAILY._anielskaReturnRetries = (DAILY._anielskaReturnRetries || 0) + 1;
+      console.warn('[AFO_DAILY] Anielska: Return teleport failed! Expected:', locId, 'Current:', GAME.char_data.loc, 'Retry:', DAILY._anielskaReturnRetries);
+
+      if (DAILY._anielskaReturnRetries >= 3) {
+        console.error('[AFO_DAILY] Anielska: Return teleport failed after 3 retries - completing anyway');
+        DAILY._anielskaReturnRetries = 0;
+      } else {
+        // Retry teleport
+        setTimeout(() => this.anielskaReturnAndComplete(), 1000);
+        return;
+      }
+    }
+    DAILY._anielskaReturnRetries = 0;
+
+    // Wait for map_quests to load
+    this.anielskaWaitForMapQuests(0);
+  },
+
+  // Wait for map_quests to be populated after teleport
+  anielskaWaitForMapQuests(attempts) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const mapQuestsLoaded = GAME.map_quests !== undefined &&
+      GAME.map_quests !== null &&
+      typeof GAME.map_quests === 'object';
+
+    if (mapQuestsLoaded && Object.keys(GAME.map_quests).length > 0) {
+      console.log('[AFO_DAILY] Anielska: map_quests loaded, completing quests');
+      this.anielskaCompleteNext(0);
+      return;
+    }
+
+    if (attempts >= 10) {
+      console.warn('[AFO_DAILY] Anielska: map_quests timeout, completing anyway');
+      this.anielskaCompleteNext(0);
+      return;
+    }
+
+    setTimeout(() => this.anielskaWaitForMapQuests(attempts + 1), 500);
   },
 
   anielskaCompleteNext(idx) {
@@ -4776,17 +4830,26 @@ const AFO_DAILY = {
     }
 
     // Normal teleport completed (a:12 with show_map)
-    if (res.a === 12 && 'show_map' in res && DAILY.isTeleporting) {
-      DAILY.isTeleporting = false;
-      console.log('[AFO_DAILY] Normal teleport complete');
-
-      // Check if entered portal
-      if (DAILY.currentPortalLocId && GAME.char_data.loc === DAILY.currentPortalLocId) {
-        DAILY.inPortal = true;
-        DAILY.currentPortalLocId = 0;
+    if (res.a === 12 && 'show_map' in res) {
+      // Check for Anielska return teleport first
+      if (DAILY._anielskaTeleporting) {
+        console.log('[AFO_DAILY] Anielska return teleport complete');
+        this.anielskaAfterReturnTeleport();
+        return;
       }
 
-      this.afterTeleport();
+      if (DAILY.isTeleporting) {
+        DAILY.isTeleporting = false;
+        console.log('[AFO_DAILY] Normal teleport complete');
+
+        // Check if entered portal
+        if (DAILY.currentPortalLocId && GAME.char_data.loc === DAILY.currentPortalLocId) {
+          DAILY.inPortal = true;
+          DAILY.currentPortalLocId = 0;
+        }
+
+        this.afterTeleport();
+      }
     }
 
     // Private planet teleport (a:15)
