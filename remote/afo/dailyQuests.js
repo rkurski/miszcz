@@ -1599,7 +1599,6 @@ const AFO_DAILY = {
   findQuestByName(name) {
     if (!GAME.map_quests) return null;
 
-    let partialMatch = null;
     const availableQuests = [];
 
     for (let coords in GAME.map_quests) {
@@ -1612,27 +1611,41 @@ const AFO_DAILY = {
 
           availableQuests.push(quest.name);
 
-          // Exact match - preferred
+          // Exact match only - no partial matching to avoid confusion
+          // between similar quest names like "Zadanie" and "Zadanie PvM"
           if (quest.name === name) {
             const [x, y] = coords.split('_').map(Number);
             return { qb_id: quest.qb_id, coords: [x, y], data: quest };
-          }
-
-          // Partial match fallback - quest name starts with or contains our search name
-          if (!partialMatch && (quest.name.includes(name) || name.includes(quest.name))) {
-            const [x, y] = coords.split('_').map(Number);
-            partialMatch = { qb_id: quest.qb_id, coords: [x, y], data: quest };
           }
         }
       }
     }
 
     // Log available quests for debugging when not found
-    if (!partialMatch && availableQuests.length > 0) {
+    if (availableQuests.length > 0) {
       console.log('[AFO_DAILY] Quest not found:', name, 'Available quests:', availableQuests);
     }
 
-    return partialMatch;
+    return null;
+  },
+
+  // Find quest by qb_id (unique identifier) - more reliable than name matching
+  findQuestByQbId(targetQbId) {
+    if (!GAME.map_quests || !targetQbId) return null;
+
+    for (let coords in GAME.map_quests) {
+      const questsAtCoords = GAME.map_quests[coords];
+      if (Array.isArray(questsAtCoords)) {
+        for (let quest of questsAtCoords) {
+          if (quest === false || !quest) continue;
+          if (quest.qb_id === targetQbId) {
+            const [x, y] = coords.split('_').map(Number);
+            return { qb_id: quest.qb_id, coords: [x, y], data: quest };
+          }
+        }
+      }
+    }
+    return null;
   },
 
   // Find any quest at given coords (when quest name doesn't match)
@@ -4535,12 +4548,15 @@ const AFO_DAILY = {
     }
 
     // Quest verified not in field_opts_con... but is it REALLY gone from map data?
-    // Check GAME.map_quests again (findQuestByName checks map_quests)
-    // Sometimes UI updates faster/slower than data, or dialog closes but quest remains
-    const currentQuestData = this.findQuestByName(quest.name);
+    // Use qb_id for exact match to avoid matching similar-named quests
+    // (e.g., "Zadanie" vs "Zadanie PvM" in Pałac Wszechmogącego)
+    const qbIdToCheck = qbId || DAILY._originalQbId;
+    const currentQuestData = qbIdToCheck
+      ? this.findQuestByQbId(qbIdToCheck)
+      : this.findQuestByName(quest.name);
 
     if (currentQuestData) {
-      console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name);
+      console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name, 'qb_id:', qbIdToCheck);
 
       // Track verification attempts for map existence to avoid infinite loops
       DAILY._verifyMapAttempts = (DAILY._verifyMapAttempts || 0) + 1;
