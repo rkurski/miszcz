@@ -3510,7 +3510,7 @@ const AFO_DAILY = {
 
     if (GAME.char_data.loc !== locId) {
       console.log('[AFO_DAILY] Anielska: Teleporting to quest location', locId);
-      DAILY._anielskaTeleporting = true;
+      DAILY._anielskaReturnTeleporting = true;  // Use separate flag for return teleport
       DAILY._anielskaTargetLoc = locId;
       GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
 
@@ -3527,7 +3527,7 @@ const AFO_DAILY = {
   anielskaAfterReturnTeleport() {
     if (DAILY.stop || DAILY.paused) return;
 
-    DAILY._anielskaTeleporting = false;
+    DAILY._anielskaReturnTeleporting = false;  // Clear return teleport flag
     const locId = DAILY._anielskaTargetLoc || 1245;
 
     // Verify teleport succeeded
@@ -3681,6 +3681,10 @@ const AFO_DAILY = {
     DAILY._anielskAcceptedQbIds = null;
     DAILY._anielskaIgnore = null;
     DAILY._anielskaLastRefresh = 0;
+    DAILY._anielskaTeleporting = false;
+    DAILY._anielskaReturnTeleporting = false;
+    DAILY._anielskaTeleportRetries = 0;
+    DAILY._anielskaReturnRetries = 0;
 
     // Skip all anielska quests in queue (they're done)
     this.skipAnielskaBatch();
@@ -4831,8 +4835,8 @@ const AFO_DAILY = {
 
     // Normal teleport completed (a:12 with show_map)
     if (res.a === 12 && 'show_map' in res) {
-      // Check for Anielska return teleport first
-      if (DAILY._anielskaTeleporting) {
+      // Check for Anielska return teleport first (uses separate flag from accept teleport)
+      if (DAILY._anielskaReturnTeleporting) {
         console.log('[AFO_DAILY] Anielska return teleport complete');
         this.anielskaAfterReturnTeleport();
         return;
