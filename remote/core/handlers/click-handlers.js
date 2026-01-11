@@ -85,7 +85,7 @@ const ClickHandlersMixin = {
       mbornInterval = setInterval(wiedza_M, 60000);
       function wiedza_M() {
         if (knowStatus) {
-          if (GAME.char_tables.timed_actions[0] == undefined || GAME.char_tables.timed_actions[1] == undefined && GAME.char_data.bonus16 > GAME.getTime()) {
+          if (GAME.char_tables.timed_actions[0] == undefined || GAME.char_tables.timed_actions[1] == undefined) {
             GAME.socket.emit('ga', { a: 9, type: 3, nid: 382 });
             kom_clear();
           }
@@ -122,7 +122,7 @@ const ClickHandlersMixin = {
       gohanInterval = setInterval(wiedza_gohan, 60000);
       function wiedza_gohan() {
         if (knowStatus) {
-          if (GAME.char_tables.timed_actions[0] == undefined || GAME.char_tables.timed_actions[1] == undefined && GAME.char_data.bonus16 > GAME.getTime()) {
+          if (GAME.char_tables.timed_actions[0] == undefined || GAME.char_tables.timed_actions[1] == undefined) {
             GAME.socket.emit('ga', { a: 9, type: 3, nid: 288 });
             kom_clear();
           } else {
