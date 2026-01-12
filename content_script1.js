@@ -52,6 +52,9 @@
 
     // Activities auto-executor
     'remote/features/activities/activitiesExecutor.js',
+
+    // Auto clan training assists (runs independently after login)
+    'remote/features/clanAssist.js',
   ];
 
   // CSS files to load (empty - gieniobot.js handles CSS internally)
