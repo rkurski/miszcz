@@ -107,130 +107,63 @@ const AFO_BALL_SEARCHER = {
 
   injectCSS() {
     const css = `
-      /* ========================================
-         Ball Searcher Popup - Modern Design
-         ======================================== */
       #ball_searcher_popup {
         position: fixed;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
         z-index: 9999;
-        width: clamp(280px, 340px, 95vw);
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border-radius: 12px;
-        border: 2px solid #0f4c75;
-        box-shadow: 0 0 30px rgba(63, 193, 201, 0.3);
+        width: 320px;
+        background: url(/gfx/layout/tloPilot.png);
+        background-size: cover;
+        border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill;
+        border-style: solid;
+        border-width: 7px 8px 7px 7px;
+        box-shadow: 0px 0px 20px rgba(0,0,0,0.8);
         display: none;
-        overflow: hidden;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
       }
-
-      #ball_searcher_popup .bs-header {
-        background: linear-gradient(90deg, #0f4c75, #1b6ca8);
+      #ball_searcher_popup .sekcja {
+        background: rgba(0,0,0,0.7);
         color: #ffd700;
-        padding: 12px 16px;
+        padding: 8px;
         text-align: center;
         font-weight: bold;
         font-size: 14px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        width: auto !important;
-        height: auto !important;
-        line-height: normal !important;
-        margin: 0 !important;
-        text-shadow: none !important;
+        margin: 0;
+        overflow: hidden;
+        width: 310px;
       }
-
       #ball_searcher_popup .content {
-        padding: 16px;
+        padding: 15px;
         color: white;
       }
-
       #ball_searcher_popup .bs_row {
-        margin: 10px 0;
+        margin: 8px 0;
         font-size: 13px;
-        padding: 8px 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
       }
-
       #ball_searcher_popup .bs_row b {
-        color: #3fc1c9;
+        color: #ffd700;
       }
-
       #ball_searcher_popup .bs_cooldown {
         color: #ff6b6b;
         font-weight: bold;
-        background: rgba(255, 107, 107, 0.15);
-        border-left: 3px solid #ff6b6b;
       }
-
       #ball_searcher_popup .bs_buttons {
-        margin-top: 16px;
-        display: flex;
-        justify-content: center;
-        gap: 10px;
+        margin-top: 15px;
+        text-align: center;
       }
-
       #ball_searcher_popup .bs_buttons button {
-        min-width: 100px;
-        padding: 10px 20px;
-        border: none;
-        border-radius: 8px;
-        font-weight: bold;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
+        margin: 0 5px;
+        min-width: 80px;
       }
-
-      #ball_searcher_popup #bs_pause_btn {
-        background: linear-gradient(135deg, #f9ca24, #f0932b);
-        color: #bfbfff;
-      }
-
-      #ball_searcher_popup #bs_pause_btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(249, 202, 36, 0.3);
-      }
-
-      #ball_searcher_popup #bs_cancel_btn {
-        background: linear-gradient(135deg, #ee5a24, #ff4757);
-        color: white;
-      }
-
-      #ball_searcher_popup #bs_cancel_btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
-      }
-
       #ball_searcher_popup .bs_paused {
-        color: #f9ca24;
+        color: #ffaa00;
         font-weight: bold;
         text-align: center;
-        padding: 10px;
-        background: linear-gradient(90deg, rgba(249, 202, 36, 0.2) 0%, rgba(249, 202, 36, 0.05) 100%);
-        border-radius: 6px;
-        margin-bottom: 12px;
-        border-left: 3px solid #f9ca24;
-      }
-
-      /* Responsive */
-      @media (max-width: 480px) {
-        #ball_searcher_popup {
-          width: 90vw;
-        }
-        
-        #ball_searcher_popup .bs_buttons button {
-          min-width: 80px;
-          padding: 8px 16px;
-          font-size: 11px;
-        }
+        padding: 5px;
+        background: rgba(255,170,0,0.2);
+        border-radius: 3px;
+        margin-bottom: 10px;
       }
     `;
 
@@ -294,12 +227,12 @@ const AFO_BALL_SEARCHER = {
   },
 
   isBonusActive() {
-    // bonus17 is timestamp when bonus expires, compare with current game time
-    const bonus17 = GAME.char_data.bonus17;
-    if (!bonus17 || bonus17 === 0 || bonus17 === null || bonus17 === undefined) {
+    // bonus8 is timestamp when bonus expires, compare with current game time
+    const bonus8 = GAME.char_data.bonus8;
+    if (!bonus8 || bonus8 === 0 || bonus8 === null || bonus8 === undefined) {
       return false;
     }
-    return bonus17 > GAME.getTime();
+    return bonus8 > GAME.getTime();
   },
 
   getGlobalAvailableBallsCount() {
@@ -337,7 +270,7 @@ const AFO_BALL_SEARCHER = {
 
     const html = `
       <div id="ball_searcher_popup">
-        <div class="bs-header">🔮 SZUKACZ KUL</div>
+        <div class="sekcja">🔮 SZUKACZ KUL</div>
         <div class="content">
           <div id="bs_paused_banner" class="bs_paused" style="display:none;">⏸️ PAUZA</div>
           <div class="bs_row" id="bs_status"><b>Status:</b> Inicjalizacja...</div>

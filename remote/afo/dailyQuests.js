@@ -65,308 +65,147 @@ const AFO_DAILY = {
 
   injectCSS() {
     const css = `
-      /* ========================================
-         Daily Quests Panel - Modern Design
-         ======================================== */
       #daily_Panel {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        background: rgba(0,0,0,0.9);
         position: fixed;
-        top: 300px;
-        right: 200px;
-        left: auto;
+        top: 450px;
+        left: 65%;
         z-index: 9999;
-        width: clamp(280px, 340px, 95vw);
-        padding: 0;
-        border-radius: 12px;
-        border: 2px solid #0f4c75;
-        box-shadow: 0 0 25px rgba(63, 193, 201, 0.25);
+        width: 320px;
+        padding: 1px;
+        border-radius: 5px;
+        border-style: solid;
+        border-width: 7px 8px 7px 7px;
         display: none;
         user-select: none;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        overflow: hidden;
-        touch-action: none;
+        color: #333333;
+        max-height: 500px;
       }
-
-      #daily_Panel .daily-header {
-        background: linear-gradient(90deg, #0f4c75, #1b6ca8);
-        padding: 12px 16px;
-        color: #3fc1c9;
-        font-weight: bold;
-        text-align: center;
-        cursor: move;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        width: auto !important;
-        height: auto !important;
-        line-height: normal !important;
-        margin: 0 !important;
-        text-shadow: none !important;
+      #daily_Panel .sekcja {
+        position: absolute;
+        top: -27px;
+        left: -7px;
+        background: rgba(0,0,0,0.9);
+        filter: hue-rotate(196deg);
+        background-size: 100% 100%;
+        width: 320px;
+        cursor: all-scroll;
       }
-
-      #daily_Panel .daily-header::before {
-        content: '📅';
-      }
-
-      #daily_Panel .daily_status {
-        text-align: center;
-        color: #3fc1c9;
-        padding: 8px 12px;
-        font-size: 11px;
-        background: rgba(0, 0, 0, 0.3);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      }
-
-      #daily_Panel .daily_select_all {
-        padding: 8px 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        display: flex;
-        justify-content: center;
-        gap: 8px;
-      }
-
-      #daily_Panel .daily_select_all button {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(63, 193, 201, 0.3);
-        color: #b8b8b8;
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 10px;
+      #daily_Panel .daily_button {
         cursor: pointer;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
-        font-weight: 600;
+        text-align: center;
+        border-bottom: solid gray 1px;
+        color: white;
+        padding: 3px;
       }
-
-      #daily_Panel .daily_select_all button:hover {
-        background: rgba(63, 193, 201, 0.2);
-        color: #3fc1c9;
-        border-color: #3fc1c9;
-      }
-
       #daily_Panel .daily_quest_list {
         max-height: 300px;
         overflow-y: auto;
-        padding: 8px;
+        padding: 5px;
       }
-
-      #daily_Panel .daily_quest_list::-webkit-scrollbar {
-        width: 6px;
-      }
-
-      #daily_Panel .daily_quest_list::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 3px;
-      }
-
-      #daily_Panel .daily_quest_list::-webkit-scrollbar-thumb {
-        background: #0f4c75;
-        border-radius: 3px;
-      }
-
-      #daily_Panel .daily_quest_list::-webkit-scrollbar-thumb:hover {
-        background: #3fc1c9;
-      }
-
       #daily_Panel .daily_quest_item {
         display: flex;
         align-items: center;
-        padding: 8px 10px;
+        padding: 3px 5px;
         color: white;
-        border-radius: 6px;
-        font-size: 11px;
-        margin-bottom: 4px;
-        background: rgba(255, 255, 255, 0.03);
-        transition: all 0.2s ease;
+        border-bottom: 1px solid #333;
+        font-size: 12px;
       }
-
-      #daily_Panel .daily_quest_item:hover {
-        background: rgba(63, 193, 201, 0.1);
-      }
-
       #daily_Panel .daily_quest_item.completed {
         text-decoration: line-through;
-        opacity: 0.4;
-        background: rgba(46, 213, 115, 0.1);
+        opacity: 0.5;
       }
-
       #daily_Panel .daily_quest_item.skipped {
         color: #ff9800;
         text-decoration: line-through;
-        opacity: 0.6;
-        background: rgba(255, 152, 0, 0.1);
+        opacity: 0.7;
       }
-
       #daily_Panel .daily_quest_item.current {
-        background: linear-gradient(90deg, rgba(63, 193, 201, 0.2) 0%, rgba(63, 193, 201, 0.05) 100%);
-        border-left: 3px solid #3fc1c9;
+        background: rgba(255, 215, 0, 0.2);
       }
-
       #daily_Panel .daily_quest_item input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        margin-right: 10px;
-        accent-color: #3fc1c9;
-        cursor: pointer;
-        flex-shrink: 0;
+        margin-right: 8px;
       }
-
       #daily_Panel .daily_quest_item .quest_name {
         flex: 1;
-        font-weight: 500;
       }
-
       #daily_Panel .daily_quest_item .quest_loc {
-        color: #666;
-        font-size: 9px;
-        margin-left: 8px;
+        color: #888;
+        font-size: 10px;
       }
-
       #daily_Panel .daily_controls {
         display: flex;
         justify-content: center;
         gap: 10px;
-        padding: 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 10px;
       }
-
       #daily_Panel .daily_controls button {
-        min-width: 90px;
-        padding: 10px 16px;
-        border: none;
-        border-radius: 8px;
-        font-weight: bold;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        text-transform: uppercase;
+        min-width: 80px;
       }
-
-      #daily_Panel .daily_controls #daily_start_btn {
-        background: linear-gradient(135deg, #10ac84, #2ed573);
-        color: white;
-      }
-
-      #daily_Panel .daily_controls #daily_start_btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(46, 213, 115, 0.3);
-      }
-
-      #daily_Panel .daily_controls #daily_pause_btn {
-        background: linear-gradient(135deg, #f9ca24, #f0932b);
-        color: #bfbfff;
-      }
-
-      #daily_Panel .daily_controls #daily_stop_btn {
-        background: linear-gradient(135deg, #ee5a24, #ff4757);
-        color: white;
-      }
-
       #daily_Panel .daily_controls button.hidden {
         display: none;
       }
-
+      #daily_Panel .daily_status {
+        text-align: center;
+        color: #ffd700;
+        padding: 5px;
+        font-size: 11px;
+      }
       #daily_Panel .daily_options {
-        padding: 10px 12px;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(0, 0, 0, 0.2);
+        padding: 5px 10px;
+        border-top: 1px solid #333;
       }
-
-      #daily_Panel .daily_options > div {
-        margin-bottom: 8px;
-      }
-
-      #daily_Panel .daily_options > div:last-child {
-        margin-bottom: 0;
-      }
-
       #daily_Panel .daily_options label {
-        color: #b8b8b8;
-        font-size: 11px;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      #daily_Panel .daily_options select {
-        background: rgba(0, 0, 0, 0.4);
         color: white;
-        border: 1px solid #0f4c75;
-        border-radius: 6px;
-        padding: 6px 10px;
         font-size: 11px;
-        cursor: pointer;
+        margin-right: 10px;
       }
-
-      #daily_Panel .daily_options select:focus {
-        outline: none;
-        border-color: #3fc1c9;
+      #daily_Panel .daily_options select {
+        background: #333;
+        color: white;
+        border: none;
+        padding: 2px;
+        font-size: 11px;
       }
-
-      #daily_Panel .daily_options .daily_toggle {
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      #daily_Panel .daily_options .daily_toggle:hover {
-        background: rgba(63, 193, 201, 0.3) !important;
-      }
-
       #daily_Panel .daily_quest_item.premium {
-        background: linear-gradient(90deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 215, 0, 0.05) 100%);
+        background: linear-gradient(90deg, rgba(255,215,0,0.15) 0%, rgba(255,215,0,0.05) 100%);
         border-left: 3px solid #ffd700;
       }
-
       #daily_Panel .daily_quest_item.premium .quest_name {
         color: #ffd700;
         font-weight: bold;
       }
-
       #daily_Panel .daily_quest_item.waiting {
-        background: linear-gradient(90deg, rgba(100, 149, 237, 0.15) 0%, rgba(100, 149, 237, 0.05) 100%);
+        background: linear-gradient(90deg, rgba(100,149,237,0.15) 0%, rgba(100,149,237,0.05) 100%);
         border-left: 3px solid #6495ed;
       }
-
       #daily_Panel .daily_quest_item.waiting .quest_name {
         color: #6495ed;
       }
-
       #daily_Panel .daily_quest_item .quest_timer {
         color: #6495ed;
         font-size: 10px;
-        margin-left: 6px;
+        margin-left: 5px;
         animation: pulse 1.5s infinite;
-        background: rgba(100, 149, 237, 0.2);
-        padding: 2px 6px;
-        border-radius: 4px;
       }
-
       @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.5; }
       }
-
       #daily_Panel .daily_options input[type="checkbox"] {
-        accent-color: #3fc1c9;
+        margin-right: 4px;
       }
-
       /* Quest icon sprites */
       #daily_Panel .quest_icon {
         width: 18px;
         height: 18px;
-        margin-right: 6px;
+        margin-right: 5px;
         flex-shrink: 0;
         display: inline-block;
         background-image: url('${getGieniobotUrl('images/daily.png')}');
         background-repeat: no-repeat;
         vertical-align: middle;
       }
-
       #daily_Panel .quest_icon.icon-action { background-position: -10px -10px; }
       #daily_Panel .quest_icon.icon-certyfikat { background-position: -48px -10px; }
       #daily_Panel .quest_icon.icon-kk { background-position: -10px -48px; }
@@ -379,30 +218,6 @@ const AFO_DAILY = {
       #daily_Panel .quest_icon.icon-wyprawy { background-position: -124px -86px; width: 12px; height: 12px; }
       #daily_Panel .quest_icon.icon-zegarek { background-position: -124px -10px; }
       #daily_Panel .quest_icon.icon-zeni { background-position: -124px -48px; }
-
-      /* Responsive */
-      @media (max-width: 768px) {
-        #daily_Panel {
-          width: clamp(260px, 90vw, 340px);
-          right: 5vw;
-        }
-
-        #daily_Panel .sekcja {
-          padding: 10px 12px;
-          font-size: 11px;
-        }
-
-        #daily_Panel .daily_quest_item {
-          padding: 6px 8px;
-          font-size: 10px;
-        }
-
-        #daily_Panel .daily_controls button {
-          min-width: 70px;
-          padding: 8px 12px;
-          font-size: 10px;
-        }
-      }
     `;
 
     if (!document.getElementById('daily_quests_css')) {
@@ -573,12 +388,12 @@ const AFO_DAILY = {
 
     const html = `
       <div id="daily_Panel">
-        <div class="daily-header daily_dragg">DZIENNE QUESTY</div>
+        <div class="sekcja daily_dragg">DZIENNE QUESTY</div>
         <div class="daily_status" id="daily_status">Gotowy do startu</div>
-        <div class="daily_select_all" style="padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: center; gap: 8px;">
-          <button class="newBtn" id="daily_toggle_all_btn" style="font-size: 10px; padding: 6px 12px;">PRZEŁĄCZ</button>
-          <button class="newBtn" id="daily_important_btn" style="font-size: 10px; padding: 6px 12px;">ULUBIONE</button>
-          <button class="newBtn" id="daily_reset_btn" style="font-size: 10px; padding: 6px 12px;">ZERUJ</button>
+        <div class="daily_select_all" style="padding: 5px 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; gap: 5px;">
+          <button class="newBtn" id="daily_toggle_all_btn" style="font-size: 10px; padding: 2px 6px;">PRZEŁĄCZ</button>
+          <button class="newBtn" id="daily_important_btn" style="font-size: 10px; padding: 2px 6px;">ULUBIONE</button>
+          <button class="newBtn" id="daily_reset_btn" style="font-size: 10px; padding: 2px 6px;">ZERUJ</button>
         </div>
         <div class="daily_quest_list" id="daily_quest_list"></div>
         <div class="daily_options">
@@ -607,7 +422,7 @@ const AFO_DAILY = {
     `;
 
     $('body').append(html);
-    $('#daily_Panel').show().draggable({ handle: '.daily_dragg', containment: 'window' });
+    $('#daily_Panel').show().draggable({ handle: '.daily_dragg' });
 
     this.loadCompletedQuests();
     this.loadSkippedQuests();

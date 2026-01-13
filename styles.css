@@ -1,187 +1,69 @@
-/* ========================================
-   KW Antigravity - Popup Styles
-   Modern glassmorphism design
-   ======================================== */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 body {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  min-height: 100vh;
+  background: #02070D url(https://cdn.discordapp.com/attachments/1107756477004922960/1133392145496166470/To2.png) no-repeat top center!important;
+  background-size: cover!important;
+  background-attachment: fixed!important;
 }
-
-.popup-container {
-  width: 340px;
-  padding: 16px;
+.container {
+  width: 500px;
 }
-
-/* Header */
-.popup-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  background: linear-gradient(90deg, rgba(15, 76, 117, 0.5), rgba(27, 108, 168, 0.3));
-  border-radius: 12px;
-  border: 1px solid rgba(63, 193, 201, 0.3);
+span{
+  text-align: center;
 }
-
-.popup-header .logo {
-  font-size: 24px;
-}
-
-.popup-header h1 {
-  color: #3fc1c9;
-  font-size: 18px;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-}
-
-.popup-header .version {
-  background: rgba(63, 193, 201, 0.2);
-  color: #3fc1c9;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: bold;
-}
-
-/* Toggle Grid */
-.toggle-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-/* Toggle Card */
-.toggle-card {
-  display: block;
-  cursor: pointer;
-}
-
-.toggle-card input {
-  display: none;
-}
-
-.toggle-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 14px 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  transition: all 0.3s ease;
+.switch {
   position: relative;
-  overflow: hidden;
+  display: inline-block;
+  width: 90px;
+  height: 30px;
 }
 
-.toggle-content::before {
-  content: '';
+.switch input {display:none;}
+
+.slider {
   position: absolute;
-  top: 0;
+  cursor: pointer;
+  top: 6;
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(63, 193, 201, 0.1) 0%, transparent 50%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  font-size: larger;
+  font-weight: 700;
+  border-radius: 6px;
+  background-color: #f7ede2;
+  box-shadow: 0 0 6px light-blue;
+  -webkit-transition: .4s;
+  transition: .4s;
 }
 
-.toggle-card:hover .toggle-content {
-  border-color: rgba(63, 193, 201, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(63, 193, 201, 0.15);
-}
-
-.toggle-card:hover .toggle-content::before {
-  opacity: 1;
-}
-
-/* Active state */
-.toggle-card input:checked + .toggle-content {
-  background: linear-gradient(135deg, rgba(46, 213, 115, 0.15) 0%, rgba(46, 213, 115, 0.05) 100%);
-  border-color: rgba(46, 213, 115, 0.5);
-  box-shadow: 0 0 20px rgba(46, 213, 115, 0.2);
-}
-
-.toggle-card input:checked + .toggle-content .toggle-switch {
-  background: linear-gradient(135deg, #10ac84, #2ed573);
-}
-
-.toggle-card input:checked + .toggle-content .toggle-switch::after {
-  transform: translateX(16px);
-}
-
-.toggle-card input:checked + .toggle-content .toggle-label {
-  color: #2ed573;
-}
-
-/* Toggle Icon */
-.toggle-icon {
-  font-size: 20px;
-  margin-bottom: 6px;
-}
-
-/* Toggle Label */
-.toggle-label {
-  color: #b8b8b8;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  text-align: center;
-  transition: color 0.3s ease;
-}
-
-/* Toggle Switch */
-.toggle-switch {
-  width: 36px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  position: relative;
-  transition: background 0.3s ease;
-}
-
-.toggle-switch::after {
-  content: '';
+.slider:before {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  content: "";
+  height: 0px;
+  width: 0px;
+  left: 0px;
+  bottom: 0px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
 }
 
-/* Responsive */
-@media (max-width: 360px) {
-  .popup-container {
-    width: 300px;
-    padding: 12px;
-  }
-  
-  .toggle-content {
-    padding: 12px 8px;
-  }
-  
-  .toggle-label {
-    font-size: 10px;
-  }
-  
-  .toggle-icon {
-    font-size: 18px;
-  }
+input:checked + .slider {
+  background-color: #f30626bd;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px rgb(191, 191, 191);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(26px);
+  -ms-transform: translateX(26px);
+  transform: translateX(26px);
+}
+
+.slider.round {
+  border-radius: 20px;
+}
+
+.slider.round:before {
+  border-radius: 5
 }
