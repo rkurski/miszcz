@@ -181,16 +181,16 @@ const AFO_BALL_SEARCHER = {
 
   canStart() {
     // Check if balls are available for current reborn
-    // if (!this.areBallsAvailable()) {
-    //   GAME.komunikat('[SZUKACZ KUL] Smocze kule nie są aktywne dla tego borna!');
-    //   return false;
-    // }
+    if (!this.areBallsAvailable()) {
+      GAME.komunikat('[SZUKACZ KUL] Smocze kule nie są aktywne dla tego borna!');
+      return false;
+    }
 
-    // // Check if bonus8 is active
-    // if (!this.isBonusActive()) {
-    //   GAME.komunikat('[SZUKACZ KUL] Brak aktywnego bonusu zbierania kul (Smoczy Radar)!');
-    //   return false;
-    // }
+    // Check if bonus8 is active
+    if (!this.isBonusActive()) {
+      GAME.komunikat('[SZUKACZ KUL] Brak aktywnego bonusu zbierania kul (Smoczy Radar)!');
+      return false;
+    }
 
     // TP count will be validated after fetching locations
     // (we don't know location count yet at this point)
@@ -227,12 +227,12 @@ const AFO_BALL_SEARCHER = {
   },
 
   isBonusActive() {
-    // bonus8 is timestamp when bonus expires, compare with current game time
-    const bonus8 = GAME.char_data.bonus8;
-    if (!bonus8 || bonus8 === 0 || bonus8 === null || bonus8 === undefined) {
+    // bonus17 is timestamp when bonus expires, compare with current game time
+    const bonus17 = GAME.char_data.bonus17;
+    if (!bonus17 || bonus17 === 0 || bonus17 === null || bonus17 === undefined) {
       return false;
     }
-    return bonus8 > GAME.getTime();
+    return bonus17 > GAME.getTime();
   },
 
   getGlobalAvailableBallsCount() {
