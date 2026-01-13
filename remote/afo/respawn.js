@@ -393,7 +393,7 @@ const AFO_RESP = {
     });
 
     // Hide bless options initially
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 18; i++) {
       $(`#resp_Panel .resp_bh${i}`).hide();
     }
     $('#resp_Panel .resp_on').hide();
@@ -423,12 +423,12 @@ const AFO_RESP = {
       if (RESP.bless) {
         $(".resp_bless .resp_status").removeClass("green").addClass("red").html("Off");
         RESP.bless = false;
-        for (let i = 1; i <= 10; i++) $(`#resp_Panel .resp_bh${i}`).hide();
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).hide();
         $('#resp_Panel .resp_on, #resp_Panel .resp_off').hide();
       } else {
         $(".resp_bless .resp_status").removeClass("red").addClass("green").html("On");
         RESP.bless = true;
-        for (let i = 1; i <= 10; i++) $(`#resp_Panel .resp_bh${i}`).show();
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).show();
         $('#resp_Panel .resp_on, #resp_Panel .resp_off').show();
       }
     });
