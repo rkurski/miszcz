@@ -1117,3 +1117,655 @@ class filterQuest {
     });
   }
 }
+
+class chestOpener {
+  static CHEST_IDS = [1486, 1264, 1263, 1262];
+  static LOOT_ITEMS = {
+    45: { name: 'Amulet', img: '/gfx/items/10/3/45.png' },
+    789: { name: 'Strój treningowy', img: '/gfx/items/10/9/789.png' },
+    790: { name: 'Strój walki', img: '/gfx/items/10/16/790.png' },
+    1228: { name: 'Scouter', img: '/gfx/items/10/23/1228.png' },
+    837: { name: 'Pancerz', img: '/gfx/items/10/17/837.png' },
+    848: { name: 'Opaska', img: '/gfx/items/10/19/848.png' },
+    1238: { name: 'Pas', img: '/gfx/items/10/24/1238.png' },
+    838: { name: 'Akcesorium', img: '/gfx/items/10/18/838.png' },
+    1218: { name: 'Rękawice', img: '/gfx/items/10/22/1218.png' },
+    1058: { name: 'Buty', img: '/gfx/items/10/21/1058.png' },
+    362: { name: 'Chi', img: '/gfx/items/10/11/362.png' }
+  };
+
+  constructor() {
+    this.isRunning = false;
+    this.isPaused = false;
+    this.openCount = 0;
+    this.targetOpenCount = 100;
+    this.currentItemId = null;
+    this.useTargetMode = false;
+    this.lootTargets = JSON.parse(JSON.stringify(chestOpener.LOOT_ITEMS));
+
+    this.injectStyles();
+    this.createModal();
+    this.attachMenuListener();
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  injectStyles() {
+    if (document.getElementById('chest_opener_styles')) return;
+
+    const styles = document.createElement('style');
+    styles.id = 'chest_opener_styles';
+    styles.textContent = `
+      #chest_opener_modal_overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 9998;
+      }
+      #chest_opener_modal {
+        display: none;
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #e17055;
+        border-radius: 12px;
+        padding: 20px;
+        z-index: 9999;
+        min-width: 340px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 0 30px rgba(225, 112, 85, 0.4);
+      }
+      #chest_opener_modal .modal-title {
+        color: #e17055;
+        font-size: 18px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+      }
+      #chest_opener_modal .modal-close, #chest_opener_modal .modal-minimize {
+        position: absolute;
+        top: 10px;
+        font-size: 20px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      #chest_opener_modal .modal-close { right: 15px; color: #ff6b6b; }
+      #chest_opener_modal .modal-minimize { right: 45px; color: #f9ca24; }
+      #chest_opener_modal .modal-close:hover { color: #ff4757; }
+      #chest_opener_modal .modal-minimize:hover { color: #f0932b; }
+      #chest_opener_modal .form-group { margin-bottom: 12px; }
+      #chest_opener_modal label {
+        display: block;
+        color: #b8b8b8;
+        margin-bottom: 5px;
+        font-size: 13px;
+      }
+      #chest_opener_modal input[type="number"] {
+        width: 100%;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid #e17055;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      #chest_opener_modal input[type="number"]:focus {
+        outline: none;
+        border-color: #fab1a0;
+      }
+      #chest_opener_modal .mode-toggle {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+      #chest_opener_modal .mode-btn {
+        flex: 1;
+        padding: 10px;
+        border: 2px solid #e17055;
+        background: transparent;
+        color: #e17055;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.2s;
+      }
+      #chest_opener_modal .mode-btn.active {
+        background: #e17055;
+        color: #1a1a2e;
+      }
+      #chest_opener_modal .targets-container {
+        display: none;
+        max-height: 250px;
+        overflow-y: auto;
+        background: rgba(0,0,0,0.2);
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 15px;
+      }
+      #chest_opener_modal .target-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+        font-size: 13px;
+      }
+      #chest_opener_modal .target-row label {
+        flex: 1;
+        margin: 0;
+        color: #ddd;
+      }
+      #chest_opener_modal .target-row input {
+        width: 60px;
+        padding: 5px;
+        text-align: center;
+      }
+      #chest_opener_modal .target-row .collected {
+        color: #55efc4;
+        min-width: 50px;
+        text-align: right;
+      }
+      #chest_opener_modal .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      #chest_opener_modal .modal-btn {
+        flex: 1;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 13px;
+        text-transform: uppercase;
+        transition: all 0.2s;
+      }
+      #chest_opener_modal .btn-start {
+        background: linear-gradient(135deg, #e17055 0%, #d63031 100%);
+        color: #fff;
+      }
+      #chest_opener_modal .btn-start:hover {
+        background: linear-gradient(135deg, #fab1a0 0%, #e17055 100%);
+      }
+      #chest_opener_modal .btn-pause {
+        background: linear-gradient(135deg, #f9ca24 0%, #f0932b 100%);
+        color: #1a1a2e;
+      }
+      #chest_opener_modal .btn-stop {
+        background: linear-gradient(135deg, #636e72 0%, #2d3436 100%);
+        color: #fff;
+      }
+      #chest_opener_modal .progress-section {
+        display: none;
+        margin-top: 15px;
+      }
+      #chest_opener_modal .progress-bar-container {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 10px;
+        overflow: hidden;
+        height: 20px;
+        margin-bottom: 10px;
+      }
+      #chest_opener_modal .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #e17055, #d63031);
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: bold;
+        color: #fff;
+      }
+      #chest_opener_modal .progress-text {
+        color: #b8b8b8;
+        font-size: 12px;
+        text-align: center;
+      }
+      /* Mini Widget */
+      #chest_mini_widget {
+        display: none;
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #e17055;
+        border-radius: 10px;
+        padding: 10px 15px;
+        z-index: 9999;
+        cursor: move;
+        box-shadow: 0 0 20px rgba(225, 112, 85, 0.4);
+        min-width: 180px;
+        touch-action: none;
+      }
+      #chest_mini_widget .mini-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      #chest_mini_widget .mini-title {
+        color: #e17055;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      #chest_mini_widget .mini-expand {
+        color: #e17055;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #chest_mini_widget .mini-progress {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 6px;
+        overflow: hidden;
+        height: 14px;
+        margin-bottom: 6px;
+      }
+      #chest_mini_widget .mini-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #e17055, #d63031);
+        transition: width 0.3s ease;
+      }
+      #chest_mini_widget .mini-status {
+        color: #b8b8b8;
+        font-size: 11px;
+        text-align: center;
+      }
+    `;
+    document.head.appendChild(styles);
+  }
+
+  createModal() {
+    if (document.getElementById('chest_opener_modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'chest_opener_modal_overlay';
+
+    const modal = document.createElement('div');
+    modal.id = 'chest_opener_modal';
+
+    // Build target rows HTML
+    let targetRowsHtml = '';
+    for (const [itemId, item] of Object.entries(chestOpener.LOOT_ITEMS)) {
+      targetRowsHtml += `
+        <div class="target-row">
+          <img src="${item.img}" style="width: 24px; height: 24px; margin-right: 6px;">
+          <label>${item.name}</label>
+          <input type="number" min="0" value="0" data-item-id="${itemId}" class="target-input">
+          <span class="collected" data-collected-id="${itemId}">0</span>
+        </div>
+      `;
+    }
+
+    modal.innerHTML = `
+      <span class="modal-minimize" title="Minimalizuj">_</span>
+      <span class="modal-close">&times;</span>
+      <div class="modal-title">📦 Otwieracz</div>
+      
+      <div class="mode-toggle">
+        <button class="mode-btn active" data-mode="count">Ilość</button>
+        <button class="mode-btn" data-mode="targets">Do zebrania</button>
+      </div>
+      
+      <div class="form-group" id="chest_count_mode">
+        <label>Ile skrzyń otworzyć:</label>
+        <input type="number" id="chest_open_count" min="1" value="100">
+      </div>
+      
+      <div class="targets-container" id="chest_targets_mode">
+        <label style="margin-bottom: 10px; display: block;">Otwieraj do zebrania:</label>
+        ${targetRowsHtml}
+      </div>
+      
+      <div class="btn-row" id="chest_main_controls">
+        <button class="modal-btn btn-start" id="chest_btn_start">▶️ START</button>
+      </div>
+      
+      <div class="progress-section" id="chest_progress_section">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="chest_progress_bar" style="width: 0%">0%</div>
+        </div>
+        <div class="progress-text" id="chest_progress_text">Przygotowanie...</div>
+        <div class="btn-row">
+          <button class="modal-btn btn-pause" id="chest_btn_pause">⏸️ PAUZA</button>
+          <button class="modal-btn btn-stop" id="chest_btn_stop">⏹️ STOP</button>
+        </div>
+      </div>
+    `;
+
+    // Mini widget
+    const miniWidget = document.createElement('div');
+    miniWidget.id = 'chest_mini_widget';
+    miniWidget.innerHTML = `
+      <div class="mini-header">
+        <span class="mini-title">📦 Skrzynie</span>
+        <span class="mini-expand" title="Rozwiń">⬆</span>
+      </div>
+      <div class="mini-progress">
+        <div class="mini-progress-bar" id="chest_mini_progress_bar" style="width: 0%"></div>
+      </div>
+      <div class="mini-status" id="chest_mini_status">Wstrzymano</div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(modal);
+    document.body.appendChild(miniWidget);
+
+    // Make mini widget draggable
+    this.makeDraggable(miniWidget);
+
+    // Event listeners
+    overlay.addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-close').addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-minimize').addEventListener('click', () => this.minimizeModal());
+    miniWidget.querySelector('.mini-expand').addEventListener('click', () => this.expandModal());
+
+    // Mode toggle
+    modal.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
+    });
+
+    document.getElementById('chest_btn_start').addEventListener('click', () => this.onStart());
+    document.getElementById('chest_btn_pause').addEventListener('click', () => this.onPauseResume());
+    document.getElementById('chest_btn_stop').addEventListener('click', () => this.onStop());
+  }
+
+  attachMenuListener() {
+    // Add button to item menu when chest is selected
+    $(document).on('click', '.player_ekw_item', (e) => {
+      const item = $(e.currentTarget);
+      const baseItemId = parseInt(item.attr('data-base_item_id'));
+
+      setTimeout(() => {
+        const menu = document.getElementById('ekw_item_menu');
+        if (!menu || menu.style.display === 'none') return;
+
+        // Remove old button if exists
+        const oldBtn = menu.querySelector('#ekw_menu_mass_open');
+        if (oldBtn) oldBtn.remove();
+
+        if (chestOpener.CHEST_IDS.includes(baseItemId)) {
+          const btn = document.createElement('button');
+          btn.id = 'ekw_menu_mass_open';
+          btn.className = 'ekw_menu_btn option btn_small_gold';
+          btn.textContent = 'Otwieracz';
+          btn.style.display = '';
+          btn.addEventListener('click', () => {
+            this.currentItemId = parseInt(item.attr('data-item_id'));
+            this.showModal();
+          });
+          menu.appendChild(btn);
+        }
+      }, 50);
+    });
+  }
+
+  switchMode(mode) {
+    const countMode = document.getElementById('chest_count_mode');
+    const targetsMode = document.getElementById('chest_targets_mode');
+    const btns = document.querySelectorAll('#chest_opener_modal .mode-btn');
+
+    btns.forEach(btn => btn.classList.remove('active'));
+    document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+
+    if (mode === 'count') {
+      countMode.style.display = 'block';
+      targetsMode.style.display = 'none';
+      this.useTargetMode = false;
+    } else {
+      countMode.style.display = 'none';
+      targetsMode.style.display = 'block';
+      this.useTargetMode = true;
+    }
+  }
+
+  showModal() {
+    // Reset collected counts
+    for (const key of Object.keys(this.lootTargets)) {
+      this.lootTargets[key].collected = 0;
+      const el = document.querySelector(`[data-collected-id="${key}"]`);
+      if (el) el.textContent = '0';
+    }
+
+    document.getElementById('chest_opener_modal_overlay').style.display = 'block';
+    document.getElementById('chest_opener_modal').style.display = 'block';
+    document.getElementById('chest_main_controls').style.display = 'flex';
+    document.getElementById('chest_progress_section').style.display = 'none';
+  }
+
+  hideModal() {
+    if (this.isRunning) this.onStop();
+    document.getElementById('chest_opener_modal_overlay').style.display = 'none';
+    document.getElementById('chest_opener_modal').style.display = 'none';
+  }
+
+  minimizeModal() {
+    document.getElementById('chest_opener_modal_overlay').style.display = 'none';
+    document.getElementById('chest_opener_modal').style.display = 'none';
+    document.getElementById('chest_mini_widget').style.display = 'block';
+  }
+
+  expandModal() {
+    document.getElementById('chest_mini_widget').style.display = 'none';
+    document.getElementById('chest_opener_modal_overlay').style.display = 'block';
+    document.getElementById('chest_opener_modal').style.display = 'block';
+  }
+
+  makeDraggable(element) {
+    let offsetX = 0, offsetY = 0, isDragging = false;
+
+    const onStart = (e) => {
+      isDragging = true;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = element.getBoundingClientRect();
+      offsetX = clientX - rect.left;
+      offsetY = clientY - rect.top;
+      element.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let newX = Math.max(0, Math.min(clientX - offsetX, window.innerWidth - element.offsetWidth));
+      let newY = Math.max(0, Math.min(clientY - offsetY, window.innerHeight - element.offsetHeight));
+      element.style.left = newX + 'px';
+      element.style.top = newY + 'px';
+      element.style.right = 'auto';
+      element.style.bottom = 'auto';
+    };
+
+    const onEnd = () => { isDragging = false; element.style.transition = ''; };
+
+    element.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    element.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }
+
+  async onStart() {
+    this.isRunning = true;
+    this.isPaused = false;
+    this.openCount = 0;
+
+    // Read targets if in target mode
+    if (this.useTargetMode) {
+      document.querySelectorAll('.target-input').forEach(input => {
+        const itemId = input.dataset.itemId;
+        this.lootTargets[itemId].target = parseInt(input.value) || 0;
+        this.lootTargets[itemId].collected = 0;
+      });
+    } else {
+      this.targetOpenCount = parseInt(document.getElementById('chest_open_count').value) || 100;
+    }
+
+    document.getElementById('chest_main_controls').style.display = 'none';
+    document.getElementById('chest_progress_section').style.display = 'block';
+    document.getElementById('chest_btn_pause').textContent = '⏸️ PAUZA';
+
+    await this.runOpenProcess();
+  }
+
+  onPauseResume() {
+    this.isPaused = !this.isPaused;
+    const btn = document.getElementById('chest_btn_pause');
+    if (this.isPaused) {
+      btn.textContent = '▶️ WZNÓW';
+      this.updateProgressText('⏸️ Wstrzymano...');
+    } else {
+      btn.textContent = '⏸️ PAUZA';
+    }
+  }
+
+  onStop() {
+    this.isRunning = false;
+    this.isPaused = false;
+    document.getElementById('chest_main_controls').style.display = 'flex';
+    document.getElementById('chest_progress_section').style.display = 'none';
+  }
+
+  updateProgress(percent) {
+    const bar = document.getElementById('chest_progress_bar');
+    bar.style.width = `${percent}%`;
+    bar.textContent = `${percent}%`;
+    const miniBar = document.getElementById('chest_mini_progress_bar');
+    if (miniBar) miniBar.style.width = `${percent}%`;
+  }
+
+  updateProgressText(text) {
+    document.getElementById('chest_progress_text').textContent = text;
+    const miniStatus = document.getElementById('chest_mini_status');
+    if (miniStatus) miniStatus.textContent = text.length > 25 ? text.substring(0, 22) + '...' : text;
+  }
+
+  parseDrops(komContent) {
+    // Parse items from kom_con response
+    // data-item_id in HTML -> dataset.item_id in JS (underscore preserved)
+    const items = komContent.querySelectorAll('.ekw_slot');
+    items.forEach(item => {
+      const itemId = item.getAttribute('data-item_id'); // Use getAttribute for safety
+      const countDiv = item.querySelector('div');
+      const count = countDiv ? parseInt(countDiv.textContent) || 1 : 1;
+
+      if (itemId && this.lootTargets[itemId]) {
+        this.lootTargets[itemId].collected += count;
+        const el = document.querySelector(`[data-collected-id="${itemId}"]`);
+        if (el) el.textContent = this.lootTargets[itemId].collected;
+      }
+    });
+  }
+
+  checkTargetsReached() {
+    if (!this.useTargetMode) return false;
+
+    for (const [itemId, item] of Object.entries(this.lootTargets)) {
+      if (item.target > 0 && item.collected < item.target) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async runOpenProcess() {
+    while (this.isRunning) {
+      // Check pause
+      while (this.isPaused && this.isRunning) {
+        await this.delay(200);
+      }
+      if (!this.isRunning) break;
+
+      // Check count limit in count mode
+      if (!this.useTargetMode && this.openCount >= this.targetOpenCount) {
+        this.updateProgressText(`✅ Gotowe! Otwarto ${this.openCount} skrzyń`);
+        this.updateProgress(100);
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      // Check targets in target mode
+      if (this.useTargetMode && this.checkTargetsReached()) {
+        this.updateProgressText(`✅ Cele osiągnięte! Otwarto ${this.openCount}`);
+        this.updateProgress(100);
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      // Check if item still exists
+      const itemEl = document.querySelector(`[data-item_id="${this.currentItemId}"]`);
+      if (!itemEl) {
+        this.updateProgressText('⚠️ Skrzynie się skończyły!');
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      const stack = parseInt(itemEl.dataset.stack) || 0;
+      if (stack <= 0) {
+        this.updateProgressText('⚠️ Skrzynie się skończyły!');
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      // Calculate how many to open (max 100)
+      let toOpen = 100;
+      if (!this.useTargetMode) {
+        toOpen = Math.min(100, this.targetOpenCount - this.openCount, stack);
+      } else {
+        toOpen = Math.min(100, stack);
+      }
+
+      this.updateProgressText(`Otwieram ${toOpen} skrzyń...`);
+
+      // Emit open command
+      GAME.emitOrder({ a: 12, type: 14, iid: this.currentItemId, page: GAME.ekw_page, page2: GAME.ekw_page2, am: toOpen });
+
+      // Wait for kom_con to appear with drops (poll until it appears or timeout)
+      let komContent = null;
+      for (let i = 0; i < 30; i++) { // max 3 seconds wait
+        await this.delay(100);
+        komContent = document.querySelector('#kom_con .limited_kom');
+        if (komContent && komContent.querySelectorAll('.ekw_slot').length > 0) {
+          break;
+        }
+      }
+
+      // Parse drops before closing
+      if (komContent) {
+        this.parseDrops(komContent);
+      }
+
+      // Close kom after parsing
+      kom_clear();
+
+      this.openCount += toOpen;
+
+      // Update progress
+      if (!this.useTargetMode) {
+        const percent = Math.round((this.openCount / this.targetOpenCount) * 100);
+        this.updateProgress(percent);
+      }
+      this.updateProgressText(`Otwarto: ${this.openCount} skrzyń`);
+
+      // Wait remaining time to make 1s total between batches
+      await this.delay(700);
+    }
+  }
+}
+
+// Initialize chest opener
+new chestOpener();
