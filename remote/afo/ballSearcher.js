@@ -181,16 +181,16 @@ const AFO_BALL_SEARCHER = {
 
   canStart() {
     // Check if balls are available for current reborn
-    if (!this.areBallsAvailable()) {
-      GAME.komunikat('[SZUKACZ KUL] Smocze kule nie są aktywne dla tego borna!');
-      return false;
-    }
+    // if (!this.areBallsAvailable()) {
+    //   GAME.komunikat('[SZUKACZ KUL] Smocze kule nie są aktywne dla tego borna!');
+    //   return false;
+    // }
 
-    // Check if bonus8 is active
-    if (!this.isBonusActive()) {
-      GAME.komunikat('[SZUKACZ KUL] Brak aktywnego bonusu zbierania kul (Smoczy Radar)!');
-      return false;
-    }
+    // // Check if bonus8 is active
+    // if (!this.isBonusActive()) {
+    //   GAME.komunikat('[SZUKACZ KUL] Brak aktywnego bonusu zbierania kul (Smoczy Radar)!');
+    //   return false;
+    // }
 
     // TP count will be validated after fetching locations
     // (we don't know location count yet at this point)
