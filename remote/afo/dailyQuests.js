@@ -1007,6 +1007,9 @@ const AFO_DAILY = {
       // Remove from waiting list
       DAILY.waitingQuests = DAILY.waitingQuests.filter(w => w.name !== waitData.name);
 
+      // Set flag to prevent scheduleWaitingCheck from calling stop() while we're processing
+      DAILY._processingWaitingQuest = true;
+
       this.updateStatus(`${waitData.name}: Timer zakończony, kończę quest`);
       this.renderQuestList();
 
@@ -1047,7 +1050,8 @@ const AFO_DAILY = {
         clearInterval(DAILY._waitingCheckInterval);
         DAILY._waitingCheckInterval = null;
         this.stopWaitingTimerUpdate();
-        if (!DAILY.stop && DAILY.waitingQuests?.length === 0) {
+        // Only stop if not currently processing a waiting quest
+        if (!DAILY.stop && !DAILY._processingWaitingQuest && DAILY.waitingQuests?.length === 0) {
           this.stop('Wykonano wszystkie questy!');
         }
         return;
@@ -1200,6 +1204,10 @@ const AFO_DAILY = {
    * Go to quest location for waiting quest completion
    */
   goToQuestLocation(quest, callback) {
+    // Always set _currentQuest so afterTeleport() knows which quest we're processing
+    // This is crucial for waiting quests where quest is not in questQueue
+    DAILY._currentQuest = quest;
+
     switch (quest.locationType) {
       case 'private_planet':
         this.goToPrivatePlanet(quest);
@@ -1220,7 +1228,6 @@ const AFO_DAILY = {
         if (locId && GAME.char_data.loc !== locId) {
           this.updateStatus(`Teleport: ${quest.location.name || locId}`);
           DAILY.isTeleporting = true;
-          DAILY._currentQuest = quest;
           DAILY._afterTeleportCallback = callback;
           GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
         } else {
@@ -1599,7 +1606,6 @@ const AFO_DAILY = {
   findQuestByName(name) {
     if (!GAME.map_quests) return null;
 
-    let partialMatch = null;
     const availableQuests = [];
 
     for (let coords in GAME.map_quests) {
@@ -1612,27 +1618,41 @@ const AFO_DAILY = {
 
           availableQuests.push(quest.name);
 
-          // Exact match - preferred
+          // Exact match only - no partial matching to avoid confusion
+          // between similar quest names like "Zadanie" and "Zadanie PvM"
           if (quest.name === name) {
             const [x, y] = coords.split('_').map(Number);
             return { qb_id: quest.qb_id, coords: [x, y], data: quest };
-          }
-
-          // Partial match fallback - quest name starts with or contains our search name
-          if (!partialMatch && (quest.name.includes(name) || name.includes(quest.name))) {
-            const [x, y] = coords.split('_').map(Number);
-            partialMatch = { qb_id: quest.qb_id, coords: [x, y], data: quest };
           }
         }
       }
     }
 
     // Log available quests for debugging when not found
-    if (!partialMatch && availableQuests.length > 0) {
+    if (availableQuests.length > 0) {
       console.log('[AFO_DAILY] Quest not found:', name, 'Available quests:', availableQuests);
     }
 
-    return partialMatch;
+    return null;
+  },
+
+  // Find quest by qb_id (unique identifier) - more reliable than name matching
+  findQuestByQbId(targetQbId) {
+    if (!GAME.map_quests || !targetQbId) return null;
+
+    for (let coords in GAME.map_quests) {
+      const questsAtCoords = GAME.map_quests[coords];
+      if (Array.isArray(questsAtCoords)) {
+        for (let quest of questsAtCoords) {
+          if (quest === false || !quest) continue;
+          if (quest.qb_id === targetQbId) {
+            const [x, y] = coords.split('_').map(Number);
+            return { qb_id: quest.qb_id, coords: [x, y], data: quest };
+          }
+        }
+      }
+    }
+    return null;
   },
 
   // Find any quest at given coords (when quest name doesn't match)
@@ -3489,14 +3509,68 @@ const AFO_DAILY = {
     const locId = 1245; // Nowa niebiańska kuźnia
 
     if (GAME.char_data.loc !== locId) {
+      console.log('[AFO_DAILY] Anielska: Teleporting to quest location', locId);
+      DAILY._anielskaReturnTeleporting = true;  // Use separate flag for return teleport
+      DAILY._anielskaTargetLoc = locId;
       GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
-      setTimeout(() => {
-        if (DAILY.stop || DAILY.paused) return;
-        this.anielskaCompleteNext(0);
-      }, 2000);
-    } else {
-      setTimeout(() => this.anielskaCompleteNext(0), 500);
+
+      // Wait for teleport confirmation via anielskaAfterReturnTeleport
+      // Called from handleSockets when a:12 with show_map is received
+      return;
     }
+
+    // Already at location - wait for map_quests to load
+    this.anielskaWaitForMapQuests(0);
+  },
+
+  // Called after return teleport completes (from handleSockets)
+  anielskaAfterReturnTeleport() {
+    if (DAILY.stop || DAILY.paused) return;
+
+    DAILY._anielskaReturnTeleporting = false;  // Clear return teleport flag
+    const locId = DAILY._anielskaTargetLoc || 1245;
+
+    // Verify teleport succeeded
+    if (GAME.char_data.loc !== locId) {
+      DAILY._anielskaReturnRetries = (DAILY._anielskaReturnRetries || 0) + 1;
+      console.warn('[AFO_DAILY] Anielska: Return teleport failed! Expected:', locId, 'Current:', GAME.char_data.loc, 'Retry:', DAILY._anielskaReturnRetries);
+
+      if (DAILY._anielskaReturnRetries >= 3) {
+        console.error('[AFO_DAILY] Anielska: Return teleport failed after 3 retries - completing anyway');
+        DAILY._anielskaReturnRetries = 0;
+      } else {
+        // Retry teleport
+        setTimeout(() => this.anielskaReturnAndComplete(), 1000);
+        return;
+      }
+    }
+    DAILY._anielskaReturnRetries = 0;
+
+    // Wait for map_quests to load
+    this.anielskaWaitForMapQuests(0);
+  },
+
+  // Wait for map_quests to be populated after teleport
+  anielskaWaitForMapQuests(attempts) {
+    if (DAILY.stop || DAILY.paused) return;
+
+    const mapQuestsLoaded = GAME.map_quests !== undefined &&
+      GAME.map_quests !== null &&
+      typeof GAME.map_quests === 'object';
+
+    if (mapQuestsLoaded && Object.keys(GAME.map_quests).length > 0) {
+      console.log('[AFO_DAILY] Anielska: map_quests loaded, completing quests');
+      this.anielskaCompleteNext(0);
+      return;
+    }
+
+    if (attempts >= 10) {
+      console.warn('[AFO_DAILY] Anielska: map_quests timeout, completing anyway');
+      this.anielskaCompleteNext(0);
+      return;
+    }
+
+    setTimeout(() => this.anielskaWaitForMapQuests(attempts + 1), 500);
   },
 
   anielskaCompleteNext(idx) {
@@ -3607,6 +3681,10 @@ const AFO_DAILY = {
     DAILY._anielskAcceptedQbIds = null;
     DAILY._anielskaIgnore = null;
     DAILY._anielskaLastRefresh = 0;
+    DAILY._anielskaTeleporting = false;
+    DAILY._anielskaReturnTeleporting = false;
+    DAILY._anielskaTeleportRetries = 0;
+    DAILY._anielskaReturnRetries = 0;
 
     // Skip all anielska quests in queue (they're done)
     this.skipAnielskaBatch();
@@ -4535,12 +4613,15 @@ const AFO_DAILY = {
     }
 
     // Quest verified not in field_opts_con... but is it REALLY gone from map data?
-    // Check GAME.map_quests again (findQuestByName checks map_quests)
-    // Sometimes UI updates faster/slower than data, or dialog closes but quest remains
-    const currentQuestData = this.findQuestByName(quest.name);
+    // Use qb_id for exact match to avoid matching similar-named quests
+    // (e.g., "Zadanie" vs "Zadanie PvM" in Pałac Wszechmogącego)
+    const qbIdToCheck = qbId || DAILY._originalQbId;
+    const currentQuestData = qbIdToCheck
+      ? this.findQuestByQbId(qbIdToCheck)
+      : this.findQuestByName(quest.name);
 
     if (currentQuestData) {
-      console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name);
+      console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name, 'qb_id:', qbIdToCheck);
 
       // Track verification attempts for map existence to avoid infinite loops
       DAILY._verifyMapAttempts = (DAILY._verifyMapAttempts || 0) + 1;
@@ -4575,6 +4656,7 @@ const AFO_DAILY = {
     this.markQuestComplete(quest.name);
 
     DAILY.isInCombat = false;
+    DAILY._processingWaitingQuest = false;  // Clear flag - waiting quest processing done
 
     // Check if in portal group
     if (DAILY.inPortal && DAILY.portalGroup.length > 0) {
@@ -4668,18 +4750,28 @@ const AFO_DAILY = {
       console.log('[AFO_DAILY] Still inside portal at', completedPortal.innerLocId, '- exiting before advancing queue');
       this.updateStatus('Wychodzę z portalu...');
 
-      this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
-        console.log('[AFO_DAILY] At portal exit, using portal to leave');
-        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+      // Small delay to ensure any previous navigation state is fully cleared
+      // This prevents conflicts when advanceQuestQueue is called from a navigation callback
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
 
-        setTimeout(() => {
-          if (DAILY.stop || DAILY.paused) return;
-          console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
-          DAILY.inPortal = false;
-          // Now actually advance the queue (recursive call with inPortal=false)
-          this.advanceQuestQueue();
-        }, 1500);
-      });
+        // Reset navigation state explicitly before starting portal exit navigation
+        DAILY.isNavigating = false;
+        DAILY._navCallback = null;
+
+        this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
+          console.log('[AFO_DAILY] At portal exit, using portal to leave');
+          GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+
+          setTimeout(() => {
+            if (DAILY.stop || DAILY.paused) return;
+            console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
+            DAILY.inPortal = false;
+            // Now actually advance the queue (recursive call with inPortal=false)
+            this.advanceQuestQueue();
+          }, 1500);
+        });
+      }, 300);
       return;
     }
 
@@ -4742,17 +4834,26 @@ const AFO_DAILY = {
     }
 
     // Normal teleport completed (a:12 with show_map)
-    if (res.a === 12 && 'show_map' in res && DAILY.isTeleporting) {
-      DAILY.isTeleporting = false;
-      console.log('[AFO_DAILY] Normal teleport complete');
-
-      // Check if entered portal
-      if (DAILY.currentPortalLocId && GAME.char_data.loc === DAILY.currentPortalLocId) {
-        DAILY.inPortal = true;
-        DAILY.currentPortalLocId = 0;
+    if (res.a === 12 && 'show_map' in res) {
+      // Check for Anielska return teleport first (uses separate flag from accept teleport)
+      if (DAILY._anielskaReturnTeleporting) {
+        console.log('[AFO_DAILY] Anielska return teleport complete');
+        this.anielskaAfterReturnTeleport();
+        return;
       }
 
-      this.afterTeleport();
+      if (DAILY.isTeleporting) {
+        DAILY.isTeleporting = false;
+        console.log('[AFO_DAILY] Normal teleport complete');
+
+        // Check if entered portal
+        if (DAILY.currentPortalLocId && GAME.char_data.loc === DAILY.currentPortalLocId) {
+          DAILY.inPortal = true;
+          DAILY.currentPortalLocId = 0;
+        }
+
+        this.afterTeleport();
+      }
     }
 
     // Private planet teleport (a:15)
@@ -4788,6 +4889,16 @@ const AFO_DAILY = {
     // Wait a bit for map data to load, then continue to quest NPC
     setTimeout(() => {
       if (DAILY.stop || DAILY.paused) return;
+
+      // Check for callback from goToQuestLocation (used by waiting quests)
+      // This ensures waiting quests properly continue to NPC after teleport
+      if (DAILY._afterTeleportCallback) {
+        const callback = DAILY._afterTeleportCallback;
+        DAILY._afterTeleportCallback = null;
+        console.log('[AFO_DAILY] Executing _afterTeleportCallback for waiting quest');
+        callback();
+        return;
+      }
 
       const quest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
       if (!quest) {

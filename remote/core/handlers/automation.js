@@ -17,7 +17,8 @@ const AutomationMixin = {
 
   manageAutoExpeditions() {
     // expedNmbr: 1 when no bonus (to avoid collision with arena/codes), 2 when bonus active
-    let expedNmbr = GAME.char_data.bonus16 < GAME.getTime() ? 1 : 2;
+    // let expedNmbr = GAME.char_data.bonus16 < GAME.getTime() ? 1 : 2;
+    let expedNmbr = 1;
     if (!this.autoExpeditions) {
       this.autoExpeditions = true;
       this.autoExpeditionsInterval = setInterval(() => {

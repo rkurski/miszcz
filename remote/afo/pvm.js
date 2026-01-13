@@ -20,6 +20,22 @@ const AFO_LPVM = {
   init() {
     this.loadEasyStar();
     this.bindSocketHandler();
+    this.injectTPPDisplay();
+    setInterval(() => this.updateTPP(), 1000);
+  },
+
+  injectTPPDisplay() {
+    if ($('#lpvm_tpp_display').length === 0) {
+      $('<div id="lpvm_tpp_display" style="text-align:center; color: #aaa; font-size: 10px; margin-top: 5px;">PT: <b style="color:white">0</b></div>')
+        .insertAfter('#lpvm_Panel .sekcja');
+    }
+    this.updateTPP();
+  },
+
+  updateTPP() {
+    if (GAME && GAME.char_data) {
+      $('#lpvm_tpp_display b').text(GAME.char_data.tpp || 0);
+    }
   },
 
   loadEasyStar() {
