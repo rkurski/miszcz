@@ -26,8 +26,8 @@ const AFO_LPVM = {
 
   injectTPPDisplay() {
     if ($('#lpvm_tpp_display').length === 0) {
-      $('<div id="lpvm_tpp_display" style="text-align:center; color: #aaa; font-size: 10px; margin-top: 5px;">PT: <b style="color:white">0</b></div>')
-        .insertAfter('#lpvm_Panel .sekcja');
+      $('<div id="lpvm_tpp_display" style="text-align:center; color: var(--afo-accent); font-size: 10px; margin: 5px 0;">PT: <b style="color:white">0</b></div>')
+        .insertBefore('.panel-content .pvm_killed');
     }
     this.updateTPP();
   },

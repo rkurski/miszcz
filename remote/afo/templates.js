@@ -375,7 +375,7 @@ const AFO_Templates = {
   html: {
     main: `
       <div id="main_Panel" class="afo-panel">
-        <div class="afo-header panel_dragg">🎮 ALL FOR ONE</div>
+        <div class="afo-header panel_dragg">🎮 GIENIOBOT</div>
         <div class="panel-content">
           <div class='afo-button gh_button gh_resp'>
             <span>⚔️ PVM</span>
@@ -402,7 +402,7 @@ const AFO_Templates = {
             <b class='gh_status red'>Off</b>
           </div>
           <div class='afo-button gh_button gh_glebia'>
-            <span>🕳 Głębia</span>
+            <span>🔪 Głębia</span>
             <b class='gh_status red'>Off</b>
           </div>
           <div class='afo-button gh_button gh_daily'>
