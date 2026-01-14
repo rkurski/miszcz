@@ -1,6 +1,5 @@
 class ekwipunekMenager {
   constructor() {
-    const otwieranieKart = new cardOpen();
     const mapWrapper = new locationWrapper();
     const questFilter = new filterQuest();
     this.setupCalculatePA();
@@ -863,47 +862,6 @@ class lv12all {
     if (!document.getElementById("soulcard_menu").querySelector('button[data-option="map_cards"]')) {
       this.createButton();
     }
-  }
-}
-
-class cardOpen {
-  constructor() {
-    $("body").on("click", '#ekw_page_items div[data-base_item_id="1784"]', () => {
-      $("#ekw_menu_use").one("click", () => {
-        setTimeout(() => {
-          $(`<button class="btn_small_gold otwieranie_kart" style="margin-right:4ch;">X100 OPEN</button>`).insertBefore("#kom_con > div > div.content > div:nth-child(1) > button.option.btn_small_gold");
-        }, 500);
-      });
-    });
-
-    $("body").on("click", '.otwieranie_kart', () => {
-      let upperLimit = parseInt(document.querySelector("#item_am").value, 10);
-      if (!isNaN(upperLimit) && upperLimit > 0) {
-        let stopOpening = false;
-        for (let i = 0; i < upperLimit; i++) {
-          setTimeout(() => {
-            if (stopOpening) return;
-            let cards = $(`#ekw_page_items div[data-base_item_id="1784"]`);
-            if (cards.length === 0) {
-              setTimeout(() => { GAME.komunikat("Karty się skończyły."); }, 1000);
-              stopOpening = true;
-              return;
-            }
-            let cards_id = parseInt(cards.attr("data-item_id"));
-            let stack = parseInt(cards.attr('data-stack'), 10);
-            if (stack < 100) {
-              GAME.socket.emit('ga', { a: 12, type: 14, iid: cards_id, page: GAME.ekw_page, page2: GAME.ekw_page2, am: stack });
-              setTimeout(() => { GAME.komunikat("Karty się skończyły."); }, 1000);
-              stopOpening = true;
-              return;
-            }
-            GAME.socket.emit('ga', { a: 12, type: 14, iid: cards_id, page: GAME.ekw_page, page2: GAME.ekw_page2, am: '100' });
-          }, i * 2000);
-        }
-      } else {
-        console.error("Wartość #item_am nie jest poprawną liczbą lub jest mniejsza niż 1.");
-      }
-    });
   }
 }
 
@@ -2416,3 +2374,647 @@ class itemUpgrader {
 
 // Initialize item upgrader
 new itemUpgrader();
+
+class cardPackOpener {
+  constructor() {
+    this.isRunning = false;
+    this.isPaused = false;
+    this.currentItemId = null;
+    this.currentItemStack = 0;
+    this.useLeaveMode = true; // true = "leave X", false = "open X"
+    this.targetCount = 0;
+    this.openedCount = 0;
+    this.collectedCards = {}; // { cardImg: { level, count } }
+
+    this.injectStyles();
+    this.createModal();
+    this.attachMenuListener();
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  injectStyles() {
+    if (document.getElementById('card_opener_styles')) return;
+
+    const styles = document.createElement('style');
+    styles.id = 'card_opener_styles';
+    styles.textContent = `
+      #card_opener_modal_overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 9998;
+      }
+      #card_opener_modal {
+        display: none;
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #fd79a8;
+        border-radius: 12px;
+        padding: 20px;
+        z-index: 9999;
+        min-width: 360px;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 0 30px rgba(253, 121, 168, 0.4);
+      }
+      #card_opener_modal .modal-title {
+        color: #fd79a8;
+        font-size: 18px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+      }
+      #card_opener_modal .modal-close, #card_opener_modal .modal-minimize {
+        position: absolute;
+        top: 10px;
+        font-size: 20px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      #card_opener_modal .modal-close { right: 15px; color: #ff6b6b; }
+      #card_opener_modal .modal-minimize { right: 45px; color: #f9ca24; }
+      #card_opener_modal .form-group { margin-bottom: 12px; }
+      #card_opener_modal label {
+        display: block;
+        color: #b8b8b8;
+        margin-bottom: 5px;
+        font-size: 13px;
+      }
+      #card_opener_modal input[type="number"] {
+        width: 100%;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid #fd79a8;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      #card_opener_modal .info-box {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 12px;
+        margin: 15px 0;
+        font-size: 13px;
+        color: #ddd;
+      }
+      #card_opener_modal .info-box .highlight {
+        color: #fd79a8;
+        font-weight: bold;
+      }
+      #card_opener_modal .mode-toggle {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 15px;
+      }
+      #card_opener_modal .mode-btn {
+        flex: 1;
+        padding: 10px;
+        border: 2px solid #fd79a8;
+        background: transparent;
+        color: #fd79a8;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.2s;
+      }
+      #card_opener_modal .mode-btn.active {
+        background: linear-gradient(135deg, #fd79a8 0%, #e84393 100%);
+        color: #fff;
+      }
+      #card_opener_modal .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      #card_opener_modal .modal-btn {
+        flex: 1;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 13px;
+        text-transform: uppercase;
+        transition: all 0.2s;
+      }
+      #card_opener_modal .btn-start {
+        background: linear-gradient(135deg, #fd79a8 0%, #e84393 100%);
+        color: #fff;
+      }
+      #card_opener_modal .btn-pause {
+        background: linear-gradient(135deg, #f9ca24 0%, #f0932b 100%);
+        color: #1a1a2e;
+      }
+      #card_opener_modal .btn-stop {
+        background: linear-gradient(135deg, #636e72 0%, #2d3436 100%);
+        color: #fff;
+      }
+      #card_opener_modal .progress-section {
+        display: none;
+        margin-top: 15px;
+      }
+      #card_opener_modal .progress-bar-container {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 10px;
+        overflow: hidden;
+        height: 20px;
+        margin-bottom: 10px;
+      }
+      #card_opener_modal .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #fd79a8, #e84393);
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: bold;
+        color: #fff;
+      }
+      #card_opener_modal .progress-text {
+        color: #b8b8b8;
+        font-size: 12px;
+        text-align: center;
+        margin-bottom: 10px;
+      }
+      #card_opener_modal .cards-summary {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        margin-bottom: 10px;
+      }
+      #card_opener_modal .cards-summary-title {
+        color: #fd79a8;
+        font-size: 12px;
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      #card_opener_modal .card-row {
+        display: flex;
+        align-items: center;
+        padding: 3px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+      #card_opener_modal .card-row img {
+        width: 24px;
+        height: 24px;
+        margin-right: 8px;
+      }
+      #card_opener_modal .card-row .card-info {
+        flex: 1;
+        color: #ddd;
+        font-size: 12px;
+      }
+      #card_opener_modal .card-row .card-count {
+        color: #55efc4;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      /* Mini Widget */
+      #card_mini_widget {
+        display: none;
+        position: fixed;
+        bottom: 200px;
+        right: 20px;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #fd79a8;
+        border-radius: 10px;
+        padding: 10px 15px;
+        z-index: 9999;
+        cursor: move;
+        box-shadow: 0 0 20px rgba(253, 121, 168, 0.4);
+        min-width: 180px;
+        touch-action: none;
+      }
+      #card_mini_widget .mini-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      #card_mini_widget .mini-title {
+        color: #fd79a8;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      #card_mini_widget .mini-expand {
+        color: #fd79a8;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #card_mini_widget .mini-progress {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 6px;
+        overflow: hidden;
+        height: 14px;
+        margin-bottom: 6px;
+      }
+      #card_mini_widget .mini-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #fd79a8, #e84393);
+        transition: width 0.3s ease;
+      }
+      #card_mini_widget .mini-status {
+        color: #b8b8b8;
+        font-size: 11px;
+        text-align: center;
+      }
+    `;
+    document.head.appendChild(styles);
+  }
+
+  createModal() {
+    if (document.getElementById('card_opener_modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'card_opener_modal_overlay';
+
+    const modal = document.createElement('div');
+    modal.id = 'card_opener_modal';
+
+    modal.innerHTML = `
+      <span class="modal-minimize" title="Minimalizuj">_</span>
+      <span class="modal-close">&times;</span>
+      <div class="modal-title">🃏 Rozpakowywacz</div>
+      
+      <div class="info-box" id="card_item_info">
+        Wybierz paczkę kart
+      </div>
+      
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="card_mode_leave">Zostaw X</button>
+        <button class="mode-btn" id="card_mode_open">Otwórz X</button>
+      </div>
+      
+      <div class="form-group">
+        <label id="card_count_label">Ile paczek zostawić:</label>
+        <input type="number" id="card_target_count" min="0" placeholder="0 = otwórz wszystkie">
+      </div>
+      
+      <div class="btn-row" id="card_main_controls">
+        <button class="modal-btn btn-start" id="card_btn_start">▶️ START</button>
+      </div>
+      
+      <div class="progress-section" id="card_progress_section">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="card_progress_bar" style="width: 0%">0%</div>
+        </div>
+        <div class="progress-text" id="card_progress_text">Przygotowanie...</div>
+        <div class="cards-summary" id="card_summary">
+          <div class="cards-summary-title">📋 Zdobyte karty:</div>
+          <div id="card_summary_list"></div>
+        </div>
+        <div class="btn-row">
+          <button class="modal-btn btn-pause" id="card_btn_pause">⏸️ PAUZA</button>
+          <button class="modal-btn btn-stop" id="card_btn_stop">⏹️ STOP</button>
+        </div>
+      </div>
+    `;
+
+    // Mini widget
+    const miniWidget = document.createElement('div');
+    miniWidget.id = 'card_mini_widget';
+    miniWidget.innerHTML = `
+      <div class="mini-header">
+        <span class="mini-title">🃏 Karty</span>
+        <span class="mini-expand" title="Rozwiń">⬆</span>
+      </div>
+      <div class="mini-progress">
+        <div class="mini-progress-bar" id="card_mini_progress_bar" style="width: 0%"></div>
+      </div>
+      <div class="mini-status" id="card_mini_status">Wstrzymano</div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(modal);
+    document.body.appendChild(miniWidget);
+
+    this.makeDraggable(miniWidget);
+
+    // Event listeners
+    overlay.addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-close').addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-minimize').addEventListener('click', () => this.minimizeModal());
+    miniWidget.querySelector('.mini-expand').addEventListener('click', () => this.expandModal());
+
+    document.getElementById('card_mode_leave').addEventListener('click', () => this.setMode(true));
+    document.getElementById('card_mode_open').addEventListener('click', () => this.setMode(false));
+    document.getElementById('card_btn_start').addEventListener('click', () => this.onStart());
+    document.getElementById('card_btn_pause').addEventListener('click', () => this.onPauseResume());
+    document.getElementById('card_btn_stop').addEventListener('click', () => this.onStop());
+  }
+
+  setMode(leaveMode) {
+    this.useLeaveMode = leaveMode;
+    const leaveBtn = document.getElementById('card_mode_leave');
+    const openBtn = document.getElementById('card_mode_open');
+    const label = document.getElementById('card_count_label');
+
+    if (leaveMode) {
+      leaveBtn.classList.add('active');
+      openBtn.classList.remove('active');
+      label.textContent = 'Ile paczek zostawić:';
+    } else {
+      leaveBtn.classList.remove('active');
+      openBtn.classList.add('active');
+      label.textContent = 'Ile paczek otworzyć:';
+    }
+  }
+
+  attachMenuListener() {
+    // Add button when item is a card pack (check for cards pattern in result)
+    $(document).on('click', '.player_ekw_item', (e) => {
+      const item = $(e.currentTarget);
+
+      setTimeout(() => {
+        const menu = document.getElementById('ekw_item_menu');
+        if (!menu || menu.style.display === 'none') return;
+
+        // Check if "Użyj" button exists (card packs have it)
+        const useBtn = menu.querySelector('#ekw_menu_use');
+        if (!useBtn || useBtn.style.display === 'none') return;
+
+        // Check if it's likely a card pack by image path
+        const imgSrc = item.attr('data-img') || '';
+        if (!imgSrc.includes('card') && !imgSrc.includes('paczk')) {
+          // Alternative: check if it's in cards category or similar
+          // For now, add button to all "usable" items - user can decide
+        }
+
+        // Remove old button if exists
+        const oldBtn = menu.querySelector('#ekw_menu_card_opener');
+        if (oldBtn) oldBtn.remove();
+
+        const btn = document.createElement('button');
+        btn.id = 'ekw_menu_card_opener';
+        btn.className = 'ekw_menu_btn option btn_small_gold';
+        btn.textContent = 'Otwieracz';
+        btn.style.display = '';
+        btn.addEventListener('click', () => {
+          this.currentItemId = parseInt(item.attr('data-item_id'));
+          this.currentItemStack = parseInt(item.attr('data-stack')) || 1;
+          const itemImg = item.find('img').attr('src');
+          this.showModal(itemImg, this.currentItemStack);
+        });
+        useBtn.after(btn);
+      }, 50);
+    });
+  }
+
+  showModal(itemImg, stack) {
+    document.getElementById('card_item_info').innerHTML = `
+      <img src="${itemImg}" style="width: 32px; height: 32px; vertical-align: middle; margin-right: 10px;">
+      Posiadasz: <span class="highlight">${stack}</span> paczek
+    `;
+
+    document.getElementById('card_opener_modal_overlay').style.display = 'block';
+    document.getElementById('card_opener_modal').style.display = 'block';
+    document.getElementById('card_main_controls').style.display = 'flex';
+    document.getElementById('card_progress_section').style.display = 'none';
+  }
+
+  hideModal() {
+    if (this.isRunning) this.onStop(true);
+    document.getElementById('card_opener_modal_overlay').style.display = 'none';
+    document.getElementById('card_opener_modal').style.display = 'none';
+  }
+
+  minimizeModal() {
+    document.getElementById('card_opener_modal_overlay').style.display = 'none';
+    document.getElementById('card_opener_modal').style.display = 'none';
+    document.getElementById('card_mini_widget').style.display = 'block';
+  }
+
+  expandModal() {
+    document.getElementById('card_mini_widget').style.display = 'none';
+    document.getElementById('card_opener_modal_overlay').style.display = 'block';
+    document.getElementById('card_opener_modal').style.display = 'block';
+  }
+
+  makeDraggable(element) {
+    let offsetX = 0, offsetY = 0, isDragging = false;
+
+    const onStart = (e) => {
+      isDragging = true;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = element.getBoundingClientRect();
+      offsetX = clientX - rect.left;
+      offsetY = clientY - rect.top;
+      element.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let newX = Math.max(0, Math.min(clientX - offsetX, window.innerWidth - element.offsetWidth));
+      let newY = Math.max(0, Math.min(clientY - offsetY, window.innerHeight - element.offsetHeight));
+      element.style.left = newX + 'px';
+      element.style.top = newY + 'px';
+      element.style.right = 'auto';
+      element.style.bottom = 'auto';
+    };
+
+    const onEnd = () => { isDragging = false; element.style.transition = ''; };
+
+    element.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    element.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }
+
+  async onStart() {
+    this.isRunning = true;
+    this.isPaused = false;
+    this.targetCount = parseInt(document.getElementById('card_target_count').value) || 0;
+    this.openedCount = 0;
+    this.collectedCards = {};
+
+    // Calculate how many to open
+    let toOpen;
+    if (this.useLeaveMode) {
+      toOpen = Math.max(0, this.currentItemStack - this.targetCount);
+    } else {
+      toOpen = Math.min(this.currentItemStack, this.targetCount || this.currentItemStack);
+    }
+
+    if (toOpen <= 0) {
+      this.updateProgressText('❌ Nie ma czego otwierać!');
+      return;
+    }
+
+    this.totalToOpen = toOpen;
+
+    document.getElementById('card_main_controls').style.display = 'none';
+    document.getElementById('card_progress_section').style.display = 'block';
+    document.getElementById('card_btn_pause').textContent = '⏸️ PAUZA';
+    document.getElementById('card_summary_list').innerHTML = '';
+
+    await this.runOpenProcess();
+  }
+
+  onPauseResume() {
+    this.isPaused = !this.isPaused;
+    const btn = document.getElementById('card_btn_pause');
+    if (this.isPaused) {
+      btn.textContent = '▶️ WZNÓW';
+      this.updateProgressText('⏸️ Wstrzymano...');
+    } else {
+      btn.textContent = '⏸️ PAUZA';
+    }
+  }
+
+  onStop(hideProgress = true) {
+    this.isRunning = false;
+    this.isPaused = false;
+    document.getElementById('card_main_controls').style.display = 'flex';
+    if (hideProgress) {
+      document.getElementById('card_progress_section').style.display = 'none';
+    }
+  }
+
+  updateProgress(percent) {
+    const bar = document.getElementById('card_progress_bar');
+    bar.style.width = `${percent}%`;
+    bar.textContent = `${percent}%`;
+    const miniBar = document.getElementById('card_mini_progress_bar');
+    if (miniBar) miniBar.style.width = `${percent}%`;
+  }
+
+  updateProgressText(text) {
+    document.getElementById('card_progress_text').textContent = text;
+    const miniStatus = document.getElementById('card_mini_status');
+    if (miniStatus) miniStatus.textContent = text.length > 25 ? text.substring(0, 22) + '...' : text;
+  }
+
+  updateCardSummary() {
+    const list = document.getElementById('card_summary_list');
+    let html = '';
+
+    // Sort by count ascending (rarest first)
+    const sorted = Object.entries(this.collectedCards).sort((a, b) => a[1].count - b[1].count);
+
+    for (const [img, data] of sorted) {
+      html += `
+        <div class="card-row">
+          <img src="${img}">
+          <span class="card-info">Lv ${data.level}</span>
+          <span class="card-count">x${data.count}</span>
+        </div>
+      `;
+    }
+
+    list.innerHTML = html || '<div style="color:#888;text-align:center;">Brak kart</div>';
+  }
+
+  parseCards() {
+    const container = document.querySelector('#kom_con .limited_kom');
+    if (!container) return;
+
+    const cards = container.querySelectorAll('.small_card');
+    cards.forEach(card => {
+      const img = card.querySelector('img');
+      const levelSpan = card.querySelector('span');
+      const countI = card.querySelector('i');
+
+      if (img && levelSpan && countI) {
+        const imgSrc = img.getAttribute('src');
+        const level = parseInt(levelSpan.textContent) || 1;
+        const count = parseInt(countI.textContent) || 1;
+
+        if (!this.collectedCards[imgSrc]) {
+          this.collectedCards[imgSrc] = { level, count: 0 };
+        }
+        this.collectedCards[imgSrc].count += count;
+      }
+    });
+
+    this.updateCardSummary();
+  }
+
+  async waitForCardsResult(timeout = 5000) {
+    for (let i = 0; i < timeout / 100; i++) {
+      await this.delay(100);
+      const kom = document.querySelector('#kom_con .kom .content');
+      if (kom && kom.textContent.includes('Użyto przedmiotu')) {
+        // Wait a bit for cards to render
+        await this.delay(200);
+        this.parseCards();
+        kom_clear();
+        return true;
+      }
+    }
+    kom_clear();
+    return false;
+  }
+
+  async runOpenProcess() {
+    let remaining = this.totalToOpen;
+
+    this.updateProgressText(`Otwieranie ${remaining} paczek...`);
+
+    while (this.isRunning && remaining > 0) {
+      // Check pause
+      while (this.isPaused && this.isRunning) {
+        await this.delay(200);
+      }
+      if (!this.isRunning) break;
+
+      // Open in batches of max 100
+      const batchSize = Math.min(100, remaining);
+
+      this.updateProgressText(`📦 Otwieranie ${batchSize} paczek...`);
+
+      // Emit open command
+      GAME.emitOrder({ a: 12, type: 14, iid: this.currentItemId, page: GAME.ekw_page, page2: GAME.ekw_page2, am: batchSize });
+
+      // Wait for result
+      const success = await this.waitForCardsResult(8000);
+
+      if (success) {
+        this.openedCount += batchSize;
+        remaining -= batchSize;
+
+        // Update progress
+        const percent = Math.round(((this.totalToOpen - remaining) / this.totalToOpen) * 100);
+        this.updateProgress(percent);
+        this.updateProgressText(`✅ Otwarto ${this.openedCount}/${this.totalToOpen}`);
+      } else {
+        this.updateProgressText('⚠️ Brak odpowiedzi!');
+        await this.delay(2000);
+        this.onStop(false);
+        return;
+      }
+
+      // Delay between batches
+      await this.delay(800);
+    }
+
+    // Final message
+    if (this.isRunning) {
+      const totalCards = Object.values(this.collectedCards).reduce((sum, c) => sum + c.count, 0);
+      this.updateProgressText(`🎉 Gotowe! ${totalCards} kart z ${this.openedCount} paczek`);
+      this.updateProgress(100);
+      await this.delay(2000);
+      this.onStop(false);
+    }
+  }
+}
+
+// Initialize card pack opener
+new cardPackOpener();
