@@ -717,7 +717,7 @@ const AFO_Templates = {
 
     glebia: `
       <div id="glebia_Panel" class="afo-panel">
-        <div class="afo-header glebia_dragg">🌊 GŁĘBIA</div>
+        <div class="afo-header glebia_dragg">🔪 GŁĘBIA</div>
         <div class="panel-content">
           <div class='afo-button glebia_button glebia_toggle'>
             <span>▶️ Start</span>

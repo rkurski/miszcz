@@ -1769,3 +1769,650 @@ class chestOpener {
 
 // Initialize chest opener
 new chestOpener();
+
+class itemUpgrader {
+  constructor() {
+    this.isRunning = false;
+    this.isPaused = false;
+    this.currentItemId = null;
+    this.currentItemStack = 0;
+    this.currentLevel = 0;
+    this.targetLevel = 5;
+    this.minToKeep = 10;
+    this.successCount = 0;
+    this.burnedCount = 0;
+    this.totalAttempts = 0;
+
+    this.injectStyles();
+    this.createModal();
+    this.attachMenuListener();
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  injectStyles() {
+    if (document.getElementById('item_upgrader_styles')) return;
+
+    const styles = document.createElement('style');
+    styles.id = 'item_upgrader_styles';
+    styles.textContent = `
+      #item_upgrader_modal_overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 9998;
+      }
+      #item_upgrader_modal {
+        display: none;
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #a29bfe;
+        border-radius: 12px;
+        padding: 20px;
+        z-index: 9999;
+        min-width: 340px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 0 30px rgba(162, 155, 254, 0.4);
+      }
+      #item_upgrader_modal .modal-title {
+        color: #a29bfe;
+        font-size: 18px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 15px;
+        text-transform: uppercase;
+      }
+      #item_upgrader_modal .modal-close, #item_upgrader_modal .modal-minimize {
+        position: absolute;
+        top: 10px;
+        font-size: 20px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      #item_upgrader_modal .modal-close { right: 15px; color: #ff6b6b; }
+      #item_upgrader_modal .modal-minimize { right: 45px; color: #f9ca24; }
+      #item_upgrader_modal .modal-close:hover { color: #ff4757; }
+      #item_upgrader_modal .modal-minimize:hover { color: #f0932b; }
+      #item_upgrader_modal .form-group { margin-bottom: 12px; }
+      #item_upgrader_modal label {
+        display: block;
+        color: #b8b8b8;
+        margin-bottom: 5px;
+        font-size: 13px;
+      }
+      #item_upgrader_modal input[type="number"] {
+        width: 100%;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid #a29bfe;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      #item_upgrader_modal input[type="number"]:focus {
+        outline: none;
+        border-color: #6c5ce7;
+      }
+      #item_upgrader_modal .info-box {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 12px;
+        margin: 15px 0;
+        font-size: 13px;
+        color: #ddd;
+      }
+      #item_upgrader_modal .info-box .highlight {
+        color: #a29bfe;
+        font-weight: bold;
+      }
+      #item_upgrader_modal .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin: 15px 0;
+      }
+      #item_upgrader_modal .stat-box {
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+      }
+      #item_upgrader_modal .stat-box .stat-label {
+        font-size: 11px;
+        color: #888;
+        text-transform: uppercase;
+      }
+      #item_upgrader_modal .stat-box .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #a29bfe;
+      }
+      #item_upgrader_modal .stat-box.success .stat-value { color: #55efc4; }
+      #item_upgrader_modal .stat-box.burned .stat-value { color: #ff6b6b; }
+      #item_upgrader_modal .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      #item_upgrader_modal .modal-btn {
+        flex: 1;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 13px;
+        text-transform: uppercase;
+        transition: all 0.2s;
+      }
+      #item_upgrader_modal .btn-start {
+        background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+        color: #fff;
+      }
+      #item_upgrader_modal .btn-start:hover {
+        background: linear-gradient(135deg, #6c5ce7 0%, #5f27cd 100%);
+      }
+      #item_upgrader_modal .btn-pause {
+        background: linear-gradient(135deg, #f9ca24 0%, #f0932b 100%);
+        color: #1a1a2e;
+      }
+      #item_upgrader_modal .btn-stop {
+        background: linear-gradient(135deg, #636e72 0%, #2d3436 100%);
+        color: #fff;
+      }
+      #item_upgrader_modal .progress-section {
+        display: none;
+        margin-top: 15px;
+      }
+      #item_upgrader_modal .progress-bar-container {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 10px;
+        overflow: hidden;
+        height: 20px;
+        margin-bottom: 10px;
+      }
+      #item_upgrader_modal .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #a29bfe, #6c5ce7);
+        transition: width 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: bold;
+        color: #fff;
+      }
+      #item_upgrader_modal .progress-text {
+        color: #b8b8b8;
+        font-size: 12px;
+        text-align: center;
+      }
+      /* Mini Widget */
+      #upgrader_mini_widget {
+        display: none;
+        position: fixed;
+        bottom: 140px;
+        right: 20px;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border: 2px solid #a29bfe;
+        border-radius: 10px;
+        padding: 10px 15px;
+        z-index: 9999;
+        cursor: move;
+        box-shadow: 0 0 20px rgba(162, 155, 254, 0.4);
+        min-width: 180px;
+        touch-action: none;
+      }
+      #upgrader_mini_widget .mini-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      #upgrader_mini_widget .mini-title {
+        color: #a29bfe;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      #upgrader_mini_widget .mini-expand {
+        color: #a29bfe;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #upgrader_mini_widget .mini-progress {
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 6px;
+        overflow: hidden;
+        height: 14px;
+        margin-bottom: 6px;
+      }
+      #upgrader_mini_widget .mini-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #a29bfe, #6c5ce7);
+        transition: width 0.3s ease;
+      }
+      #upgrader_mini_widget .mini-status {
+        color: #b8b8b8;
+        font-size: 11px;
+        text-align: center;
+      }
+    `;
+    document.head.appendChild(styles);
+  }
+
+  createModal() {
+    if (document.getElementById('item_upgrader_modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'item_upgrader_modal_overlay';
+
+    const modal = document.createElement('div');
+    modal.id = 'item_upgrader_modal';
+
+    modal.innerHTML = `
+      <span class="modal-minimize" title="Minimalizuj">_</span>
+      <span class="modal-close">&times;</span>
+      <div class="modal-title">⚡ Ulepszacz</div>
+      
+      <div class="info-box" id="upg_item_info">
+        Wybierz przedmiot z opcją "Ulepsz"
+      </div>
+      
+      <div class="form-group">
+        <label>Ile przedmiotów ulepszać:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="number" id="upg_start_count" min="1" placeholder="Ilość" style="flex: 1;">
+          <button class="modal-btn" id="upg_max_btn" style="flex: 0; padding: 8px 15px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);">MAX</button>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label>Docelowy plus:</label>
+        <input type="number" id="upg_target_level" min="1" max="99" placeholder="np. 10">
+      </div>
+      
+      <div class="form-group">
+        <label>Ile przedmiotów ma zostać:</label>
+        <input type="number" id="upg_min_keep" min="0" placeholder="0 = do osiągnięcia plusa lub spalenia wszystkiego">
+      </div>
+      
+      <div class="info-box" style="font-size: 12px; color: #888;">
+        💡 <b>Jak to działa:</b><br>
+        • Ulepszam wszystkie przedmioty poziom po poziomie<br>
+        • Gdy pozostanie ≤ minimum → STOP<br>
+        • Wynik: minimum przedmiotów na najwyższym osiągniętym +
+      </div>
+      
+      <div class="btn-row" id="upg_main_controls">
+        <button class="modal-btn btn-start" id="upg_btn_start">▶️ START</button>
+      </div>
+      
+      <div class="progress-section" id="upg_progress_section">
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-label">Poziom</div>
+            <div class="stat-value" id="upg_current_level">+0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Pozostało</div>
+            <div class="stat-value" id="upg_remaining">0</div>
+          </div>
+          <div class="stat-box success">
+            <div class="stat-label">Udane</div>
+            <div class="stat-value" id="upg_success">0</div>
+          </div>
+          <div class="stat-box burned">
+            <div class="stat-label">Spalone</div>
+            <div class="stat-value" id="upg_burned">0</div>
+          </div>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="upg_progress_bar" style="width: 0%">0%</div>
+        </div>
+        <div class="progress-text" id="upg_progress_text">Przygotowanie...</div>
+        <div class="btn-row">
+          <button class="modal-btn btn-pause" id="upg_btn_pause">⏸️ PAUZA</button>
+          <button class="modal-btn btn-stop" id="upg_btn_stop">⏹️ STOP</button>
+        </div>
+      </div>
+    `;
+
+    // Mini widget
+    const miniWidget = document.createElement('div');
+    miniWidget.id = 'upgrader_mini_widget';
+    miniWidget.innerHTML = `
+      <div class="mini-header">
+        <span class="mini-title">⚡ Ulepszacz</span>
+        <span class="mini-expand" title="Rozwiń">⬆</span>
+      </div>
+      <div class="mini-progress">
+        <div class="mini-progress-bar" id="upg_mini_progress_bar" style="width: 0%"></div>
+      </div>
+      <div class="mini-status" id="upg_mini_status">Wstrzymano</div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(modal);
+    document.body.appendChild(miniWidget);
+
+    this.makeDraggable(miniWidget);
+
+    // Event listeners
+    overlay.addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-close').addEventListener('click', () => this.hideModal());
+    modal.querySelector('.modal-minimize').addEventListener('click', () => this.minimizeModal());
+    miniWidget.querySelector('.mini-expand').addEventListener('click', () => this.expandModal());
+
+    document.getElementById('upg_btn_start').addEventListener('click', () => this.onStart());
+    document.getElementById('upg_btn_pause').addEventListener('click', () => this.onPauseResume());
+    document.getElementById('upg_btn_stop').addEventListener('click', () => this.onStop());
+    document.getElementById('upg_max_btn').addEventListener('click', () => {
+      document.getElementById('upg_start_count').value = this.currentItemStack;
+    });
+  }
+
+  attachMenuListener() {
+    // Add button when item menu shows "Ulepsz" option
+    $(document).on('click', '.player_ekw_item', (e) => {
+      const item = $(e.currentTarget);
+
+      setTimeout(() => {
+        const menu = document.getElementById('ekw_item_menu');
+        if (!menu || menu.style.display === 'none') return;
+
+        const upgBtn = menu.querySelector('#ekw_menu_upg');
+        if (!upgBtn || upgBtn.style.display === 'none') return;
+
+        // Remove old button if exists
+        const oldBtn = menu.querySelector('#ekw_menu_upgrader');
+        if (oldBtn) oldBtn.remove();
+
+        const btn = document.createElement('button');
+        btn.id = 'ekw_menu_upgrader';
+        btn.className = 'ekw_menu_btn option btn_small_gold';
+        btn.textContent = 'Ulepszacz';
+        btn.style.display = '';
+        btn.addEventListener('click', () => {
+          this.currentItemId = parseInt(item.attr('data-item_id'));
+          this.baseItemId = parseInt(item.attr('data-base_item_id')); // Store base ID for finding after upgrade
+          this.currentItemStack = parseInt(item.attr('data-stack')) || 1;
+          this.currentLevel = parseInt(item.attr('data-upgrade')) || 0;
+          const itemName = item.find('img').attr('src');
+          this.showModal(itemName, this.currentItemStack, this.currentLevel);
+        });
+        upgBtn.after(btn);
+      }, 50);
+    });
+  }
+
+  showModal(itemImg, stack, level) {
+    document.getElementById('upg_item_info').innerHTML = `
+      <img src="${itemImg}" style="width: 32px; height: 32px; vertical-align: middle; margin-right: 10px;">
+      Posiadasz: <span class="highlight">${stack}</span> szt. na poziomie <span class="highlight">+${level}</span>
+    `;
+
+    document.getElementById('item_upgrader_modal_overlay').style.display = 'block';
+    document.getElementById('item_upgrader_modal').style.display = 'block';
+    document.getElementById('upg_main_controls').style.display = 'flex';
+    document.getElementById('upg_progress_section').style.display = 'none';
+  }
+
+  hideModal() {
+    if (this.isRunning) this.onStop();
+    document.getElementById('item_upgrader_modal_overlay').style.display = 'none';
+    document.getElementById('item_upgrader_modal').style.display = 'none';
+  }
+
+  minimizeModal() {
+    document.getElementById('item_upgrader_modal_overlay').style.display = 'none';
+    document.getElementById('item_upgrader_modal').style.display = 'none';
+    document.getElementById('upgrader_mini_widget').style.display = 'block';
+  }
+
+  expandModal() {
+    document.getElementById('upgrader_mini_widget').style.display = 'none';
+    document.getElementById('item_upgrader_modal_overlay').style.display = 'block';
+    document.getElementById('item_upgrader_modal').style.display = 'block';
+  }
+
+  makeDraggable(element) {
+    let offsetX = 0, offsetY = 0, isDragging = false;
+
+    const onStart = (e) => {
+      isDragging = true;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = element.getBoundingClientRect();
+      offsetX = clientX - rect.left;
+      offsetY = clientY - rect.top;
+      element.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let newX = Math.max(0, Math.min(clientX - offsetX, window.innerWidth - element.offsetWidth));
+      let newY = Math.max(0, Math.min(clientY - offsetY, window.innerHeight - element.offsetHeight));
+      element.style.left = newX + 'px';
+      element.style.top = newY + 'px';
+      element.style.right = 'auto';
+      element.style.bottom = 'auto';
+    };
+
+    const onEnd = () => { isDragging = false; element.style.transition = ''; };
+
+    element.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    element.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }
+
+  async onStart() {
+    this.isRunning = true;
+    this.isPaused = false;
+    this.startCount = parseInt(document.getElementById('upg_start_count').value) || 100;
+    this.targetLevel = parseInt(document.getElementById('upg_target_level').value) || 10;
+    this.minToKeep = parseInt(document.getElementById('upg_min_keep').value) || 10;
+    this.successCount = 0;
+    this.burnedCount = 0;
+
+    // Validate: can't use more than we have
+    if (this.startCount > this.currentItemStack) {
+      this.startCount = this.currentItemStack;
+    }
+
+    document.getElementById('upg_main_controls').style.display = 'none';
+    document.getElementById('upg_progress_section').style.display = 'block';
+    document.getElementById('upg_btn_pause').textContent = '⏸️ PAUZA';
+
+    await this.runUpgradeProcess();
+  }
+
+  onPauseResume() {
+    this.isPaused = !this.isPaused;
+    const btn = document.getElementById('upg_btn_pause');
+    if (this.isPaused) {
+      btn.textContent = '▶️ WZNÓW';
+      this.updateProgressText('⏸️ Wstrzymano...');
+    } else {
+      btn.textContent = '⏸️ PAUZA';
+    }
+  }
+
+  onStop(hideSummary = true) {
+    this.isRunning = false;
+    this.isPaused = false;
+    document.getElementById('upg_main_controls').style.display = 'flex';
+    if (hideSummary) {
+      document.getElementById('upg_progress_section').style.display = 'none';
+    }
+  }
+
+  updateStats(level, remaining, success, burned) {
+    document.getElementById('upg_current_level').textContent = `+${level}`;
+    document.getElementById('upg_remaining').textContent = remaining;
+    document.getElementById('upg_success').textContent = success;
+    document.getElementById('upg_burned').textContent = burned;
+  }
+
+  updateProgress(percent) {
+    const bar = document.getElementById('upg_progress_bar');
+    bar.style.width = `${percent}%`;
+    bar.textContent = `${percent}%`;
+    const miniBar = document.getElementById('upg_mini_progress_bar');
+    if (miniBar) miniBar.style.width = `${percent}%`;
+  }
+
+  updateProgressText(text) {
+    document.getElementById('upg_progress_text').textContent = text;
+    const miniStatus = document.getElementById('upg_mini_status');
+    if (miniStatus) miniStatus.textContent = text.length > 25 ? text.substring(0, 22) + '...' : text;
+  }
+
+  async waitForResult(timeout = 8000) {
+    // Wait for kom_con with result
+    for (let i = 0; i < timeout / 100; i++) {
+      await this.delay(100);
+      const kom = document.querySelector('#kom_con .kom .content');
+      if (kom && kom.textContent.includes('Operacja zakończona')) {
+        // Parse result: "Powiodło się: X" and "Próby nieudane: Y"
+        // Numbers may have spaces as thousand separators (e.g. "2 137")
+        const successMatch = kom.innerHTML.match(/Powiodło się:\s*<b[^>]*>([\d\s]+)</);
+        const failMatch = kom.innerHTML.match(/Próby nieudane:\s*<b[^>]*>([\d\s]+)</);
+
+        // Remove spaces from numbers before parsing
+        const success = successMatch ? parseInt(successMatch[1].replace(/\s/g, '')) : 0;
+        const failed = failMatch ? parseInt(failMatch[1].replace(/\s/g, '')) : 0;
+
+        kom_clear();
+        return { success, failed };
+      }
+    }
+    kom_clear();
+    return { success: 0, failed: 0 };
+  }
+
+  async runUpgradeProcess() {
+    let remaining = this.startCount;
+    let level = this.currentLevel;
+    let currentItemId = this.currentItemId;
+
+    this.updateStats(level, remaining, 0, 0);
+    this.updateProgressText(`Start: ${remaining} przedmiotów na +${level}`);
+
+    await this.delay(500);
+
+    while (this.isRunning && level < this.targetLevel) {
+      // Check pause
+      while (this.isPaused && this.isRunning) {
+        await this.delay(200);
+      }
+      if (!this.isRunning) break;
+
+      // SMART STOP: if minToKeep > 0 and we're at or below it, we're done!
+      if (this.minToKeep > 0 && remaining <= this.minToKeep) {
+        this.updateProgressText(`🎯 Cel osiągnięty! ${remaining} szt. na +${level}`);
+        this.updateProgress(100);
+        await this.delay(3000);
+        this.onStop(false);
+        return;
+      }
+
+      // Check if we have items
+      if (remaining <= 0) {
+        this.updateProgressText('❌ Wszystko spalone!');
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      const nextLevel = level + 1;
+      this.updateProgressText(`⚡ +${level} → +${nextLevel} (${remaining} szt.)...`);
+
+      // Try to find item - first check if GAME.dragged_item is set and valid
+      if (GAME.dragged_item && GAME.dragged_item.id) {
+        currentItemId = GAME.dragged_item.id;
+      } else {
+        // Fallback: find by base_item_id and upgrade level with retries
+        let itemEl = null;
+        for (let retry = 0; retry < 15; retry++) {
+          itemEl = document.querySelector(`[data-base_item_id="${this.baseItemId}"][data-upgrade="${level}"]`);
+          if (itemEl) {
+            currentItemId = parseInt(itemEl.getAttribute('data-item_id'));
+            break;
+          }
+          await this.delay(300);
+        }
+
+        if (!itemEl) {
+          this.updateProgressText(`⚠️ Nie znaleziono +${level}! Sprawdź ekwipunek.`);
+          await this.delay(3000);
+          this.onStop();
+          return;
+        }
+      }
+
+      console.log(`[Ulepszacz] Upgrading item ${currentItemId}, amount: ${remaining}, from +${level} to +${nextLevel}`);
+
+      // Emit upgrade command
+      GAME.emitOrder({ a: 12, type: 10, iid: currentItemId, page: GAME.ekw_page, page2: GAME.ekw_page2, am: remaining });
+
+      // Wait for result
+      const result = await this.waitForResult(8000);
+
+
+      if (result.success === 0 && result.failed === 0) {
+        this.updateProgressText(`⚠️ Brak odpowiedzi serwera!`);
+        await this.delay(2000);
+        this.onStop();
+        return;
+      }
+
+      this.successCount += result.success;
+      this.burnedCount += result.failed;
+
+      // Update state
+      level = nextLevel;
+      remaining = result.success;
+
+      this.updateStats(level, remaining, this.successCount, this.burnedCount);
+
+      // Progress
+      const progress = Math.min(99, Math.round((level / this.targetLevel) * 100));
+      this.updateProgress(progress);
+
+      // Wait for DOM to update
+      await this.delay(1000);
+
+      // Clear GAME.dragged_item to force re-lookup next iteration
+      GAME.dragged_item = null;
+    }
+
+    // Final message
+    if (this.isRunning) {
+      if (level >= this.targetLevel && remaining > 0) {
+        this.updateProgressText(`🏆 Osiągnięto +${level}! Pozostało: ${remaining}`);
+      } else {
+        this.updateProgressText(`✅ Zakończono: ${remaining} szt. na +${level}`);
+      }
+      this.updateProgress(100);
+      await this.delay(3000);
+      this.onStop(false);
+    }
+  }
+}
+
+// Initialize item upgrader
+new itemUpgrader();
