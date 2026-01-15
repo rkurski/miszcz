@@ -154,7 +154,7 @@ if (typeof GAME === 'undefined') {
         this.addToCSS(`#page_game_camp .ekw_slot.smaller img{ width: 64px; } #page_game_camp div[data-item_id="1923"].smaller img { width: 32px; position: absolute; margin-top: -64px; margin-left: 34px; }`);
         this.addToCSS(`#kws_spawn{ background: rgba(0,0,0,0.9); position: fixed; top: 120px;left: 5px; z-index: 9999; width: 200px; padding: 1px; border-radius: 5px; border-style: solid; border-width: 7px 8px 7px 7px; display:block; user-select: none; color: #333333; } #kws_spawn .sekcja { position: absolute; top: -27px; left: -7px; background: rgba(0,0,0,0.9); filter: hue-rotate(150deg); background-size: 100% 100%; width: 200px; cursor: all-scroll; } #kws_spawn .spawn_row{border-bottom:solid gray 1px; color: white; font-size: 13px; display: flex; padding:4px;}`);
         $("#map_canvas_container").append(`<div id="kws_spawn"> <div class="sekcja"><img src="/gfx/layout/war.png" class="spawn_switch">USTAWIENIA SPAWNU</div><div id="kws_spawn2" style="">${this.spawnList()}</div>`);
-        this.addToCSS(`#sc_setss div{min-width: 40px; width: auto; padding: 0 5px;color: white;font-weight:bold;text-align:center;height:30px;line-height:30px;border:1px solid white;margin-left:1px;float:left;margin-top: 3px;} #sc_setss div.current{color:orange;border:1px solid orange;}`);
+        this.addToCSS(`#sc_set_select{background:#040e13;color:#fff;font-family:'Play',sans-serif;font-size:13px;padding:3px 8px;border:1px solid white;border-radius:5px;margin:3px 5px 0 0;cursor:pointer;height:24px;float:right;} #sc_set_select:hover{border-color:orange;} #sc_set_select option{background:#040e13;color:#fff;}`);
         this.addToCSS(`#sc_sets .sc_sets_all { min-width: 40px; width: auto; padding: 0 5px; } .cards_set_name_input { background: #040e13; height: 31px; width: 180px; border: solid #ffffff4d 1px; display: inline-block; text-align: center; font-size: 13px; color: #305779; font-family: 'Play', sans-serif; vertical-align: middle; border-radius: 5px; margin-right: 5px; } .cards_set_name_button { margin-top: 2px; }`);
         this.addToCSS(`.spawn_switch{cursor:pointer;}`);
         this.addToCSS(`.quest_roll1{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:25px; cursor:pointer; filter:drop-shadow(0px 0px 10px lime)} .quest_roll2{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:75px; cursor:pointer; filter:drop-shadow(0px 0px 10px #00fdff)} .quest_roll3{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:125px; cursor:pointer; filter:drop-shadow(0px 0px 10px #ff0000)} .quest_roll:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll1:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll2:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll3:hover{background:url('/gfx/layout/dice.png') 0 -45px;}`);
@@ -179,8 +179,28 @@ if (typeof GAME === 'undefined') {
         $(`<button class="gold_button auto_bless">AUTOMAT</button>`).insertBefore(`button[data-option="grant_buff"]`);
         $(`<button class="gold_button auto_know">AUTOMATY</button>`).insertBefore('button[data-option="show_know2"]');
         $("#clan_inner_wars h3").eq(0).append(` <button class="newBtn activate_all_clan_buffs">Aktywuj wszystkie buffy</button>`);
-        $("#top_bar").append(`<div id="sc_setss"><div id="sc_sett0" class="option sc_setss_all current" data-option="change_sc_set" data-set="0">I</div><div id="sc_sett1" class="option sc_setss_all" data-option="change_sc_set" data-set="1">II</div><div id="sc_sett2" class="option sc_setss_all" data-option="change_sc_set" data-set="2">III</div><div id="sc_sett3" class="option sc_setss_all" data-option="change_sc_set" data-set="3">IV</div><div id="sc_sett4" class="option sc_setss_all" data-option="change_sc_set" data-set="4">V</div></div>`);
-        $("#sc_setss").hide();
+        // Soul card sets dropdown - in top_bar, float right (where old sc_setss was)
+        $("#top_bar").append(`<select id="sc_set_select"><option value="">-- Zestaw kart --</option></select>`);
+        // Populate dropdown when module loads
+        let scSetPopulateInterval = setInterval(() => {
+          if (typeof AFO_SOUL_CARD_SETS !== 'undefined') {
+            clearInterval(scSetPopulateInterval);
+            const select = $('#sc_set_select');
+            AFO_SOUL_CARD_SETS.getSetNames().forEach(name => {
+              select.append(`<option value="${name}">${name}</option>`);
+            });
+            // Restore saved set when char_data is available
+            let restoreInterval = setInterval(() => {
+              if (GAME.char_data?.id) {
+                clearInterval(restoreInterval);
+                const savedSet = AFO_SOUL_CARD_SETS.loadCurrentSet();
+                if (savedSet && AFO_SOUL_CARD_SETS.sets[savedSet] !== undefined) {
+                  select.val(savedSet);
+                }
+              }
+            }, 200);
+          }
+        }, 100);
         $(`#minimap_con`).append(`<div id="kws_locInfo"><div class="sekcja">INFORMACJE O LOKACJI</div><div class="content"></div></div>`);
         $("#sett_page_local div").eq(0).prepend(`<b class="green">Zmień tło strony </b><div class="game_input"><input id="new_website_bg" style="width:370px;" type="text"></div><button class="option newBtn kws_change_website_bg" style="margin-left:5px;">Zmień</button><button class="option newBtn kws_reset_website_bg" style="margin-left:5px;">Reset</button><br><br>`);
         $('.MoveIcon[data-option="mob_spawner_go"]').after('<div class="MoveIcon bigg option" data-option="map_multi_pvp" data-toggle="tooltip" data-original-title="<div class=tt>Multiwalka PvP<br />Klawisz skrótu:<b class=orange>B</b></div>"><img src="https://i.imgur.com/QPQBcFp.png"></div>');
@@ -256,34 +276,7 @@ if (typeof GAME === 'undefined') {
       updateSettings() {
         localStorage.setItem('kws_settings', JSON.stringify(this.settings));
       }
-      getCardSetsNames() {
-        if (this.settings.sets[GAME.char_data.id]) {
-          const set = this.settings.sets[GAME.char_data.id];
-          for (let i = 0; i < set.length; i++) {
-            $(`#sc_sets div[data-set="${i}"]`).html(set[i]);
-            $(`#sc_setss div[data-set="${i}"]`).html(set[i]);
-          }
-        } else {
-          const set = ["I", "II", "III", "IV", "V"];
-          for (let i = 0; i < set.length; i++) {
-            $(`#sc_sets div[data-set="${i}"]`).html(set[i]);
-            $(`#sc_setss div[data-set="${i}"]`).html(set[i]);
-          }
-        }
-      }
-      updateCardSetsNames(set_id) {
-        const set_name = $(".cards_set_name_input").val();
-        if (set_name.length <= 10) {
-          $(`#sc_sets div[data-set="${set_id}"]`).html(set_name);
-          $(`#sc_setss div[data-set="${set_id}"]`).html(set_name);
-          this.settings.sets[GAME.char_data.id] = [this.getSetName(0), this.getSetName(1), this.getSetName(2), this.getSetName(3), this.getSetName(4)];
-          this.updateSettings();
-        }
-        kom_clear();
-      }
-      getSetName(i) {
-        return $(`#sc_sets div`).eq(i).html();
-      }
+      // Card set name methods removed - replaced by AFO_SOUL_CARD_SETS
       goEmpPos() {
         let imp_pos = $(".empPos").position();
         $(".go_to_emp_con").css("left", imp_pos.left - 5);
