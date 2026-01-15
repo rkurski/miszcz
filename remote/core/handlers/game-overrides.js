@@ -56,10 +56,7 @@ function setupGameOverrides() {
         }, 400);
       }, 1800);
     }
-    $("#sc_setss").show();
-    let set = $("#sc_sets .option.sc_sets_all.current").attr("data-set");
-    $('.sc_setss_all').removeClass('current');
-    $('#sc_sett' + set).addClass('current');
+    // Soul card set dropdown is always visible (no need to show/hide)
     setTimeout(() => {
       if (GAME.emp_wars.length < 3 && GAME.quick_opts.empire) {
         setTimeout(() => { kws.wojny2(); }, 300);
@@ -89,7 +86,7 @@ function setupGameOverrides() {
     kws.workers_info = [false, false];
     arena_count = 0;
     pvp_count = 0;
-    kws.getCardSetsNames();
+    // Card set names are now handled by AFO_SOUL_CARD_SETS module
     setTimeout(() => {
       if (GAME.pid != 59314 && (GAME.char_data.reborn == 4 || GAME.char_data.reborn == 5 || GAME.char_data.reborn == 6) && GAME.char_data.alt_transform_expiry < GAME.getTime()) {
         GAME.socket.emit('ga', { a: 18, type: 8, tech_id: 134 });

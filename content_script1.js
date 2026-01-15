@@ -38,6 +38,9 @@
     'remote/core/handlers/empire.js',
     'remote/core/handlers/tournaments.js',
 
+    // Soul Card Sets (before main bot for early availability)
+    'remote/features/soulCardSets.js',
+
     // Main bot logic
     'remote/core/gieniobot.js',
 

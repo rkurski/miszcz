@@ -208,21 +208,13 @@ const ClickHandlersMixin = {
       GAME.page_switch('game_events');
     });
 
-    // --- CARD SET HANDLERS ---
-    $("body").on("click", `#sc_set0 , #sc_sett0`, () => { $('.sc_setss_all').removeClass('current'); $('#sc_sett0').addClass('current'); });
-    $("body").on("click", `#sc_set1 , #sc_sett1`, () => { $('.sc_setss_all').removeClass('current'); $('#sc_sett1').addClass('current'); });
-    $("body").on("click", `#sc_set2 , #sc_sett2`, () => { $('.sc_setss_all').removeClass('current'); $('#sc_sett2').addClass('current'); });
-    $("body").on("click", `#sc_set3 , #sc_sett3`, () => { $('.sc_setss_all').removeClass('current'); $('#sc_sett3').addClass('current'); });
-    $("body").on("click", `#sc_set4 , #sc_sett4`, () => { $('.sc_setss_all').removeClass('current'); $('#sc_sett4').addClass('current'); });
-
-    $("body").on("contextmenu", "#sc_sets .sc_sets_all", function (event) {
-      event.preventDefault();
-      const set = parseInt($(this).attr("data-set"));
-      GAME.komunikat(`<h5>ZMIEŃ NAZWĘ SETU NR. ${set + 1}</h5><input class="cards_set_name_input" type="text" value="${$(this).html()}" maxlength="10" /><br><button class="cards_set_name_button btn_small_gold" set-id="${set}">ZAPISZ</button>`);
-    });
-    $("body").on("click", ".cards_set_name_button", (el) => {
-      const setID = parseInt($(el.target).attr("set-id"));
-      this.updateCardSetsNames(setID);
+    // --- SOUL CARD SET HANDLER ---
+    $("body").on("change", "#sc_set_select", async function () {
+      const setName = $(this).val();
+      if (setName && typeof AFO_SOUL_CARD_SETS !== 'undefined' && AFO_SOUL_CARD_SETS.sets[setName] !== undefined) {
+        await AFO_SOUL_CARD_SETS.switchToSet(setName);
+        // Selection stays - it's saved and restored on reload
+      }
     });
 
     // --- ADDITIONAL STATS ---
