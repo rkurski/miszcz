@@ -2376,6 +2376,8 @@ class itemUpgrader {
 new itemUpgrader();
 
 class cardPackOpener {
+  static CARD_PACK_IDS = [1784, 2235, 2083];
+
   constructor() {
     this.isRunning = false;
     this.isPaused = false;
@@ -2733,41 +2735,34 @@ class cardPackOpener {
   }
 
   attachMenuListener() {
-    // Add button when item is a card pack (check for cards pattern in result)
+    // Add button when item is a card pack
     $(document).on('click', '.player_ekw_item', (e) => {
       const item = $(e.currentTarget);
+      const baseItemId = parseInt(item.attr('data-base_item_id'));
 
       setTimeout(() => {
         const menu = document.getElementById('ekw_item_menu');
         if (!menu || menu.style.display === 'none') return;
 
-        // Check if "Użyj" button exists (card packs have it)
-        const useBtn = menu.querySelector('#ekw_menu_use');
-        if (!useBtn || useBtn.style.display === 'none') return;
-
-        // Check if it's likely a card pack by image path
-        const imgSrc = item.attr('data-img') || '';
-        if (!imgSrc.includes('card') && !imgSrc.includes('paczk')) {
-          // Alternative: check if it's in cards category or similar
-          // For now, add button to all "usable" items - user can decide
-        }
-
         // Remove old button if exists
         const oldBtn = menu.querySelector('#ekw_menu_card_opener');
         if (oldBtn) oldBtn.remove();
 
-        const btn = document.createElement('button');
-        btn.id = 'ekw_menu_card_opener';
-        btn.className = 'ekw_menu_btn option btn_small_gold';
-        btn.textContent = 'Otwieracz';
-        btn.style.display = '';
-        btn.addEventListener('click', () => {
-          this.currentItemId = parseInt(item.attr('data-item_id'));
-          this.currentItemStack = parseInt(item.attr('data-stack')) || 1;
-          const itemImg = item.find('img').attr('src');
-          this.showModal(itemImg, this.currentItemStack);
-        });
-        useBtn.after(btn);
+        // Only show for specific card pack IDs
+        if (cardPackOpener.CARD_PACK_IDS.includes(baseItemId)) {
+          const btn = document.createElement('button');
+          btn.id = 'ekw_menu_card_opener';
+          btn.className = 'ekw_menu_btn option btn_small_gold';
+          btn.textContent = 'Otwieracz';
+          btn.style.display = '';
+          btn.addEventListener('click', () => {
+            this.currentItemId = parseInt(item.attr('data-item_id'));
+            this.currentItemStack = parseInt(item.attr('data-stack')) || 1;
+            const itemImg = item.find('img').attr('src');
+            this.showModal(itemImg, this.currentItemStack);
+          });
+          menu.appendChild(btn);
+        }
       }, 50);
     });
   }
