@@ -12,7 +12,7 @@
   // ============================================
   // DEVELOPMENT MODE - zmień na false przed pushem
   // ============================================
-  const DEV_MODE = false;
+  const DEV_MODE = true;
 
   const GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/main/';
 
@@ -55,6 +55,14 @@
 
     // Activities auto-executor
     'remote/features/activities/activitiesExecutor.js',
+
+    // Auto-Reconnect system (storage → credentials → stateManager → ui → reconnect → index)
+    'remote/reconnect/storage.js',
+    'remote/reconnect/credentials.js',
+    'remote/reconnect/stateManager.js',
+    'remote/reconnect/ui.js',
+    'remote/reconnect/reconnect.js',
+    'remote/reconnect/index.js',
 
     // Auto clan training assists (runs independently after login)
     'remote/features/clanAssist.js',

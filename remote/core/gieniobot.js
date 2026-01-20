@@ -35,7 +35,7 @@
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
-const GIENIOBOT_DEV_MODE = false;
+const GIENIOBOT_DEV_MODE = true;
 
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');

@@ -109,6 +109,11 @@ const AFO_LPVM = {
     GAME.socket.emit('ga', { a: 32, type: 2, wanted: LPVM.Born });
     LPVM.pvm_killed++;
     this.UpdateKilledCounter(LPVM.pvm_killed);
+
+    // Auto-save state after each reward to preserve progress
+    if (typeof AFO_STATE_MANAGER !== 'undefined') {
+      AFO_STATE_MANAGER.saveStateToStorage();
+    }
   },
 
   Teleport() {
