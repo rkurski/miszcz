@@ -90,6 +90,33 @@ const AutomationMixin = {
 
   manageAutoArena() {
     if (this.auto_arena) {
+      // Check if PVP buff is enabled and not active - BEFORE loading arena
+      if (this.settings.aePvpBuff) {
+        const hasBuff = $('#char_buffs').find('[data-buff=71]').length > 0;
+        const buffExpiring = $('#char_buffs').find('[data-buff=71]').find('.timer').text() <= '00:00:04';
+
+        if (!hasBuff || buffExpiring) {
+          // Ensure we're on inventory page 10 (bless items)
+          if (GAME.ekw_page != 10) {
+            GAME.ekw_page = 10;
+            GAME.socket.emit('ga', { a: 12, page: 10, used: 1 });
+            setTimeout(() => this.manageAutoArena(), 500);
+            return;
+          }
+
+          // Find and use item 1742 (5min PVP CD bless)
+          const itemId = $('#ekw_page_items').find('div[data-base_item_id=1742]').attr('data-item_id');
+          if (itemId) {
+            console.log('[AutoArena] Using PVP buff item 1742 BEFORE arena');
+            GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: 10 });
+            // Wait for buff to apply, then continue to arena
+            setTimeout(() => this.manageAutoArena(), 1500);
+            return;
+          }
+        }
+      }
+
+      // Buff is active (or not needed), now load arena and attack
       GAME.socket.emit('ga', { a: 46, type: 0 });
       setTimeout(() => {
         this.attackAutoArena();

@@ -443,6 +443,34 @@ const ClickHandlersMixin = {
       this.updateSettings();
     });
 
+    // --- PVP BUFF CHECKBOX ---
+    $("body").on('change', '.autoArenaBuff input[type=checkbox]', (el) => {
+      let name = $(el.target).attr("name");
+      if (name === 'aePvpBuff') {
+        this.settings.aePvpBuff = $(el.target).is(':checked') ? true : false;
+      }
+      this.updateSettings();
+    });
+
+    // --- AUTO CLAN ASSIST TOGGLE ---
+    $("body").on("click", `.qlink.manage_auto_clanAssist`, () => {
+      if (typeof CLAN_ASSIST === 'undefined') return;
+
+      if (CLAN_ASSIST.enabled !== false) {
+        // Currently enabled, disable it
+        CLAN_ASSIST.enabled = false;
+        CLAN_ASSIST.stop();
+        $(".qlink.manage_auto_clanAssist").removeClass("kws_active_icon");
+        console.log('[ClanAssist] Disabled via toggle');
+      } else {
+        // Currently disabled, enable it
+        CLAN_ASSIST.enabled = true;
+        CLAN_ASSIST.start();
+        $(".qlink.manage_auto_clanAssist").addClass("kws_active_icon");
+        console.log('[ClanAssist] Enabled via toggle');
+      }
+    });
+
     // --- QUEST ROLL HANDLERS ---
     $("body").on("click", `.quest_roll1.option`, () => {
       var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
