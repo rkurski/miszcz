@@ -25,13 +25,14 @@
 
   // Global state
   const CLAN_ASSIST = {
-    running: false,        // Currently processing assists
-    lastRun: 0,            // Timestamp of last run
-    checkInterval: 30000,  // 30 seconds between checks
-    assistCooldown: 3000,  // 3 seconds between assists
-    waitAfterOpen: 1000,   // 1 second wait after opening training page
-    intervalId: null,      // Interval reference
-    assistCount: 0         // Total assists done this session
+    enabled: true,           // Toggle state for auto-assist (can be disabled via icon)
+    running: false,          // Currently processing assists
+    lastRun: 0,              // Timestamp of last run
+    checkInterval: 30000,    // 30 seconds between checks
+    assistCooldown: 3000,    // 3 seconds between assists
+    waitAfterOpen: 1000,     // 1 second wait after opening training page
+    intervalId: null,        // Interval reference
+    assistCount: 0           // Total assists done this session
   };
 
   // Make it globally accessible for debugging
@@ -75,6 +76,12 @@
   async function processAssists() {
     if (CLAN_ASSIST.running) {
       console.log('[ClanAssist] Already running, skipping');
+      return;
+    }
+
+    // Check if disabled via toggle
+    if (CLAN_ASSIST.enabled === false) {
+      console.log('[ClanAssist] Disabled via toggle, skipping');
       return;
     }
 

@@ -135,8 +135,15 @@ function setupGameOverrides() {
       opts += `<div class="qlink load_afo" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/P8sJgQz.png');" data-toggle="tooltip" data-original-title="<div class=tt>Załaduj AFO</div>"></div>`;
       opts += `<div class="qlink sideIcons manage_auto_abyss${kws.auto_abyss ? ' kws_active_icon' : ''}" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/j5eQv2B.png');display:block;top:-136px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie Otchłani</div>"></div>`;
       opts += `<div class="qlink sideIcons manage_auto_arena${kws.auto_arena ? ' kws_active_icon' : ''}" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/rAroNzD.png');display:block;top:-104px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie na Arenie</div>"></div>`;
+      opts += ` <div class="autoArenaBuff"> <div style="padding-left:8px;"> <label for="aePvpBuff" style="cursor:pointer;">PVP BUFF</label> <div class="newCheckbox"><input type="checkbox" id="aePvpBuff" name="aePvpBuff" ${kws.settings.aePvpBuff ? "checked" : ""} /><label for="aePvpBuff"></label></div> </div> </div>`;
       opts += `<div class="qlink sideIcons manage_autoExpeditions${kws.autoExpeditions ? ' kws_active_icon' : ''}" style="filter:hue-rotate(168deg);background-image: url('https://i.imgur.com/uSMzLBb.png');display:block;top:-72px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Wyprawy</div>"></div>`;
       opts += ` <div class="autoExpeCodes"> <div style="padding-left:8px;"> <label for="aeCodes" style="cursor:pointer;">KODY</label> <div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" ${kws.settings.aeCodes ? "checked" : ""} /><label for="aeCodes"></label></div> </div> </div>`;
+      // Clan Assist toggle - only visible when klan_id != 0 and reborn >= 1
+      const canShowClanAssist = GAME.char_data && GAME.char_data.klan_id && GAME.char_data.klan_id !== 0 && GAME.char_data.reborn >= 1;
+      const clanAssistEnabled = typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.enabled !== false;
+      if (canShowClanAssist) {
+        opts += `<div class="qlink sideIcons manage_auto_clanAssist${clanAssistEnabled ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/dqGL4eL.png');display:block;top:-40px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Asysty</div>"></div>`;
+      }
     }
     $('#quick_bar').html(opts);
     if (GAME.char_id && GAME.char_data.klan_rent === 0) {

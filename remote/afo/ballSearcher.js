@@ -703,14 +703,20 @@ const AFO_BALL_SEARCHER = {
     return true;
   },
 
-  navigateToBall(targetX, targetY) {
+  navigateToBall(targetX, targetY, retryCount = 0) {
     if (!this.active || this.paused) return;
 
     this.updatePopupStatus(`Idę do kuli (${targetX}, ${targetY})`);
     console.log(`[BALL_SEARCHER] Navigating to ball at ${targetX},${targetY}`);
 
     if (!this.createMatrix()) {
-      console.error('[BALL_SEARCHER] Failed to create matrix');
+      // Retry up to 5 times if mapcell not available yet (like LPVM does)
+      if (retryCount < 5) {
+        console.warn(`[BALL_SEARCHER] mapcell not available, retrying... (${retryCount + 1}/5)`);
+        setTimeout(() => this.navigateToBall(targetX, targetY, retryCount + 1), 500);
+        return;
+      }
+      console.error('[BALL_SEARCHER] Failed to create matrix after retries');
       this.currentLocationIndex++;
       setTimeout(() => this.processNextLocation(), 500);
       return;
@@ -869,7 +875,7 @@ const AFO_BALL_SEARCHER = {
     if (res.a === 12 && 'show_map' in res && this.isTeleporting) {
       this.isTeleporting = false;
       console.log('[BALL_SEARCHER] Teleport completed');
-      setTimeout(() => this.checkForBalls(), 800);
+      setTimeout(() => this.checkForBalls(), 1200);
     }
 
     // Ball pickup response
