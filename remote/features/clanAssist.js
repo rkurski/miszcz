@@ -132,6 +132,12 @@
       let assistsDone = 0;
 
       for (const assist of assistsData) {
+        // Check if disabled mid-cycle
+        if (CLAN_ASSIST.enabled === false) {
+          console.log('[ClanAssist] Disabled mid-cycle, stopping assists');
+          break;
+        }
+
         // Execute assist
         GAME.emitOrder({
           a: 39,
@@ -223,16 +229,18 @@
     if (GAME.char_data) {
       clearInterval(initCheck);
 
-      // Check requirements
-      if (canRun()) {
-        console.log('[ClanAssist] Requirements met, starting auto-assist');
+      // Check requirements AND enabled flag
+      if (canRun() && CLAN_ASSIST.enabled !== false) {
+        console.log('[ClanAssist] Requirements met and enabled, starting auto-assist');
         console.log('[ClanAssist] - Clan ID:', GAME.char_data.klan_id);
         console.log('[ClanAssist] - Reborn:', GAME.char_data.reborn);
         startAutoAssist();
-      } else {
+      } else if (!canRun()) {
         console.log('[ClanAssist] Requirements not met:');
         console.log('[ClanAssist] - Clan ID:', GAME.char_data?.klan_id || 'none');
         console.log('[ClanAssist] - Reborn:', GAME.char_data?.reborn ?? 'unknown');
+      } else {
+        console.log('[ClanAssist] Disabled by toggle, auto-assist not started');
       }
     }
   }, 500);
