@@ -36,6 +36,14 @@ const AutomationMixin = {
           }, 1500);
         } else if (this.settings.aeCodes && GAME.is_training && $("#train_uptime").find('.timer').length == 1) {
           GAME.socket.emit('ga', { a: 8, type: 3 });
+        } else if (this.settings.aeCodes && GAME.quick_opts.ssj && $("#ssj_bar").css("display") === "none") {
+          // Activate SSJ if available and not active
+          GAME.socket.emit('ga', { a: 18, type: 5, tech_id: GAME.quick_opts.ssj[0] });
+        } else if (this.settings.aeCodes && $('#ssj_status').text() == "--:--:--" && GAME.quick_opts.ssj) {
+          // SSJ cooldown finished, reactivate
+          setTimeout(() => {
+            GAME.socket.emit('ga', { a: 18, type: 6 });
+          }, 1500);
         } else if (this.auto_arena && !isNaN(opponent)) {
           // Skip if auto arena is active
         } else if (GAME.char_tables.timed_actions[0] == undefined) {
