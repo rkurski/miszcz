@@ -2,16 +2,19 @@
  * ============================================================================
  * AFO - Credentials Manager
  * ============================================================================
- * 
+ *
  * Manages user login credentials with simple base64 obfuscation.
- * Data is stored per server + character via AFO_STORAGE bridge.
- * 
+ * Credentials are global (one per account) - stored via AFO_STORAGE bridge.
+ *
  * ============================================================================
  */
 
 const AFO_CREDENTIALS = {
-  // Storage key prefix
-  KEY_PREFIX: 'gieniobot_creds_',
+  // Storage key - single global key for the account
+  STORAGE_KEY: 'gieniobot_creds',
+
+  // Legacy prefix for cleanup
+  LEGACY_PREFIX: 'gieniobot_creds_',
 
   // ============================================
   // ENCODING/DECODING (base64 + reverse)
@@ -48,43 +51,22 @@ const AFO_CREDENTIALS = {
   },
 
   // ============================================
-  // STORAGE KEY
-  // ============================================
-
-  /**
-   * Generate storage key for server + character
-   */
-  getKey(server, charId) {
-    return `${this.KEY_PREFIX}s${server}_c${charId}`;
-  },
-
-  /**
-   * Generate global key (for current session fallback)
-   */
-  getGlobalKey() {
-    return `${this.KEY_PREFIX}global`;
-  },
-
-  // ============================================
   // SAVE / LOAD / DELETE
   // ============================================
 
   /**
-   * Save credentials for specific server + character
+   * Save credentials (global, one per account)
    */
-  async save(login, password, server, charId) {
-    const key = this.getKey(server, charId);
+  async save(login, password) {
     const data = {
       login: this.encode(login),
       password: this.encode(password),
-      server: server,
-      charId: charId,
       savedAt: Date.now()
     };
 
     try {
-      await AFO_STORAGE.set({ [key]: data });
-      console.log(`[AFO_CREDENTIALS] Saved credentials for server ${server}, char ${charId}`);
+      await AFO_STORAGE.set({ [this.STORAGE_KEY]: data });
+      console.log('[AFO_CREDENTIALS] Saved credentials');
       return true;
     } catch (e) {
       console.error('[AFO_CREDENTIALS] Save error:', e);
@@ -93,23 +75,21 @@ const AFO_CREDENTIALS = {
   },
 
   /**
-   * Get credentials for specific server + character
+   * Get saved credentials
    */
-  async get(server, charId) {
-    const key = this.getKey(server, charId);
-
+  async get() {
     try {
-      const result = await AFO_STORAGE.get(key);
-      if (result[key]) {
+      const result = await AFO_STORAGE.get(this.STORAGE_KEY);
+      if (result[this.STORAGE_KEY]) {
         return {
-          login: this.decode(result[key].login),
-          password: this.decode(result[key].password),
-          server: result[key].server,
-          charId: result[key].charId,
-          savedAt: result[key].savedAt
+          login: this.decode(result[this.STORAGE_KEY].login),
+          password: this.decode(result[this.STORAGE_KEY].password),
+          savedAt: result[this.STORAGE_KEY].savedAt
         };
       }
-      return null;
+
+      // Try legacy format migration
+      return await this._tryLegacyMigration();
     } catch (e) {
       console.error('[AFO_CREDENTIALS] Get error:', e);
       return null;
@@ -117,22 +97,20 @@ const AFO_CREDENTIALS = {
   },
 
   /**
-   * Check if credentials exist for server + character
+   * Check if credentials exist
    */
-  async exists(server, charId) {
-    const creds = await this.get(server, charId);
+  async exists() {
+    const creds = await this.get();
     return creds !== null && creds.login && creds.password;
   },
 
   /**
-   * Delete credentials for specific server + character
+   * Clear credentials
    */
-  async clear(server, charId) {
-    const key = this.getKey(server, charId);
-
+  async clear() {
     try {
-      await AFO_STORAGE.remove(key);
-      console.log(`[AFO_CREDENTIALS] Cleared credentials for server ${server}, char ${charId}`);
+      await AFO_STORAGE.remove(this.STORAGE_KEY);
+      console.log('[AFO_CREDENTIALS] Cleared credentials');
       return true;
     } catch (e) {
       console.error('[AFO_CREDENTIALS] Clear error:', e);
@@ -141,85 +119,28 @@ const AFO_CREDENTIALS = {
   },
 
   /**
-   * Get all saved credentials (for listing)
+   * Migrate from legacy per-server+char format if exists
    */
-  async getAll() {
+  async _tryLegacyMigration() {
     try {
       const result = await AFO_STORAGE.get(null);
-      const credentials = [];
-
       for (const key in result) {
-        if (key.startsWith(this.KEY_PREFIX) && key !== this.getGlobalKey()) {
-          credentials.push({
-            key: key,
-            server: result[key].server,
-            charId: result[key].charId,
-            login: this.decode(result[key].login),
-            savedAt: result[key].savedAt
-          });
+        if (key.startsWith(this.LEGACY_PREFIX) && result[key].login) {
+          console.log('[AFO_CREDENTIALS] Migrating legacy credentials from', key);
+          const login = this.decode(result[key].login);
+          const password = this.decode(result[key].password);
+          if (login && password) {
+            await this.save(login, password);
+            // Clean up legacy key
+            await AFO_STORAGE.remove(key);
+            return { login, password, savedAt: result[key].savedAt };
+          }
         }
       }
-
-      return credentials;
     } catch (e) {
-      console.error('[AFO_CREDENTIALS] GetAll error:', e);
-      return [];
+      console.error('[AFO_CREDENTIALS] Legacy migration error:', e);
     }
-  },
-
-  /**
-   * Clear all credentials
-   */
-  async clearAll() {
-    try {
-      const result = await AFO_STORAGE.get(null);
-      const keysToRemove = [];
-
-      for (const key in result) {
-        if (key.startsWith(this.KEY_PREFIX)) {
-          keysToRemove.push(key);
-        }
-      }
-
-      if (keysToRemove.length > 0) {
-        await AFO_STORAGE.remove(keysToRemove);
-        console.log(`[AFO_CREDENTIALS] Cleared ${keysToRemove.length} credentials`);
-      }
-
-      return true;
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] ClearAll error:', e);
-      return false;
-    }
-  },
-
-  // ============================================
-  // HELPER: Get current character credentials
-  // ============================================
-
-  /**
-   * Get credentials for currently logged character
-   * Falls back to trying to find any matching credentials
-   */
-  async getCurrent() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      console.warn('[AFO_CREDENTIALS] GAME not available, cannot get current credentials');
-      return null;
-    }
-
-    return await this.get(GAME.server, GAME.char_id);
-  },
-
-  /**
-   * Save credentials for currently logged character
-   */
-  async saveCurrent(login, password) {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      console.warn('[AFO_CREDENTIALS] GAME not available, cannot save current credentials');
-      return false;
-    }
-
-    return await this.save(login, password, GAME.server, GAME.char_id);
+    return null;
   }
 };
 

@@ -71,10 +71,11 @@ const AFO_STATE_MANAGER = {
   // ============================================
 
   /**
-   * Generate storage key for server + character
+   * Generate storage key for server (one state per server)
+   * charId parameter kept for backward compatibility but ignored in key
    */
   getKey(server, charId) {
-    return `${this.KEY_PREFIX}s${server}_c${charId}`;
+    return `${this.KEY_PREFIX}s${server}`;
   },
 
   // ============================================
@@ -256,7 +257,7 @@ const AFO_STATE_MANAGER = {
 
     console.log('[AFO_STATE_MANAGER] Syncing UI with restored state...');
 
-    // Helper to update status span
+    // Helper: set status span to On/Off with correct class
     const setStatus = (selector, isOn) => {
       const el = $(selector);
       if (el.length) {
@@ -264,40 +265,22 @@ const AFO_STATE_MANAGER = {
       }
     };
 
-    // ========================
-    // PVP UI
-    // ========================
-    if (state.modules.PVP) {
-      const pvp = state.modules.PVP;
-
-      // Main toggle will be handled by click, but update other options
-      setStatus('.pvp_Code .pvp_status', pvp.code);
-      setStatus('.pvpCODE_konto .pvp_status', pvp.kontoTP);
-      setStatus('.pvp_WI .pvp_status', pvp.autoWars);
-      setStatus('.pvp_WK .pvp_status', pvp.autoClanWars);
-      setStatus('.pvp_rb_avoid .pvp_status', pvp.higherRebornAvoid);
-      setStatus('.pvp_buff_imp .pvp_status', pvp.buff_imp);
-      setStatus('.pvp_buff_clan .pvp_status', pvp.buff_clan);
-
-      // Show/hide konto option based on code setting
-      if (pvp.code) {
-        $('#pvp_Panel .pvpCODE_konto').show();
-      } else {
-        $('#pvp_Panel .pvpCODE_konto').hide();
+    // Helper: set status span to custom text with green class
+    const setStatusText = (selector, text) => {
+      const el = $(selector);
+      if (el.length) {
+        el.removeClass('red').addClass('green').html(text);
       }
-
-      // Speed input
-      if (pvp.speed) {
-        $('#pvp_Panel input[name=speed_capt]').val(pvp.speed);
-      }
-    }
+    };
 
     // ========================
     // RESP (PVM) UI
+    // Selectors from: remote/afo/respawn.js:384-550
     // ========================
     if (state.modules.RESP) {
       const resp = state.modules.RESP;
 
+      // Toggle statuses
       setStatus('.resp_bless .resp_status', resp.bless);
       setStatus('.resp_code .resp_status', resp.code);
       setStatus('.resp_konto .resp_status', resp.kontoTP);
@@ -305,49 +288,52 @@ const AFO_STATE_MANAGER = {
       setStatus('.resp_buff_imp .resp_status', resp.buff_imp);
       setStatus('.resp_buff_clan .resp_status', resp.buff_clan);
 
-      // SSJ toggle (checkSSJ)
-      console.log('[AFO_STATE_MANAGER] RESP SSJ checkSSJ:', resp.checkSSJ);
-      setStatus('.resp_sub .resp_status', resp.checkSSJ);
+      // .resp_sub controls checkOST (NOT checkSSJ!)
+      // See respawn.js:461-471
+      setStatus('.resp_sub .resp_status', resp.checkOST);
 
-      // Show/hide conditional elements
+      // .resp_ssj controls checkSSJ (separate toggle)
+      // See respawn.js:491-494
+      setStatus('.resp_ssj .resp_status', resp.checkSSJ);
+
+      // Bless buffs b1-b18: show/hide based on bless state
       if (resp.bless) {
-        for (let i = 1; i <= 18; i++) {
-          $(`#resp_Panel .resp_bh${i}`).show();
-        }
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).show();
         $('#resp_Panel .resp_on, #resp_Panel .resp_off').show();
+      } else {
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).hide();
+        $('#resp_Panel .resp_on, #resp_Panel .resp_off').hide();
       }
 
+      // Buff statuses b1-b18 (set regardless of visibility)
+      for (let i = 1; i <= 18; i++) {
+        if (resp[`b${i}`] !== undefined) {
+          setStatus(`.resp_bh${i} .resp_status`, resp[`b${i}`]);
+        }
+      }
+
+      // Code -> konto visibility
       if (resp.code) {
         $('#resp_Panel .resp_konto').show();
+      } else {
+        $('#resp_Panel .resp_konto').hide();
       }
 
-      // Subka type (jaka: 0 = OST, 1 = x20) - only if SSJ is enabled
-      if (resp.checkSSJ) {
+      // checkOST -> .resp_ost visibility; OST/x20 text (not On/Off!)
+      // See respawn.js:474-481 - uses .html("Ost") / .html("x20")
+      if (resp.checkOST) {
         $('#resp_Panel .resp_ost').show();
-        // Update text to show OST or x20 (not On/Off)
-        const jakaText = resp.jaka === 0 ? 'OST' : 'x20';
-        $('.resp_ost .resp_status').removeClass('red').addClass('green').html(jakaText);
-        console.log('[AFO_STATE_MANAGER] RESP subka jaka:', resp.jaka, 'text:', jakaText);
+        const jakaText = resp.jaka === 0 ? 'Ost' : 'x20';
+        setStatusText('.resp_ost .resp_status', jakaText);
       } else {
-        // SSJ is off - hide subka option
         $('#resp_Panel .resp_ost').hide();
       }
 
-      // Buff checkboxes (b1-b18)
-      for (let i = 1; i <= 18; i++) {
-        const isOn = resp[`b${i}`];
-        if (isOn !== undefined) {
-          setStatus(`.resp_bh${i} .resp_status`, isOn);
-        }
-      }
-
-      // Senzu type (CONF_SENZU = 'SENZU_RED', 'SENZU_BLUE', etc. or false)
+      // Senzu: CONF_SENZU = false (off) or string like 'SENZU_RED'
+      // See respawn.js:496-511
       const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic'];
       if (resp.CONF_SENZU && resp.CONF_SENZU !== false) {
-        // Extract color from 'SENZU_RED' -> 'red'
         const activeType = resp.CONF_SENZU.replace('SENZU_', '').toLowerCase();
-        console.log('[AFO_STATE_MANAGER] RESP senzu type:', activeType);
-
         senzuTypes.forEach(t => {
           if (t === activeType) {
             $(`#resp_Panel .resp_${t}`).show();
@@ -357,7 +343,6 @@ const AFO_STATE_MANAGER = {
           }
         });
       } else {
-        // No senzu active - show all
         senzuTypes.forEach(t => {
           $(`#resp_Panel .resp_${t}`).show();
           setStatus(`.resp_${t} .resp_status`, false);
@@ -366,7 +351,37 @@ const AFO_STATE_MANAGER = {
     }
 
     // ========================
+    // PVP UI
+    // Selectors from: remote/afo/pvp.js:486-581
+    // ========================
+    if (state.modules.PVP) {
+      const pvp = state.modules.PVP;
+
+      setStatus('.pvp_Code .pvp_status', pvp.code);
+      setStatus('.pvpCODE_konto .pvp_status', pvp.kontoTP);
+      setStatus('.pvp_WI .pvp_status', pvp.autoWars);
+      setStatus('.pvp_WK .pvp_status', pvp.autoClanWars);
+      setStatus('.pvp_rb_avoid .pvp_status', pvp.higherRebornAvoid);
+      setStatus('.pvp_buff_imp .pvp_status', pvp.buff_imp);
+      setStatus('.pvp_buff_clan .pvp_status', pvp.buff_clan);
+
+      // Code -> konto visibility
+      if (pvp.code) {
+        $('#pvp_Panel .pvpCODE_konto').show();
+      } else {
+        $('#pvp_Panel .pvpCODE_konto').hide();
+      }
+
+      // Speed input
+      if (pvp.speed !== undefined) {
+        $('#pvp_Panel input[name=speed_capt]').val(pvp.speed);
+      }
+    }
+
+    // ========================
     // CODE UI
+    // Selectors from: remote/afo/codes.js:165-218
+    // Note: bless toggles are .code_bh1, .code_bh2 (NOT .code_b1, .code_b2!)
     // ========================
     if (state.modules.CODE) {
       const code = state.modules.CODE;
@@ -374,52 +389,65 @@ const AFO_STATE_MANAGER = {
       setStatus('.code_acc .code_status', code.acc);
       setStatus('.code_zast .code_status', code.zast);
       setStatus('.code_ssj .code_status', code.checkSSJ);
-      setStatus('.code_b1 .code_status', code.b1);
-      setStatus('.code_b2 .code_status', code.b2);
+      setStatus('.code_bh1 .code_status', code.b1);
+      setStatus('.code_bh2 .code_status', code.b2);
 
-      // Training select
-      if (code.what_to_train) {
-        $('#code_Panel select[name=code_train]').val(code.what_to_train);
+      // Training selects
+      if (code.what_to_train !== undefined) {
+        $('#bot_what_to_train').val(code.what_to_train);
       }
-      if (code.what_to_traintime) {
-        $('#code_Panel select[name=code_traintime]').val(code.what_to_traintime);
+      if (code.what_to_traintime !== undefined) {
+        $('#bot_what_to_traintime').val(code.what_to_traintime);
       }
     }
 
     // ========================
     // LPVM UI
+    // Selectors from: remote/afo/pvm.js:237-292
     // ========================
     if (state.modules.LPVM) {
       const lpvm = state.modules.LPVM;
 
-      // Born select
-      if (lpvm.Born !== undefined) {
-        $('#lpvm_Panel select[name=lpvm_born]').val(lpvm.Born);
+      // Born level buttons: show only selected, hide others
+      // Born values: g=2, u=3, s=4, h=5, m=6
+      const bornMap = { 2: 'g', 3: 'u', 4: 's', 5: 'h', 6: 'm' };
+      const allBornKeys = ['g', 'u', 's', 'h', 'm'];
+
+      if (lpvm.Born !== undefined && bornMap[lpvm.Born]) {
+        const activeKey = bornMap[lpvm.Born];
+        allBornKeys.forEach(k => {
+          if (k === activeKey) {
+            $(`#lpvm_Panel .lpvm_${k}`).show();
+            setStatus(`.lpvm_${k} .lpvm_status`, true);
+          } else {
+            $(`#lpvm_Panel .lpvm_${k}`).hide();
+          }
+        });
       }
 
-      // Limit inputs
-      if (lpvm.limit) {
-        $('#lpvm_Panel input[name=lpvm_limit]').val(lpvm.limit);
-        $('#lpvm_Panel input[name=lpvm_capt]').val(lpvm.limit); // Also set lpvm_capt
-      }
-      if (lpvm.limit2) {
-        $('#lpvm_Panel input[name=lpvm_limit2]').val(lpvm.limit2);
+      // Limit toggle
+      if (lpvm.limit !== undefined) {
+        setStatus('.lpvm_limit .lpvm_status', lpvm.limit);
       }
 
-      // pvm_killed (executed bounties count)
+      // Limit2 value input
+      if (lpvm.limit2 !== undefined) {
+        $('#lpvm_Panel input[name=lpvm_capt]').val(lpvm.limit2);
+      }
+
+      // pvm_killed counter
       if (lpvm.pvm_killed !== undefined) {
-        // Find the counter element and update it
-        $('#lpvm_Panel .lpvm_executed, #lpvm_Panel .lpvm_killed_count').text(lpvm.pvm_killed);
-        // Also update LPVM global
+        $('#lpvm_Panel .pvm_killed b').text(lpvm.pvm_killed);
         if (typeof LPVM !== 'undefined') {
           LPVM.pvm_killed = lpvm.pvm_killed;
         }
-        console.log('[AFO_STATE_MANAGER] LPVM pvm_killed restored:', lpvm.pvm_killed);
       }
     }
 
     // ========================
     // GLEBIA UI
+    // Selectors from: remote/afo/glebia.js:60-132
+    // Note: main toggle is .glebia_toggle (NOT .glebia_glebia!)
     // ========================
     if (state.modules.GLEBIA) {
       const glebia = state.modules.GLEBIA;
@@ -427,8 +455,15 @@ const AFO_STATE_MANAGER = {
       setStatus('.glebia_code .glebia_status', glebia.code);
       setStatus('.glebia_konto .glebia_status', glebia.kontoTP);
 
-      // Speed
-      if (glebia.speed) {
+      // Code -> konto visibility
+      if (glebia.code) {
+        $('#glebia_Panel .glebia_konto').show();
+      } else {
+        $('#glebia_Panel .glebia_konto').hide();
+      }
+
+      // Speed input
+      if (glebia.speed !== undefined) {
         $('#glebia_Panel input[name=glebia_speed]').val(glebia.speed);
       }
     }
@@ -653,7 +688,7 @@ const AFO_STATE_MANAGER = {
         if (typeof GLEBIA !== 'undefined') {
           GLEBIA.stop = true;
         }
-        $('#glebia_Panel .glebia_glebia').click();
+        $('#glebia_Panel .glebia_toggle').click();
         // Show the panel and update the main panel button
         $('#glebia_Panel').show();
         $('.gh_glebia .gh_status').removeClass('red').addClass('green').html('On');

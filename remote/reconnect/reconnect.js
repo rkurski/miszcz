@@ -24,7 +24,9 @@ const AFO_RECONNECT = {
     INIT_DELAY: 2000,             // Initial delay before starting
     LOGIN_FORM_WAIT: 1000,        // Wait after filling login form
     LOGIN_SUBMIT_WAIT: 2500,      // Wait after submitting login
+    LOGIN_PAGE_DELAY: 4000,       // Wait on login page before auto-fill (user reaction time)
     SERVER_SELECT_WAIT: 1500,     // Wait after selecting server
+    CHAR_SELECT_DELAY: 5000,      // Wait BEFORE selecting character (user reaction time)
     CHAR_SELECT_WAIT: 2500,       // Wait after selecting character
     SCRIPTS_LOAD_WAIT: 5000,      // Wait for Gieniobot scripts to load
     GAME_READY_CHECK: 500,        // How often to check if GAME is ready
@@ -35,6 +37,7 @@ const AFO_RECONNECT = {
   // State
   isInitialized: false,
   isProcessing: false,
+  isReconnecting: false,        // true ONLY after disconnect redirect
   monitorRunning: false,
   targetServer: null,
   targetCharId: null,
@@ -86,8 +89,8 @@ const AFO_RECONNECT = {
   async start() {
     console.log('[AFO_RECONNECT] Starting...');
 
-    // Load target from session storage (if redirected)
-    this.loadTargetFromSession();
+    // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
+    await this.loadReconnectTarget();
 
     // Load credentials
     const creds = await this.getCredentials();
@@ -100,37 +103,50 @@ const AFO_RECONNECT = {
       return;
     }
 
-    // Store target
-    this.targetServer = creds.server;
-    this.targetCharId = creds.charId;
-
-    // Load saved state
-    await this.loadSavedState();
-
-    // MAIN PAGE: Try to login immediately
-    if (this.isMainPage) {
-      console.log('[AFO_RECONNECT] On main page, initiating login...');
-      await this.handleMainPage(creds);
+    // On server page: set targetServer from URL if not already set
+    if (this.isServerPage && this.currentServer && !this.targetServer) {
+      this.targetServer = this.currentServer;
     }
 
-    // SERVER PAGE: Check if logged in, if not redirect to main
+    // Load saved state (on server page always, on main page only when reconnecting)
+    if (this.isServerPage || this.isReconnecting) {
+      await this.loadSavedState();
+    }
+
+    // MAIN PAGE: Auto-login ONLY when reconnecting after disconnect
+    if (this.isMainPage) {
+      if (this.isReconnecting) {
+        console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
+        await this.handleMainPage(creds);
+      } else {
+        console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
+      }
+    }
+
+    // SERVER PAGE: Always handle (monitor + auto-select if saved state exists)
     if (this.isServerPage) {
       await this.handleServerPage(creds);
     }
   },
 
-  loadTargetFromSession() {
-    const server = sessionStorage.getItem('afo_target_server');
-    const charId = sessionStorage.getItem('afo_target_char');
+  async loadReconnectTarget() {
+    if (typeof AFO_STORAGE === 'undefined') return;
 
-    if (server && charId) {
-      this.targetServer = parseInt(server);
-      this.targetCharId = parseInt(charId);
-      console.log('[AFO_RECONNECT] Loaded target from session:', this.targetServer, this.targetCharId);
+    try {
+      const result = await AFO_STORAGE.get('afo_reconnect_target');
+      const target = result['afo_reconnect_target'];
 
-      // Clear session
-      sessionStorage.removeItem('afo_target_server');
-      sessionStorage.removeItem('afo_target_char');
+      if (target && target.server && target.charId) {
+        this.targetServer = parseInt(target.server);
+        this.targetCharId = parseInt(target.charId);
+        this.isReconnecting = true;
+        console.log('[AFO_RECONNECT] Loaded reconnect target (reconnect mode):', this.targetServer, this.targetCharId);
+
+        // Clear target immediately so it doesn't trigger again on next page load
+        await AFO_STORAGE.remove('afo_reconnect_target');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT] Error loading reconnect target:', e);
     }
   },
 
@@ -143,8 +159,9 @@ const AFO_RECONNECT = {
     this.isProcessing = true;
 
     try {
-      // Wait for page to be ready
-      await this.sleep(1000);
+      // Wait for page to be ready + give user time to react
+      console.log('[AFO_RECONNECT] Waiting before auto-login (giving user time to react)...');
+      await this.sleep(this.TIMING.LOGIN_PAGE_DELAY);
 
       // Check if we need to login (show credentials form)
       if (this.needsCredentialsLogin()) {
@@ -154,9 +171,9 @@ const AFO_RECONNECT = {
       }
 
       // Check if we need to select server
-      if (this.needsServerSelect()) {
-        console.log('[AFO_RECONNECT] Selecting server', creds.server);
-        await this.selectServer(creds.server);
+      if (this.needsServerSelect() && this.targetServer) {
+        console.log('[AFO_RECONNECT] Selecting server', this.targetServer);
+        await this.selectServer(this.targetServer);
         // After server select, page will redirect to server page
         return;
       }
@@ -176,9 +193,9 @@ const AFO_RECONNECT = {
   // ============================================
 
   async handleServerPage(creds) {
-    console.log('[AFO_RECONNECT] Handling server page...');
+    console.log('[AFO_RECONNECT] Handling server page... (reconnecting:', this.isReconnecting, ')');
 
-    // Start disconnect monitor immediately
+    // Start disconnect monitor immediately (always, regardless of reconnect mode)
     this.startDisconnectMonitor();
 
     // Wait for GAME to be available
@@ -186,37 +203,79 @@ const AFO_RECONNECT = {
 
     // Check if disconnected
     if (this.isDisconnected()) {
-      console.log('[AFO_RECONNECT] Disconnected on server page, redirecting...');
-      this.saveTargetToSession(creds);
-      window.location.href = 'https://kosmiczni.pl/';
+      if (this.isReconnecting) {
+        console.log('[AFO_RECONNECT] Disconnected on server page, redirecting...');
+        await this.saveReconnectTarget();
+        window.location.href = 'https://kosmiczni.pl/';
+      } else {
+        console.log('[AFO_RECONNECT] Disconnected, but not in reconnect mode - monitor will handle it');
+      }
       return;
     }
 
     // Check if on character select
     if (this.isCharacterSelectScreen()) {
-      console.log('[AFO_RECONNECT] On character select, selecting character...');
-      await this.selectCharacter(creds.charId);
-      await this.waitForFullyLoggedIn();
-
-      // Go to map first to avoid GAME.mapCharMove errors
-      console.log('[AFO_RECONNECT] Waiting 2s then going to map...');
-      await this.sleep(2000);
-      if (typeof GAME !== 'undefined' && GAME.page_switch) {
-        GAME.page_switch('game_map');
-        console.log('[AFO_RECONNECT] Switched to game_map');
-        await this.sleep(1000);
+      // Auto-select only if we have saved state AND we're on the correct server
+      if (!this.savedStateToRestore) {
+        console.log('[AFO_RECONNECT] On character select, no saved state - skipping auto-select');
+        return;
       }
 
-      await this.restoreState();
+      if (this.currentServer !== this.targetServer) {
+        console.log('[AFO_RECONNECT] Server mismatch! Current:', this.currentServer, 'Target:', this.targetServer, '- skipping auto-select');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      // Give user time to manually select a different character
+      console.log('[AFO_RECONNECT] On character select, waiting', this.TIMING.CHAR_SELECT_DELAY, 'ms before auto-selecting (saved state exists for char', this.targetCharId, ')...');
+      await this.sleep(this.TIMING.CHAR_SELECT_DELAY);
+
+      // Re-check: user might have selected a character manually during the delay
+      if (this.isFullyLoggedIn()) {
+        console.log('[AFO_RECONNECT] User already logged in during wait - checking if state should be restored');
+        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
+          await this.restoreState();
+        } else {
+          console.log('[AFO_RECONNECT] User chose different character (', GAME.char_id, ') than target (', this.targetCharId, ') - skipping restore');
+          this.savedStateToRestore = null;
+        }
+        return;
+      }
+
+      // Still on char select - auto-select the target character
+      if (this.isCharacterSelectScreen()) {
+        console.log('[AFO_RECONNECT] Auto-selecting character', this.targetCharId);
+        await this.selectCharacter(this.targetCharId);
+        await this.waitForFullyLoggedIn();
+
+        // Go to map first to avoid GAME.mapCharMove errors
+        console.log('[AFO_RECONNECT] Waiting 2s then going to map...');
+        await this.sleep(2000);
+        if (typeof GAME !== 'undefined' && GAME.page_switch) {
+          GAME.page_switch('game_map');
+          console.log('[AFO_RECONNECT] Switched to game_map');
+          await this.sleep(1000);
+        }
+
+        await this.restoreState();
+        return;
+      }
+
       return;
     }
 
     // Check if fully logged in
     if (this.isFullyLoggedIn()) {
       console.log('[AFO_RECONNECT] Already logged in');
-      // Check if we should restore state
       if (this.savedStateToRestore) {
-        await this.restoreState();
+        // Validate server/char match before restoring
+        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
+          await this.restoreState();
+        } else {
+          console.log('[AFO_RECONNECT] Logged in but server/char mismatch - skipping restore. Current:', GAME.server + '/' + GAME.char_id, 'Target:', this.targetServer + '/' + this.targetCharId);
+          this.savedStateToRestore = null;
+        }
       }
       return;
     }
@@ -295,7 +354,7 @@ const AFO_RECONNECT = {
 
     // Save target and redirect with small delay so user can see what's happening
     console.log('[AFO_RECONNECT] Saving target and redirecting to main page in 1.5s...');
-    this.saveTargetToSession(creds);
+    await this.saveReconnectTarget();
 
     await this.sleep(1500);
     window.location.href = 'https://kosmiczni.pl/';
@@ -482,17 +541,8 @@ const AFO_RECONNECT = {
   async getCredentials() {
     if (typeof AFO_CREDENTIALS === 'undefined') return null;
 
-    if (this.targetServer && this.targetCharId) {
-      const creds = await AFO_CREDENTIALS.get(this.targetServer, this.targetCharId);
-      if (creds) return creds;
-    }
-
-    const allCreds = await AFO_CREDENTIALS.getAll();
-    if (allCreds.length > 0) {
-      return await AFO_CREDENTIALS.get(allCreds[0].server, allCreds[0].charId);
-    }
-
-    return null;
+    // Credentials are global (one per account)
+    return await AFO_CREDENTIALS.get();
   },
 
   async loadSavedState() {
@@ -501,12 +551,17 @@ const AFO_RECONNECT = {
       return;
     }
 
-    if (this.targetServer && this.targetCharId) {
+    if (this.targetServer) {
       this.savedStateToRestore = await AFO_STATE_MANAGER.load(this.targetServer, this.targetCharId);
     }
 
     if (this.savedStateToRestore) {
-      console.log('[AFO_RECONNECT] Loaded saved state from', new Date(this.savedStateToRestore.savedAt).toLocaleTimeString());
+      console.log('[AFO_RECONNECT] Loaded saved state from', new Date(this.savedStateToRestore.savedAt).toLocaleTimeString(),
+        'server:', this.savedStateToRestore.server, 'char:', this.savedStateToRestore.charId);
+      // Update targetCharId from saved state (state is per-server, charId stored inside)
+      if (this.savedStateToRestore.charId && !this.targetCharId) {
+        this.targetCharId = this.savedStateToRestore.charId;
+      }
     }
   },
 
@@ -519,6 +574,24 @@ const AFO_RECONNECT = {
     if (typeof AFO_STATE_MANAGER === 'undefined') {
       console.warn('[AFO_RECONNECT] State manager not available');
       return;
+    }
+
+    // Validate server/char match
+    if (typeof GAME !== 'undefined') {
+      const stateServer = this.savedStateToRestore.server;
+      const stateChar = this.savedStateToRestore.charId;
+
+      if (stateServer && GAME.server && stateServer != GAME.server) {
+        console.warn('[AFO_RECONNECT] Server mismatch! State:', stateServer, 'Current:', GAME.server, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      if (stateChar && GAME.char_id && stateChar != GAME.char_id) {
+        console.warn('[AFO_RECONNECT] Character mismatch! State:', stateChar, 'Current:', GAME.char_id, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
     }
 
     console.log('[AFO_RECONNECT] Waiting for scripts to load...');
@@ -540,9 +613,30 @@ const AFO_RECONNECT = {
     this.savedStateToRestore = null;
   },
 
-  saveTargetToSession(creds) {
-    sessionStorage.setItem('afo_target_server', creds.server.toString());
-    sessionStorage.setItem('afo_target_char', creds.charId.toString());
+  async saveReconnectTarget() {
+    if (typeof AFO_STORAGE === 'undefined') return;
+
+    // Get server/char from GAME (current session) or from target fields
+    const server = (typeof GAME !== 'undefined' && GAME.server) ? GAME.server : this.targetServer;
+    const charId = (typeof GAME !== 'undefined' && GAME.char_id) ? GAME.char_id : this.targetCharId;
+
+    if (!server) {
+      console.warn('[AFO_RECONNECT] No server info available for reconnect target');
+      return;
+    }
+
+    try {
+      await AFO_STORAGE.set({
+        'afo_reconnect_target': {
+          server: server,
+          charId: charId,
+          savedAt: Date.now()
+        }
+      });
+      console.log('[AFO_RECONNECT] Saved reconnect target:', server, charId);
+    } catch (e) {
+      console.error('[AFO_RECONNECT] Error saving reconnect target:', e);
+    }
   },
 
   // ============================================

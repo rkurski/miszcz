@@ -634,7 +634,13 @@ const AFO_RECONNECT_UI = {
 
       if (state) {
         this.lastSaveTime = state.savedAt;
-        this.setStatus('saved', 'Zsynchronizowane');
+        // Check if saved state matches current character
+        if (state.charId && state.charId != GAME.char_id) {
+          const savedCharName = state.charId;
+          this.setStatus('unsaved', `Stan innej postaci (${savedCharName})`);
+        } else {
+          this.setStatus('saved', 'Zsynchronizowane');
+        }
         this.updateLastSaveTime(state.savedAt);
         this.updateModulesList(state);
       } else {
@@ -753,7 +759,7 @@ const AFO_RECONNECT_UI = {
         html += `
           <div class="afo-module-item active">
             <span class="icon">🚀</span>
-            Expeditions
+            Wyprawy
           </div>
         `;
       }
@@ -818,7 +824,7 @@ const AFO_RECONNECT_UI = {
 
   async loadExistingCredentials() {
     try {
-      const creds = await AFO_CREDENTIALS.getCurrent();
+      const creds = await AFO_CREDENTIALS.get();
 
       if (creds) {
         document.getElementById('afo-creds-login').value = creds.login || '';
@@ -844,7 +850,7 @@ const AFO_RECONNECT_UI = {
     }
 
     try {
-      const success = await AFO_CREDENTIALS.saveCurrent(login, password);
+      const success = await AFO_CREDENTIALS.save(login, password);
 
       if (success) {
         this.showToast('Credentials zapisane!', 'success');
