@@ -28,8 +28,31 @@ const AFO_RECONNECT_UI = {
     this.injectIcon();
     this.injectMenu();
     this.bindEvents();
+    this.setupDraggable();
     this.updateStatusFromStorage();
+    this.startStatusMonitor();
     console.log('[AFO_RECONNECT_UI] Initialized');
+  },
+
+  /**
+   * Periodically update icon border color based on current state
+   * Green = saved state matches current char, credentials exist
+   * Orange = unsaved / state for different char / no state
+   * Red = error or no credentials
+   */
+  startStatusMonitor() {
+    this._lastCharId = null;
+
+    setInterval(async () => {
+      if (typeof GAME === 'undefined' || !GAME.server) return;
+
+      // Detect char change
+      const currentCharId = GAME.char_id;
+      if (currentCharId !== this._lastCharId) {
+        this._lastCharId = currentCharId;
+        await this.updateStatusFromStorage();
+      }
+    }, 2000);
   },
 
   // ============================================
@@ -52,12 +75,18 @@ const AFO_RECONNECT_UI = {
         padding: 6px;
         box-sizing: border-box;
         transition: all 0.3s ease;
-        border: 2px solid transparent;
+        border: 3px solid transparent;
       }
 
       #afo-reconnect-icon:hover {
         transform: scale(1.1);
         background: rgba(0, 0, 0, 0.9);
+      }
+
+      /* Prevent hover transform when dragging */
+      #afo-reconnect-icon.dragging {
+        transform: none !important;
+        transition: none !important;
       }
 
       #afo-reconnect-icon img {
@@ -488,10 +517,13 @@ const AFO_RECONNECT_UI = {
             💾 Zapisz obecny stan
           </button>
           <button class="afo-btn afo-btn-secondary" id="afo-btn-credentials">
-            👤 Zarządzaj credentials
+            👤 Ustawienia
           </button>
           <button class="afo-btn afo-btn-danger" id="afo-btn-clear">
-            🗑️ Wyczyść zapisany stan
+            🗑️ Wyczyść stan (serwer)
+          </button>
+          <button class="afo-btn afo-btn-danger" id="afo-btn-clear-all">
+            🗑️ Wyczyść stan (wszystkie)
           </button>
         </div>
 
@@ -555,9 +587,14 @@ const AFO_RECONNECT_UI = {
       await this.saveCredentials();
     });
 
-    // Clear button
+    // Clear button (server)
     document.getElementById('afo-btn-clear').addEventListener('click', async () => {
       await this.clearState();
+    });
+
+    // Clear button (global)
+    document.getElementById('afo-btn-clear-all').addEventListener('click', async () => {
+      await this.clearAllStates();
     });
 
     // ESC key to close
@@ -630,7 +667,17 @@ const AFO_RECONNECT_UI = {
     }
 
     try {
+      // Check credentials
+      const hasCreds = typeof AFO_CREDENTIALS !== 'undefined' && await AFO_CREDENTIALS.exists();
+
       const state = await AFO_STATE_MANAGER.load(GAME.server, GAME.char_id);
+
+      if (!hasCreds) {
+        this.setStatus('error', 'Brak credentials');
+        this.updateLastSaveTime(state ? state.savedAt : null);
+        this.updateModulesList(state);
+        return;
+      }
 
       if (state) {
         this.lastSaveTime = state.savedAt;
@@ -705,6 +752,7 @@ const AFO_RECONNECT_UI = {
       { key: 'LPVM', name: 'LPVM', icon: '📋', stopKey: 'Stop' },
       { key: 'GLEBIA', name: 'GŁĘBIA', icon: '🌊', stopKey: 'stop' },
       { key: 'CODE', name: 'KODY', icon: '📝', stopKey: 'stop' },
+      { key: 'RES', name: 'ZBIERAJKA', icon: '⛏️', stopKey: 'stop' },
     ];
 
     let html = '';
@@ -822,6 +870,26 @@ const AFO_RECONNECT_UI = {
     }
   },
 
+  async clearAllStates() {
+    if (!confirm('Czy na pewno chcesz wyczyścić zapisany stan ze WSZYSTKICH serwerów?')) {
+      return;
+    }
+
+    try {
+      const success = await AFO_STATE_MANAGER.clearAll();
+
+      if (success) {
+        this.showToast('Wyczyszczono stany ze wszystkich serwerów', 'success');
+        await this.updateStatusFromStorage();
+      } else {
+        this.showToast('Nie udało się wyczyścić stanów', 'error');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Clear all error:', e);
+      this.showToast('Błąd: ' + e.message, 'error');
+    }
+  },
+
   async loadExistingCredentials() {
     try {
       const creds = await AFO_CREDENTIALS.get();
@@ -862,6 +930,85 @@ const AFO_RECONNECT_UI = {
       console.error('[AFO_RECONNECT_UI] Save credentials error:', e);
       this.showToast('Błąd: ' + e.message, 'error');
     }
+  },
+
+  // ============================================
+  // DRAGGABLE ICON
+  // ============================================
+
+  setupDraggable() {
+    const icon = document.getElementById('afo-reconnect-icon');
+    if (!icon) return;
+
+    let isDragging = false;
+    let hasMoved = false;
+    let startX, startY, startLeft, startTop;
+
+    const getPos = (e) => {
+      if (e.touches && e.touches.length) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+      return { x: e.clientX, y: e.clientY };
+    };
+
+    const onStart = (e) => {
+      const pos = getPos(e);
+      startX = pos.x;
+      startY = pos.y;
+
+      const rect = icon.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      isDragging = true;
+      hasMoved = false;
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+
+      const pos = getPos(e);
+      const dx = pos.x - startX;
+      const dy = pos.y - startY;
+
+      // Only start dragging after 5px threshold
+      if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+
+      hasMoved = true;
+      icon.classList.add('dragging');
+      e.preventDefault();
+
+      // Clamp within viewport
+      const maxX = window.innerWidth - icon.offsetWidth;
+      const maxY = window.innerHeight - icon.offsetHeight;
+      const newLeft = Math.max(0, Math.min(maxX, startLeft + dx));
+      const newTop = Math.max(0, Math.min(maxY, startTop + dy));
+
+      icon.style.left = newLeft + 'px';
+      icon.style.top = newTop + 'px';
+      icon.style.right = 'auto';
+    };
+
+    const onEnd = () => {
+      isDragging = false;
+      icon.classList.remove('dragging');
+
+      // If we moved, suppress the click (menu open)
+      if (hasMoved) {
+        const suppress = (e) => { e.stopImmediatePropagation(); };
+        icon.addEventListener('click', suppress, { once: true, capture: true });
+      }
+    };
+
+    // Mouse events
+    icon.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch events
+    icon.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
   },
 
   // ============================================

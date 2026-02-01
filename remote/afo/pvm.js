@@ -112,7 +112,7 @@ const AFO_LPVM = {
 
     // Auto-save state after each reward to preserve progress
     if (typeof AFO_STATE_MANAGER !== 'undefined') {
-      AFO_STATE_MANAGER.saveStateToStorage();
+      AFO_STATE_MANAGER.save();
     }
   },
 
@@ -138,6 +138,7 @@ const AFO_LPVM = {
       parseInt(GAME.map_wanteds.y) - 1,
       (path) => {
         if (path !== null && path.length > 0) {
+          LPVM._pathRetries = 0;
           if (path[0].x == GAME.char_data.x - 1 && path[0].y == GAME.char_data.y - 1) {
             path.shift();
           }
@@ -149,9 +150,18 @@ const AFO_LPVM = {
             setTimeout(() => this.KillWanted(), 500);
           }
         } else {
-          // No path found - retry after delay
-          console.warn('[AFO_LPVM] No path found, retrying...');
-          setTimeout(() => this.Teleport(), 1000);
+          LPVM._pathRetries = (LPVM._pathRetries || 0) + 1;
+          console.warn('[AFO_LPVM] No path found, attempt', LPVM._pathRetries);
+
+          if (LPVM._pathRetries >= 5) {
+            // After 5 failed attempts, force re-teleport to refresh location
+            console.warn('[AFO_LPVM] Max retries reached, forcing re-teleport...');
+            LPVM._pathRetries = 0;
+            let loc = parseInt($("#wanted_list .green.option").eq(LPVM.Born).attr("data-loc"));
+            GAME.socket.emit('ga', { a: 12, type: 18, loc: loc });
+          } else {
+            setTimeout(() => this.Go(), 1500);
+          }
         }
       }
     );

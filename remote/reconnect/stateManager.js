@@ -469,6 +469,12 @@ const AFO_STATE_MANAGER = {
     }
 
     // ========================
+    // RES (Zbierajka) UI
+    // Selectors from: remote/afo/resources.js:284-300
+    // No UI inputs to sync - speed/loc are set programmatically
+    // ========================
+
+    // ========================
     // Spawner checkboxes (GAME.spawner[1])
     // ========================
     if (state.extra && state.extra.spawnerIgnore) {
@@ -708,6 +714,18 @@ const AFO_STATE_MANAGER = {
         console.log('[AFO_STATE_MANAGER] CODE started and panel shown');
       }
 
+      // RES (Zbierajka) - need to set stop=true BEFORE click
+      if (state.modules.RES && !state.modules.RES.stop) {
+        console.log('[AFO_STATE_MANAGER] Starting RES...');
+        if (typeof RES !== 'undefined') {
+          RES.stop = true;
+        }
+        $('#res_Panel .res_res').click();
+        $('#res_Panel').show();
+        $('.gh_res .gh_status').removeClass('red').addClass('green').html('On');
+        console.log('[AFO_STATE_MANAGER] RES started and panel shown');
+      }
+
       // Activities (arena, expeditions, etc.)
       if (state.activities && state.activities.enabled) {
         console.log('[AFO_STATE_MANAGER] Starting Activities...');
@@ -756,6 +774,15 @@ const AFO_STATE_MANAGER = {
           }, 4000);
         }
       }
+
+      // Show toast after all modules have been started (longest delay is 4s for abyss)
+      setTimeout(() => {
+        console.log('[AFO_STATE_MANAGER] ✅ All modules started, restore complete!');
+        if (typeof AFO_RECONNECT_UI !== 'undefined') {
+          AFO_RECONNECT_UI.showToast('Stan przywrócony!', 'success');
+          AFO_RECONNECT_UI.updateStatusFromStorage();
+        }
+      }, 5000);
     }, 1000);
   },
 
@@ -855,6 +882,32 @@ const AFO_STATE_MANAGER = {
   },
 
   /**
+   * Clear all saved states (all servers)
+   */
+  async clearAll() {
+    try {
+      const result = await AFO_STORAGE.get(null);
+      const keysToRemove = [];
+
+      for (const key in result) {
+        if (key.startsWith(this.KEY_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      for (const key of keysToRemove) {
+        await AFO_STORAGE.remove(key);
+      }
+
+      console.log(`[AFO_STATE_MANAGER] Cleared all states (${keysToRemove.length} keys)`);
+      return true;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] ClearAll error:', e);
+      return false;
+    }
+  },
+
+  /**
    * Get all saved states (for listing)
    */
   async getAll() {
@@ -894,6 +947,7 @@ const AFO_STATE_MANAGER = {
     if (state.modules.LPVM && !state.modules.LPVM.Stop) active.push('LPVM');
     if (state.modules.GLEBIA && !state.modules.GLEBIA.stop) active.push('GŁĘBIA');
     if (state.modules.CODE && !state.modules.CODE.stop) active.push('KODY');
+    if (state.modules.RES && !state.modules.RES.stop) active.push('ZBIERAJKA');
     if (state.activities && state.activities.enabled) active.push('Activities');
 
     // kws automations

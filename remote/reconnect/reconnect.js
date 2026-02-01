@@ -142,8 +142,11 @@ const AFO_RECONNECT = {
         this.isReconnecting = true;
         console.log('[AFO_RECONNECT] Loaded reconnect target (reconnect mode):', this.targetServer, this.targetCharId);
 
-        // Clear target immediately so it doesn't trigger again on next page load
-        await AFO_STORAGE.remove('afo_reconnect_target');
+        // Only clear on server page (where we consume it).
+        // On main page we keep it so the flag survives the redirect to server page.
+        if (this.isServerPage) {
+          await AFO_STORAGE.remove('afo_reconnect_target');
+        }
       }
     } catch (e) {
       console.error('[AFO_RECONNECT] Error loading reconnect target:', e);
@@ -203,19 +206,25 @@ const AFO_RECONNECT = {
 
     // Check if disconnected
     if (this.isDisconnected()) {
-      if (this.isReconnecting) {
-        console.log('[AFO_RECONNECT] Disconnected on server page, redirecting...');
+      if (this.savedStateToRestore) {
+        // We have saved state - initiate reconnect regardless of isReconnecting flag
+        console.log('[AFO_RECONNECT] Disconnected on server page with saved state, redirecting...');
         await this.saveReconnectTarget();
         window.location.href = 'https://kosmiczni.pl/';
       } else {
-        console.log('[AFO_RECONNECT] Disconnected, but not in reconnect mode - monitor will handle it');
+        console.log('[AFO_RECONNECT] Disconnected, no saved state - monitor will handle future disconnects');
       }
       return;
     }
 
     // Check if on character select
     if (this.isCharacterSelectScreen()) {
-      // Auto-select only if we have saved state AND we're on the correct server
+      if (!this.isReconnecting) {
+        console.log('[AFO_RECONNECT] On character select, not reconnecting - skipping auto-select and restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+
       if (!this.savedStateToRestore) {
         console.log('[AFO_RECONNECT] On character select, no saved state - skipping auto-select');
         return;
@@ -268,7 +277,7 @@ const AFO_RECONNECT = {
     // Check if fully logged in
     if (this.isFullyLoggedIn()) {
       console.log('[AFO_RECONNECT] Already logged in');
-      if (this.savedStateToRestore) {
+      if (this.savedStateToRestore && this.isReconnecting) {
         // Validate server/char match before restoring
         if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
           await this.restoreState();
@@ -276,6 +285,9 @@ const AFO_RECONNECT = {
           console.log('[AFO_RECONNECT] Logged in but server/char mismatch - skipping restore. Current:', GAME.server + '/' + GAME.char_id, 'Target:', this.targetServer + '/' + this.targetCharId);
           this.savedStateToRestore = null;
         }
+      } else if (this.savedStateToRestore && !this.isReconnecting) {
+        console.log('[AFO_RECONNECT] Already logged in, but not reconnecting - skipping restore');
+        this.savedStateToRestore = null;
       }
       return;
     }
@@ -597,20 +609,99 @@ const AFO_RECONNECT = {
     console.log('[AFO_RECONNECT] Waiting for scripts to load...');
     await this.sleep(this.TIMING.SCRIPTS_LOAD_WAIT);
 
+    // Show cancellable progress bar (10 seconds)
+    console.log('[AFO_RECONNECT] Showing cancel bar for 10s...');
+    const cancelled = await this.showRestoreCountdown(10);
+
+    if (cancelled) {
+      console.log('[AFO_RECONNECT] ❌ State restore cancelled by user');
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        AFO_RECONNECT_UI.showToast('Przywracanie stanu anulowane', 'warning');
+      }
+      this.savedStateToRestore = null;
+      return;
+    }
+
     console.log('[AFO_RECONNECT] Restoring saved state...');
 
     const success = AFO_STATE_MANAGER.deserialize(this.savedStateToRestore, true);
 
     if (success) {
-      console.log('[AFO_RECONNECT] ✅ State restored successfully!');
-      if (typeof AFO_RECONNECT_UI !== 'undefined') {
-        AFO_RECONNECT_UI.showToast('Stan przywrócony!', 'success');
-      }
+      console.log('[AFO_RECONNECT] ✅ State restore initiated (toast will appear after completion)');
     } else {
       console.warn('[AFO_RECONNECT] Failed to restore state');
     }
 
     this.savedStateToRestore = null;
+  },
+
+  /**
+   * Show a countdown progress bar with cancel button.
+   * Returns true if cancelled, false if countdown completed.
+   */
+  showRestoreCountdown(seconds) {
+    return new Promise((resolve) => {
+      const container = document.createElement('div');
+      container.id = 'afo-restore-countdown';
+      container.innerHTML = `
+        <div style="
+          position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+          background: linear-gradient(145deg, #1a1a2e, #16213e);
+          border: 1px solid #0f3460; border-radius: 12px; padding: 16px 24px;
+          z-index: 10001; min-width: 300px; max-width: 90vw;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.5); color: #fff;
+          animation: toastIn 0.3s ease;
+        ">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 14px; font-weight: 600;">🔄 Przywracanie stanu za <span id="afo-countdown-sec">${seconds}</span>s...</span>
+            <button id="afo-countdown-cancel" style="
+              background: rgba(244,67,54,0.2); color: #f44336; border: 1px solid rgba(244,67,54,0.3);
+              border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
+            ">Anuluj</button>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
+            <div id="afo-countdown-bar" style="
+              height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A);
+              width: 0%; transition: width 1s linear; border-radius: 4px;
+            "></div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(container);
+
+      let remaining = seconds;
+      const bar = document.getElementById('afo-countdown-bar');
+      const secEl = document.getElementById('afo-countdown-sec');
+      const cancelBtn = document.getElementById('afo-countdown-cancel');
+
+      let cancelled = false;
+
+      // Start progress
+      requestAnimationFrame(() => {
+        bar.style.width = `${100 / seconds}%`;
+      });
+
+      const interval = setInterval(() => {
+        remaining--;
+        if (secEl) secEl.textContent = remaining;
+        bar.style.width = `${((seconds - remaining) / seconds) * 100}%`;
+
+        if (remaining <= 0) {
+          clearInterval(interval);
+          container.remove();
+          if (!cancelled) resolve(false);
+        }
+      }, 1000);
+
+      cancelBtn.addEventListener('click', () => {
+        cancelled = true;
+        clearInterval(interval);
+        container.remove();
+        resolve(true);
+      });
+    });
   },
 
   async saveReconnectTarget() {
