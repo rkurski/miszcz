@@ -944,6 +944,9 @@ const AFO_RECONNECT_UI = {
     let hasMoved = false;
     let startX, startY, startLeft, startTop;
 
+    // Load saved position or use default
+    this.loadIconPosition(icon);
+
     const getPos = (e) => {
       if (e.touches && e.touches.length) {
         return { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -993,8 +996,9 @@ const AFO_RECONNECT_UI = {
       isDragging = false;
       icon.classList.remove('dragging');
 
-      // If we moved, suppress the click (menu open)
+      // If we moved, save position and suppress the click (menu open)
       if (hasMoved) {
+        this.saveIconPosition(icon);
         const suppress = (e) => { e.stopImmediatePropagation(); };
         icon.addEventListener('click', suppress, { once: true, capture: true });
       }
@@ -1009,6 +1013,81 @@ const AFO_RECONNECT_UI = {
     icon.addEventListener('touchstart', onStart, { passive: true });
     document.addEventListener('touchmove', onMove, { passive: false });
     document.addEventListener('touchend', onEnd);
+
+    // Clamp position on window resize
+    window.addEventListener('resize', () => {
+      this.clampIconToViewport(icon);
+    });
+  },
+
+  /**
+   * Load saved icon position from localStorage
+   */
+  loadIconPosition(icon) {
+    try {
+      const saved = localStorage.getItem('afo_reconnect_icon_pos');
+      if (saved) {
+        const pos = JSON.parse(saved);
+        icon.style.left = pos.left + 'px';
+        icon.style.top = pos.top + 'px';
+        icon.style.right = 'auto';
+        // Clamp to ensure it's visible
+        this.clampIconToViewport(icon);
+      }
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to load icon position:', e);
+    }
+  },
+
+  /**
+   * Save icon position to localStorage
+   */
+  saveIconPosition(icon) {
+    try {
+      const rect = icon.getBoundingClientRect();
+      localStorage.setItem('afo_reconnect_icon_pos', JSON.stringify({
+        left: rect.left,
+        top: rect.top
+      }));
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to save icon position:', e);
+    }
+  },
+
+  /**
+   * Clamp icon to viewport (prevent going off-screen)
+   */
+  clampIconToViewport(icon) {
+    const rect = icon.getBoundingClientRect();
+    const maxX = window.innerWidth - icon.offsetWidth;
+    const maxY = window.innerHeight - icon.offsetHeight;
+
+    let newLeft = rect.left;
+    let newTop = rect.top;
+    let changed = false;
+
+    if (newLeft < 0) {
+      newLeft = 0;
+      changed = true;
+    } else if (newLeft > maxX) {
+      newLeft = maxX;
+      changed = true;
+    }
+
+    if (newTop < 0) {
+      newTop = 0;
+      changed = true;
+    } else if (newTop > maxY) {
+      newTop = maxY;
+      changed = true;
+    }
+
+    if (changed) {
+      icon.style.left = newLeft + 'px';
+      icon.style.top = newTop + 'px';
+      icon.style.right = 'auto';
+      this.saveIconPosition(icon);
+    }
   },
 
   // ============================================
