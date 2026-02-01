@@ -311,7 +311,8 @@ const AFO_RECONNECT = {
     this.monitorRunning = true;
     console.log('[AFO_RECONNECT] 🔴 Starting disconnect monitor (interval: ' + this.TIMING.CHECK_INTERVAL + 'ms)');
 
-    setInterval(() => {
+    // Store interval ID to allow cleanup
+    this.monitorIntervalId = setInterval(() => {
       if (this.isProcessing) return;
 
       // Check GAME.is_disconnected - most reliable
@@ -348,6 +349,15 @@ const AFO_RECONNECT = {
         }
       }
     }, this.TIMING.CHECK_INTERVAL);
+  },
+
+  stopDisconnectMonitor() {
+    if (this.monitorIntervalId) {
+      clearInterval(this.monitorIntervalId);
+      this.monitorIntervalId = null;
+      this.monitorRunning = false;
+      console.log('[AFO_RECONNECT] Monitor stopped');
+    }
   },
 
   async handleDisconnect() {

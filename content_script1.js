@@ -12,7 +12,7 @@
   // ============================================
   // DEVELOPMENT MODE - zmień na false przed pushem
   // ============================================
-  const DEV_MODE = true;
+  const DEV_MODE = false;
 
   const GITHUB_URL = 'https://raw.githubusercontent.com/rkurski/miszcz/main/';
 

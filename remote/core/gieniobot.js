@@ -35,7 +35,7 @@
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
-const GIENIOBOT_DEV_MODE = true;
+const GIENIOBOT_DEV_MODE = false;
 
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');
@@ -215,7 +215,8 @@ if (typeof GAME === 'undefined') {
         this.additionalTopBarVisible = false;
         this.baselinePower = undefined;
         this.baselineLevel = undefined;
-        setInterval(() => {
+        // Store interval ID to prevent memory leak
+        this.topBarUpdateInterval = setInterval(() => {
           if ('char_data' in GAME) {
             this.updateTopBar();
           }
@@ -229,6 +230,26 @@ if (typeof GAME === 'undefined') {
         }
         GAME.socket.on('gr', (res) => {
           this.handleSockets(res);
+        });
+
+        // Global cleanup on page unload to prevent memory leaks
+        window.addEventListener('beforeunload', () => {
+          // Clear Gieniobot intervals
+          if (this.topBarUpdateInterval) {
+            clearInterval(this.topBarUpdateInterval);
+          }
+
+          // Clear AFO module intervals
+          if (typeof AFO_RECONNECT !== 'undefined' && AFO_RECONNECT.stopDisconnectMonitor) {
+            AFO_RECONNECT.stopDisconnectMonitor();
+          }
+
+          // Clear AFO_DAILY timeouts
+          if (typeof AFO_DAILY !== 'undefined' && AFO_DAILY.clearAllTimeouts) {
+            AFO_DAILY.clearAllTimeouts();
+          }
+
+          console.log('[Gieniobot] Cleanup on beforeunload');
         });
       }
       isLogged(cb) {
