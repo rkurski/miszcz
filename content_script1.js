@@ -56,6 +56,14 @@
     // Activities auto-executor
     'remote/features/activities/activitiesExecutor.js',
 
+    // Auto-Reconnect system (storage → credentials → stateManager → ui → reconnect → index)
+    'remote/reconnect/storage.js',
+    'remote/reconnect/credentials.js',
+    'remote/reconnect/stateManager.js',
+    'remote/reconnect/ui.js',
+    'remote/reconnect/reconnect.js',
+    'remote/reconnect/index.js',
+
     // Auto clan training assists (runs independently after login)
     'remote/features/clanAssist.js',
   ];

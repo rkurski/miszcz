@@ -173,9 +173,10 @@ const AFO_PVP = {
     // Check if stopped
     if (PVP.stop) return;
 
-    // CRITICAL: If game is loading/processing, wait and retry - don't send new actions
+    // If game is loading, wait briefly but don't block too long
+    // Max wait is affected by speed: faster speed = shorter max wait
     if (GAME.is_loading || $("#loader").is(":visible")) {
-      window.setTimeout(() => this.attackLoop(), 100);
+      window.setTimeout(() => this.attackLoop(), this.getLoadingWait());
       return;
     }
 
@@ -242,8 +243,8 @@ const AFO_PVP = {
     // Attack first enemy
     enemies.eq(0).click();
 
-    // Continue attack loop - FIXED 110ms delay (ASAP)
-    window.setTimeout(() => this.attackLoop(), 110);
+    // Continue attack loop - delay affected by speed
+    window.setTimeout(() => this.attackLoop(), this.getAttackDelay());
   },
 
   // Legacy alias for compatibility
@@ -472,11 +473,48 @@ const AFO_PVP = {
   },
 
   getSpeedMultiplier() {
-    let speed = PVP.speedMultiplier;
+    // Read speed from UI input or PVP.speed
+    let speed = parseInt($('#pvp_Panel input[name=speed_capt]').val()) || PVP.speed;
     if (speed < 10) speed = 10;
     if (speed > 500) speed = 500;
-    if ($("#pvp_Panel input[name=speed_capt]").val() == '') speed = 50;
+    // Sync back to state
+    PVP.speed = speed;
+    PVP.speedMultiplier = speed;
     return speed / 50;
+  },
+
+  saveSpeed() {
+    localStorage.setItem('pvp_speed', PVP.speed);
+  },
+
+  loadSpeed() {
+    const saved = localStorage.getItem('pvp_speed');
+    if (saved) {
+      PVP.speed = parseInt(saved) || 50;
+      PVP.speedMultiplier = PVP.speed;
+    }
+  },
+
+  /**
+   * Get attack delay based on speed setting.
+   * Speed 10 = 200ms, Speed 50 = 100ms, Speed 100 = 50ms, Speed 200 = 25ms
+   * Formula: 1000 / (speed / 5) = 5000 / speed
+   */
+  getAttackDelay() {
+    const speed = this.getSpeedMultiplier() * 50; // Get actual speed value
+    // Base: 50-200ms depending on speed
+    // speed 10 -> 200ms, speed 50 -> 100ms, speed 100 -> 50ms
+    return Math.max(30, Math.min(200, Math.round(5000 / speed)));
+  },
+
+  /**
+   * Get max wait time for is_loading check.
+   * Higher speed = shorter wait.
+   */
+  getLoadingWait() {
+    const speed = this.getSpeedMultiplier() * 50;
+    // speed 10 -> 80ms, speed 50 -> 50ms, speed 100 -> 30ms
+    return Math.max(20, Math.min(80, Math.round(2500 / speed)));
   },
 
   // ============================================
@@ -573,7 +611,16 @@ const AFO_PVP = {
       });
     }
 
+    // Speed input handler - sync PVP.speed and save to localStorage
+    $('#pvp_Panel input[name=speed_capt]').on('input change', (e) => {
+      const val = parseInt($(e.target).val()) || 50;
+      PVP.speed = val;
+      PVP.speedMultiplier = val;
+      this.saveSpeed();
+    });
+
     // Load saved values
+    this.loadSpeed();
     $("#pvp_Panel input[name=pvp_capt]").val(PVP.clan_list);
     $("#pvp_Panel input[name=speed_capt]").val(PVP.speed);
 

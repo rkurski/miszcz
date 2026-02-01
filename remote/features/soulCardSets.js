@@ -110,6 +110,10 @@ const AFO_SOUL_CARD_SETS = {
       42, // Puar
       21, // Beerus
       15, // Mr Satan
+      44, // Whis
+      45, // Vados
+      46, // Kapłan
+      24, // Vegito
     ],
     'Zbierajki': [
       10, // Bulma
@@ -118,6 +122,28 @@ const AFO_SOUL_CARD_SETS = {
       31, // Toppo
       33, // Dyspo
       24, // Vegito
+    ],
+    'Ulepszanie': [
+      37, // Doctor Gero
+      13, // Goten
+      7, // Gohan
+      8, // Pan
+      25, // Freezer
+      14, // Videl
+      15, // Mr Satan
+      10, // Bulma
+      44, // Whis
+    ],
+    'Smocze kule': [
+      26, // Dende
+      10, // Bulma
+      1, // Goku
+      2, // Vegeta
+      6, // Krillin
+      7, // Gohan
+      41, // Yamcha
+      25, // Freezer
+      23, // Teen Gohan
     ]
   },
 

@@ -358,9 +358,9 @@
       const originalPageSwitch = GAME.page_switch.bind(GAME);
 
       // Override
-      GAME.page_switch = function (page) {
-        // Call original first
-        originalPageSwitch(page);
+      GAME.page_switch = function (page, arg) {
+        // Call original first (pass all arguments)
+        originalPageSwitch(page, arg);
 
         // Check if switching to activities page
         if (page === 'game_activities') {

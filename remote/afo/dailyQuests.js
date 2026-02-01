@@ -18,6 +18,9 @@ const AFO_DAILY = {
   Finder: null,               // EasyStar instance for pathfinding
   dataLoaded: false,
 
+  // Timeout tracking for cleanup
+  _pendingTimeouts: [],
+
   // Stuck detection state
   _lastProgress: 0,
   _lastProgressTime: 0,
@@ -61,6 +64,23 @@ const AFO_DAILY = {
         this.handleSockets(msg);
       }
     });
+  },
+
+  // Timeout management helpers to prevent memory leaks
+  safeSetTimeout(callback, delay) {
+    const timeoutId = setTimeout(() => {
+      // Remove from tracking when executed
+      this._pendingTimeouts = this._pendingTimeouts.filter(id => id !== timeoutId);
+      callback();
+    }, delay);
+    this._pendingTimeouts.push(timeoutId);
+    return timeoutId;
+  },
+
+  clearAllTimeouts() {
+    this._pendingTimeouts.forEach(id => clearTimeout(id));
+    this._pendingTimeouts = [];
+    console.log('[AFO_DAILY] Cleared all pending timeouts');
   },
 
   injectCSS() {
@@ -568,6 +588,9 @@ const AFO_DAILY = {
       await this.loadQuestData();
     }
 
+    // Unbind handlers before removing panel to prevent memory leaks
+    this.unbindUIHandlers();
+
     // Remove existing panel
     $('#daily_Panel').remove();
 
@@ -617,6 +640,7 @@ const AFO_DAILY = {
   },
 
   hidePanel() {
+    this.unbindUIHandlers();
     $('#daily_Panel').hide();
   },
 
@@ -767,7 +791,24 @@ const AFO_DAILY = {
     $(`.daily_quest_item[data-quest-name="${questName}"]`).addClass('current');
   },
 
+  unbindUIHandlers() {
+    // Remove all event handlers to prevent memory leaks
+    $('#daily_toggle_all_btn').off('click');
+    $('#daily_important_btn').off('click');
+    $('#daily_reset_btn').off('click');
+    $('#daily_substance_toggle').off('click');
+    $('#daily_combat_loc').off('change');
+    $('#daily_compressor_toggle').off('click');
+    $('#daily_start_btn').off('click');
+    $('#daily_pause_btn').off('click');
+    $('#daily_stop_btn').off('click');
+    // Delegated handlers on #daily_quest_list will be removed with the panel
+  },
+
   bindUIHandlers() {
+    // Unbind first to prevent duplicates
+    this.unbindUIHandlers();
+
     // Quest checkbox toggle
     $('#daily_quest_list').on('change', 'input[type="checkbox"]', (e) => {
       const $item = $(e.target).closest('.daily_quest_item');
@@ -944,6 +985,9 @@ const AFO_DAILY = {
     DAILY._dialogAttempts = 0;
     DAILY._currentQuest = null;
 
+    // Clear any pending timeouts from previous runs
+    this.clearAllTimeouts();
+
     // Update UI - hide START, show PAUZA and PRZERWIJ
     $('#daily_start_btn').addClass('hidden');
     $('#daily_pause_btn').removeClass('hidden').text('PAUZA');
@@ -1031,6 +1075,9 @@ const AFO_DAILY = {
     RES.stop = true;  // Stop resource collection if running
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
+
+    // Clear all pending timeouts to prevent phantom operations
+    this.clearAllTimeouts();
 
     // Clear bounty state
     DAILY._bountyQuest = null;
