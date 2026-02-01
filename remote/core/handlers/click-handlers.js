@@ -349,10 +349,28 @@ const ClickHandlersMixin = {
     $("body").on("click", `.kws_change_website_bg`, () => {
       let url = $("#new_website_bg").val();
       this.manageWebsiteBackground("set", url);
+      // Reset preset select when using custom URL
+      $("#kws_bg_preset_select").val("");
     });
     $("body").on("click", `.kws_reset_website_bg`, () => {
       this.manageWebsiteBackground("reset");
+      $("#kws_bg_preset_select").val("");
     });
+
+    // --- WEBSITE BACKGROUND PRESETS ---
+    $("body").on("change", "#kws_bg_preset_select", (el) => {
+      const idx = $(el.target).val();
+      if (idx !== "" && this.BACKGROUND_PRESETS && this.BACKGROUND_PRESETS[idx]) {
+        const preset = this.BACKGROUND_PRESETS[idx];
+        $("#new_website_bg").val(preset.url);
+        this.manageWebsiteBackground("set", preset.url);
+      }
+    });
+
+    // Populate preset select on page load
+    if (this.BACKGROUND_PRESETS) {
+      $("#kws_bg_preset_select").html(this.getBackgroundPresetsSelectHTML());
+    }
 
     // --- COMBAT HANDLERS ---
     $("body").on("click", `[data-option="map_multi_pvp"]`, () => { this.pvpKill(); });

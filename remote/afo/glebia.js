@@ -116,7 +116,7 @@ const AFO_GLEBIA = {
     });
 
     // Speed input handler
-    $('#glebia_Panel .glebia_input input').change((e) => {
+    $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
       GLEBIA.speed = parseInt($(e.target).val()) || 50;
       this.saveSpeed();
     });
@@ -140,6 +140,24 @@ const AFO_GLEBIA = {
     if (speed < 10) speed = 10;
     if (speed > 500) speed = 500;
     return speed / 50;
+  },
+
+  /**
+   * Get attack delay based on speed setting.
+   * Speed 10 = 200ms, Speed 50 = 100ms, Speed 100 = 50ms
+   */
+  getAttackDelay() {
+    const speed = this.getSpeedMultiplier() * 50;
+    return Math.max(30, Math.min(200, Math.round(5000 / speed)));
+  },
+
+  /**
+   * Get max wait time for is_loading check.
+   * Higher speed = shorter wait.
+   */
+  getLoadingWait() {
+    const speed = this.getSpeedMultiplier() * 50;
+    return Math.max(20, Math.min(80, Math.round(2500 / speed)));
   },
 
   saveSpeed() {
@@ -394,9 +412,9 @@ const AFO_GLEBIA = {
     // Check if stopped
     if (GLEBIA.stop) return;
 
-    // CRITICAL: If game is loading/processing, wait and retry - don't send new actions
+    // If game is loading, wait briefly but don't block too long
     if (GAME.is_loading || $("#loader").is(":visible")) {
-      setTimeout(() => this.attackLoop(startX, startY), 100);
+      setTimeout(() => this.attackLoop(startX, startY), this.getLoadingWait());
       return;
     }
 
@@ -477,8 +495,8 @@ const AFO_GLEBIA = {
     // Attack first enemy
     enemies.eq(0).click();
 
-    // Continue attack loop - FIXED 110ms delay (ASAP, speed doesn't affect attacks)
-    setTimeout(() => this.attackLoop(startX, startY), 110);
+    // Continue attack loop - delay affected by speed
+    setTimeout(() => this.attackLoop(startX, startY), this.getAttackDelay());
   },
 
   // ============================================

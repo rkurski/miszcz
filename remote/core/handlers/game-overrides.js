@@ -407,7 +407,10 @@ function setupGameOverrides() {
     if (!this.is_loading || force) {
       this.load_start();
       this.socket.emit(order, data);
-    } else if (this.debug) console.log('failed order', order, data);
+    } else {
+      console.log('[GAME.emit] BLOCKED emit - is_loading is true:', order, data);
+      if (this.debug) console.log('failed order', order, data);
+    }
   };
 
   // ============================================

@@ -38,20 +38,89 @@ const SettingsMixin = {
     }
   },
 
+  /**
+   * Preset backgrounds list - easy to add/remove
+   * Format: { name: "Display Name", device: "📱💻" or "📱" or "💻", url: "image url" }
+   */
+  BACKGROUND_PRESETS: [
+    { name: "Goku & Broly", device: "📱💻", url: "https://i.imgur.com/UUrVU0D.png" },
+    { name: "Gogeta", device: "📱💻", url: "https://i.imgur.com/QLVhKjP.png" },
+    { name: "Gogeta", device: "📱", url: "https://i.imgur.com/b7JHw4m.png" },
+    { name: "Gogeta Blue & Broly", device: "💻", url: "https://i.imgur.com/J4Rva2Z.png" },
+    { name: "Goku SSJ4", device: "📱💻", url: "https://i.imgur.com/CkfXXff.jpeg" },
+    { name: "Goku SSJ4", device: "📱💻", url: "https://i.imgur.com/TPLgg9C.png" },
+    { name: "Goku SSJ4", device: "📱", url: "https://i.imgur.com/hgufEgp.jpeg" },
+    { name: "Goku UI", device: "📱", url: "https://i.imgur.com/SWyXYKu.png" },
+    { name: "Goku UI", device: "💻", url: "https://i.imgur.com/Ldq7GLI.jpeg" },
+    { name: "Gogeta & Janemba", device: "📱", url: "https://i.imgur.com/uJRiOtZ.jpeg" },
+    { name: "Buu", device: "📱💻", url: "https://i.imgur.com/Ch0SqnI.gif" },
+  ],
+
+  /**
+   * Generate HTML for background preset select dropdown
+   */
+  getBackgroundPresetsSelectHTML() {
+    let options = '<option value="">-- Wybierz tło --</option>';
+    this.BACKGROUND_PRESETS.forEach((preset, idx) => {
+      options += `<option value="${idx}">${preset.name} (${preset.device})</option>`;
+    });
+    return options;
+  },
+
   // ============================================
   // WEBSITE BACKGROUND
   // ============================================
 
   setWebsiteBackground() {
     if (localStorage.getItem('kws_wbg')) {
-      $("body").css({
-        "background": "#02070D",
-        "background-image": `url(${localStorage.getItem('kws_wbg')})`,
-        "background-size": "cover",
-        "background-attachment": "fixed"
-      });
+      this._applyBackgroundStyles(localStorage.getItem('kws_wbg'));
       $("#new_website_bg").val(localStorage.getItem('kws_wbg'));
       $("footer").addClass("hide_before");
+    }
+  },
+
+  /**
+   * Apply background styles with mobile-friendly settings
+   * @param {string} url - Background image URL
+   * @param {boolean} isDefault - Whether this is the default game background
+   */
+  _applyBackgroundStyles(url, isDefault = false) {
+    // Detect mobile device
+    const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // On mobile, use scroll instead of fixed (iOS has issues with fixed backgrounds)
+    // Also use different background-size on mobile for better visibility
+    const bgStyles = {
+      "background-color": "#02070D",
+      "background-image": `url(${url})`,
+      "background-repeat": "no-repeat",
+      "background-position": "center top",
+      "background-size": "cover",
+      "background-attachment": "fixed"
+    };
+
+    $("body").css(bgStyles);
+
+    // Inject mobile-specific CSS if not already present
+    if (!document.getElementById('kws-bg-mobile-css')) {
+      const style = document.createElement('style');
+      style.id = 'kws-bg-mobile-css';
+      style.textContent = `
+        @media (max-width: 768px) {
+          body {
+            background-position: center top !important;
+            background-attachment: scroll !important;
+            min-height: 100vh;
+          }
+        }
+        @media (max-width: 480px) {
+          body {
+            background-size: auto 100vh !important;
+            background-position: center top !important;
+          }
+        }
+      `;
+      document.head.appendChild(style);
     }
   },
 
@@ -59,23 +128,13 @@ const SettingsMixin = {
     if (act == "set") {
       if (url.length > 5) {
         localStorage.setItem('kws_wbg', url);
-        $("body").css({
-          "background": "#02070D",
-          "background-image": `url(${url})`,
-          "background-size": "cover",
-          "background-attachment": "fixed"
-        });
+        this._applyBackgroundStyles(url);
         $("footer").addClass("hide_before");
       }
     } else if (act == "reset") {
       localStorage.removeItem("kws_wbg");
       $("#new_website_bg").val("");
-      $("body").css({
-        "background": "#02070D",
-        "background-image": `url(/gfx/layout/bg.jpg)`,
-        "background-size": "cover",
-        "background-attachment": "fixed"
-      });
+      this._applyBackgroundStyles('/gfx/layout/bg.jpg', true);
       $("footer").removeClass("hide_before");
     }
   },

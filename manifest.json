@@ -1,7 +1,7 @@
   {
     "name": "Gieniobot Master",
     "description": "Gieniobot Master",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "manifest_version": 3,
     "permissions": [
       "tabs",
@@ -16,9 +16,9 @@
       "default_popup": "popup.html"
     },
     "icons": {
-      "16": "images/16.png",
-      "48": "images/48.png",
-      "128": "images/128.png"
+      "16": "images/new.png",
+      "48": "images/new.png",
+      "128": "images/new.png"
     },
     "content_scripts": [
       {
@@ -45,7 +45,6 @@
         "resources": [
           "content_script.js",
           "content_script1.js",
-          "main.js",
           "remote/**/*.js",
           "remote/**/*.json",
           "images/*.png"

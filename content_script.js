@@ -34,5 +34,54 @@ window.addEventListener('__GIENIOBOT_REQUEST_URL__', function () {
   }));
 });
 
+// ============================================
+// CHROME STORAGE BRIDGE
+// ============================================
+// Page context scripts cannot access chrome.storage directly.
+// This bridge listens for custom events from the page and performs
+// storage operations, then sends results back via events.
+
+window.addEventListener('__GIENIOBOT_STORAGE_GET__', async function (event) {
+  const { requestId, keys } = event.detail;
+  try {
+    const result = await chrome.storage.local.get(keys);
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: true, data: result }
+    }));
+  } catch (error) {
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: false, error: error.message }
+    }));
+  }
+});
+
+window.addEventListener('__GIENIOBOT_STORAGE_SET__', async function (event) {
+  const { requestId, data } = event.detail;
+  try {
+    await chrome.storage.local.set(data);
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: true }
+    }));
+  } catch (error) {
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: false, error: error.message }
+    }));
+  }
+});
+
+window.addEventListener('__GIENIOBOT_STORAGE_REMOVE__', async function (event) {
+  const { requestId, keys } = event.detail;
+  try {
+    await chrome.storage.local.remove(keys);
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: true }
+    }));
+  } catch (error) {
+    window.dispatchEvent(new CustomEvent('__GIENIOBOT_STORAGE_RESULT__', {
+      detail: { requestId, success: false, error: error.message }
+    }));
+  }
+});
+
 // Inject the main loader
 injectCode(chrome.runtime.getURL('/content_script1.js'));
