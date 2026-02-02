@@ -43,6 +43,7 @@ if (typeof GAME === 'undefined') {
         'codes.js',
         'glebia.js',
         'ballSearcher.js',
+        'campStats.js',
         'dailyQuests.js',
         'index.js'
       ];
