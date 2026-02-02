@@ -218,9 +218,10 @@ const AFO_PVP = {
       PVP.attackRetries++;
       PVP.tileRetries++;
 
-      // Too many retries on this tile - likely all remaining enemies have cooldown
-      if (PVP.tileRetries > 15) {
-        console.log('[PVP] Max tile retries reached, moving on');
+      // Too many retries on this tile - player likely moved or has cooldown
+      // After 3 failed attempts, move on instead of getting stuck
+      if (PVP.tileRetries > 3) {
+        console.log('[PVP] Max tile retries reached (' + PVP.tileRetries + '), moving on');
         PVP.attackRetries = 0;
         PVP.tileRetries = 0;
         PVP.caseNumber++;
