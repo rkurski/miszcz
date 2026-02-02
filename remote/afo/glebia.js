@@ -457,10 +457,10 @@ const AFO_GLEBIA = {
       GLEBIA.attackRetries++;
       GLEBIA.tileRetries++;
 
-      // Too many retries on this tile - likely all remaining enemies have cooldown
-      // Give up and move on to prevent infinite loop
-      if (GLEBIA.tileRetries > 15) {
-        console.log('[GLEBIA] Max tile retries reached, moving on');
+      // Too many retries on this tile - player likely moved or has cooldown
+      // After 3 failed attempts, move on instead of getting stuck
+      if (GLEBIA.tileRetries > 3) {
+        console.log('[GLEBIA] Max tile retries reached (' + GLEBIA.tileRetries + '), moving on');
         GLEBIA.attackRetries = 0;
         GLEBIA.tileRetries = 0;
         GLEBIA.isAttacking = false;
