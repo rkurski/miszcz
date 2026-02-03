@@ -638,6 +638,11 @@ const AFO_RECONNECT = {
 
     if (success) {
       console.log('[AFO_RECONNECT] ✅ State restore initiated (toast will appear after completion)');
+
+      // Add to history
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        AFO_RECONNECT_UI.addReconnectTimestamp(Date.now());
+      }
     } else {
       console.warn('[AFO_RECONNECT] Failed to restore state');
     }

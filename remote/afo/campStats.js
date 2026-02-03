@@ -338,6 +338,7 @@ const AFO_CAMP_STATS = {
       const btn = document.getElementById(resetFn);
       if (btn) {
         btn.addEventListener('click', () => {
+          if (!confirm('Czy na pewno chcesz wyzerować statystyki?')) return;
           if (resetFn === 'afo_cs_reset_session') {
             this.session = { expeditions: 0, values: {}, items: {} };
           } else {
