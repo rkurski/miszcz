@@ -16,8 +16,10 @@
 const AFO_RECONNECT_UI = {
   // State
   isMenuOpen: false,
+  isHistoryOpen: false,
   currentStatus: 'neutral', // 'neutral', 'saved', 'error', 'unsaved'
   lastSaveTime: null,
+  reconnectHistory: [],
 
   // ============================================
   // INITIALIZATION
@@ -29,6 +31,7 @@ const AFO_RECONNECT_UI = {
     this.injectMenu();
     this.bindEvents();
     this.setupDraggable();
+    this.loadHistory();
     this.updateStatusFromStorage();
     this.startStatusMonitor();
     console.log('[AFO_RECONNECT_UI] Initialized');
@@ -53,6 +56,44 @@ const AFO_RECONNECT_UI = {
         await this.updateStatusFromStorage();
       }
     }, 2000);
+  },
+
+  // ============================================
+  // HISTORY
+  // ============================================
+
+  loadHistory() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+    try {
+      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
+      const data = localStorage.getItem(key);
+      if (data) {
+        this.reconnectHistory = JSON.parse(data);
+      }
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to load history:', e);
+    }
+  },
+
+  saveHistory() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+    try {
+      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
+      localStorage.setItem(key, JSON.stringify(this.reconnectHistory));
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to save history:', e);
+    }
+  },
+
+  addReconnectTimestamp(timestamp = Date.now()) {
+    // Add to beginning
+    this.reconnectHistory.unshift(timestamp);
+    // Keep max 5
+    if (this.reconnectHistory.length > 5) {
+      this.reconnectHistory = this.reconnectHistory.slice(0, 5);
+    }
+    this.saveHistory();
+    this.renderHistory();
   },
 
   // ============================================
@@ -242,6 +283,41 @@ const AFO_RECONNECT_UI = {
       .afo-status-value.unsaved { color: #FFC107; }
       .afo-status-value.error { color: #f44336; }
       .afo-status-value.neutral { color: #888; }
+
+      /* History List */
+      .afo-history-toggle {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: color 0.2s;
+      }
+      .afo-history-toggle:hover {
+        color: #fff;
+      }
+      .afo-history-arrow {
+        display: inline-block;
+        font-size: 10px;
+        transition: transform 0.2s;
+      }
+      .afo-history-arrow.open {
+        transform: rotate(90deg);
+      }
+      #afo-history-list {
+        display: none;
+        margin-top: 5px;
+        padding-left: 10px;
+        border-left: 2px solid #0f3460;
+      }
+      #afo-history-list.open {
+        display: block;
+      }
+      .afo-history-item {
+        font-size: 12px;
+        color: #aaa;
+        padding: 2px 0;
+      }
+
 
       /* Modules List */
       .afo-modules-section {
@@ -498,6 +574,13 @@ const AFO_RECONNECT_UI = {
             <span class="afo-status-label">Serwer / Postać:</span>
             <span class="afo-status-value" id="afo-server-char">-</span>
           </div>
+          <div class="afo-status-row">
+            <span class="afo-status-label">Ostatni reconnect:</span>
+            <span class="afo-status-value">
+              <span id="afo-last-reconnect" class="afo-history-toggle">-</span>
+              <div id="afo-history-list"></div>
+            </span>
+          </div>
         </div>
 
         <!-- Modules -->
@@ -587,6 +670,11 @@ const AFO_RECONNECT_UI = {
       await this.saveCredentials();
     });
 
+    // History toggle
+    document.getElementById('afo-last-reconnect').addEventListener('click', () => {
+      this.toggleHistory();
+    });
+
     // Clear button (server)
     document.getElementById('afo-btn-clear').addEventListener('click', async () => {
       await this.clearState();
@@ -657,6 +745,8 @@ const AFO_RECONNECT_UI = {
     }
 
     // Load saved state
+    this.loadHistory();
+    this.renderHistory();
     await this.updateStatusFromStorage();
   },
 
@@ -730,6 +820,52 @@ const AFO_RECONNECT_UI = {
     } else {
       el.textContent = '-';
     }
+  },
+
+  renderHistory() {
+    const label = document.getElementById('afo-last-reconnect');
+    const list = document.getElementById('afo-history-list');
+    if (!label || !list) return;
+
+    if (this.reconnectHistory.length === 0) {
+      label.textContent = '-';
+      label.classList.remove('afo-history-toggle');
+      list.innerHTML = '';
+      return;
+    }
+
+    const latest = new Date(this.reconnectHistory[0]);
+    const arrow = this.reconnectHistory.length > 1
+      ? `<span class="afo-history-arrow ${this.isHistoryOpen ? 'open' : ''}">▶</span>`
+      : '';
+
+    label.innerHTML = `${latest.toLocaleString('pl-PL')} ${arrow}`;
+
+    if (this.reconnectHistory.length > 1) {
+      label.classList.add('afo-history-toggle');
+      // Render other items (skip first)
+      const others = this.reconnectHistory.slice(1);
+      list.innerHTML = others.map(ts => {
+        const d = new Date(ts);
+        return `<div class="afo-history-item">${d.toLocaleString('pl-PL')}</div>`;
+      }).join('');
+
+      if (this.isHistoryOpen) {
+        list.classList.add('open');
+      } else {
+        list.classList.remove('open');
+      }
+    } else {
+      label.classList.remove('afo-history-toggle');
+      list.classList.remove('open');
+      list.innerHTML = '';
+    }
+  },
+
+  toggleHistory() {
+    if (this.reconnectHistory.length <= 1) return;
+    this.isHistoryOpen = !this.isHistoryOpen;
+    this.renderHistory();
   },
 
   updateModulesList(state) {
