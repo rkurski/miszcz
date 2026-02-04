@@ -2,52 +2,231 @@
  * ============================================================================
  * GIENIOBOT - Alternative Pilot Module
  * ============================================================================
- * 
+ *
  * Virtual keyboard overlay for mobile/touch control.
  * Creates on-screen buttons that simulate keyboard input for map navigation.
- * 
+ * Toggle on/off with "=" key or alt pilot button. Draggable with touch support.
+ *
  * ============================================================================
  */
 
 const PilotMixin = {
 
+  _altPilotActive: false,
+
+  toggleAlternativePilot() {
+    if (this._altPilotActive) {
+      this.destroyAlternativePilot();
+    } else {
+      this.createAlternativePilot();
+    }
+  },
+
   createAlternativePilot() {
-    document.getElementById('map_pilot').style.width = '512px';
-    var customStyles = document.createElement('style');
-    customStyles.type = 'text/css';
-    customStyles.innerHTML = `
-      .qtrack {
-        width: 410px !important;
-        font-size: 12px !important;
-      }
-      .qtrack strong {
-        font-size: 12px !important;
-      }
-      .adv {
-        display: none !important;
-      }
-      .kom {
-        background: url(/gfx/layout/tloPilot.png) !important;
-        background-size: cover !important;
-        border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill !important;
-        border-style: solid !important;
-        border-width: 7px 8px 7px 7px !important;
-        box-shadow: none !important;
-      }
-      .kom .close_kom b {
-        background: url(/gfx/layout/tloPilot.png) !important;
-      }
-      #war_container {
-        position: absolute !important;
-        left: 10px !important;
-        top: 565px !important;
-      }
-      #quest_con {
-        margin-top: -295px !important;
-        left: -510px !important;
-      }
-    `;
-    $("head").append(customStyles);
+    if (this._altPilotActive) return;
+
+    // Hide original pilot
+    this._hideOriginalPilot();
+
+    // Inject styles (with ID for easy removal)
+    if (!$('#kws_alt_pilot_styles').length) {
+      $('head').append(`<style id="kws_alt_pilot_styles">
+        #kws_alt_pilot_container {
+          position: absolute;
+          z-index: 9998;
+          background: url(/gfx/layout/tloPilot.png);
+          background-size: cover;
+          border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill;
+          border-style: solid;
+          border-width: 7px 8px 7px 7px;
+          padding: 8px;
+        }
+        #kws_alt_pilot_header {
+          background: url("https://i.imgur.com/Mi3kUpg.png");
+          background-size: 100% 100%;
+          padding: 5px 10px;
+          cursor: move;
+          text-align: center;
+          color: #fff;
+          font-family: 'Play', sans-serif;
+          font-weight: bold;
+          font-size: 14px;
+          user-select: none;
+          margin-bottom: 6px;
+          border-radius: 3px;
+        }
+        #kws_alt_pilot_content {
+          display: grid;
+          grid-template-columns: auto auto;
+          gap: 6px;
+        }
+        .kws_alt_col {}
+        .kws_alt_group_label {
+          color: #305779;
+          font-family: 'Play', sans-serif;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 3px;
+          padding-left: 2px;
+        }
+        .kws_alt_btn_group {
+          display: grid;
+          gap: 4px;
+          margin-bottom: 6px;
+        }
+        .kws_alt_btn_group.g3 { grid-template-columns: repeat(3, 1fr); }
+        .kws_alt_separator {
+          border: none;
+          border-top: 1px solid #305779;
+          margin: 4px 0;
+        }
+        .kws_alt_btn {
+          min-width: 60px;
+          min-height: 60px;
+          border-radius: 5px;
+          border: 2px solid #305779;
+          padding: 4px;
+          background: rgba(4, 14, 19, 0.85);
+          color: #fff;
+          cursor: pointer;
+          font-size: 22px;
+          font-family: 'Play', sans-serif;
+          font-weight: bold;
+          text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+          transition: border-color 0.15s, box-shadow 0.15s;
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .kws_alt_btn:hover { border-color: #3fc1c9; box-shadow: 0 0 8px 2px #3fc1c9; }
+        .kws_alt_btn:active { background: rgba(63, 193, 201, 0.25); border-color: #f9ca24; }
+        .kws_alt_btn.small {
+          min-width: 52px;
+          min-height: 52px;
+          font-size: 14px;
+        }
+        .kws_alt_btn.close_btn {
+          border-color: #993333;
+          color: #ff6b6b;
+          min-height: 28px;
+          min-width: unset;
+          font-size: 11px;
+          padding: 3px 8px;
+          opacity: 0.7;
+        }
+        .kws_alt_btn.close_btn:hover { border-color: #ff4444; box-shadow: 0 0 8px 2px #ff4444; opacity: 1; }
+      </style>`);
+    }
+
+    // Build HTML - two columns: left = directions+actions, right = x5+combat
+    const html = `
+      <div id="kws_alt_pilot_container">
+        <div id="kws_alt_pilot_header">PILOT</div>
+
+        <div id="kws_alt_pilot_content">
+          <div class="kws_alt_col">
+            <div class="kws_alt_group_label">Kierunki</div>
+            <div class="kws_alt_btn_group g3">
+              <button id="klawiszq" class="kws_alt_btn">Q</button>
+              <button id="klawiszw" class="kws_alt_btn">&#8593;</button>
+              <button id="klawisze" class="kws_alt_btn">E</button>
+              <button id="klawisza" class="kws_alt_btn">&#8592;</button>
+              <button id="klawiszs" class="kws_alt_btn">&#8595;</button>
+              <button id="klawiszd" class="kws_alt_btn">&#8594;</button>
+              <button id="klawiszz" class="kws_alt_btn">Z</button>
+              <button id="klawiszx" class="kws_alt_btn">X</button>
+              <button id="klawiszc" class="kws_alt_btn">C</button>
+            </div>
+            <div class="kws_alt_group_label">Akcje</div>
+            <div class="kws_alt_btn_group g3">
+              <button id="klawiszy" class="kws_alt_btn">Y</button>
+              <button id="klawiszr" class="kws_alt_btn">R</button>
+              <button id="klawiszv" class="kws_alt_btn">V</button>
+            </div>
+          </div>
+
+          <div class="kws_alt_col">
+            <div class="kws_alt_group_label">Ruch x5</div>
+            <div class="kws_alt_btn_group g3">
+              <button id="klawiszqx3" class="kws_alt_btn small">Qx5</button>
+              <button id="klawiszwx3" class="kws_alt_btn small">&#8593;x5</button>
+              <button id="klawiszex3" class="kws_alt_btn small">Ex5</button>
+              <button id="klawiszax3" class="kws_alt_btn small">&#8592;x5</button>
+              <button id="klawiszsx3" class="kws_alt_btn small">&#8595;x5</button>
+              <button id="klawiszdx3" class="kws_alt_btn small">&#8594;x5</button>
+              <button id="klawiszzx3" class="kws_alt_btn small">Zx5</button>
+              <button id="klawiszb5" class="kws_alt_btn small">B</button>
+              <button id="klawiszcx3" class="kws_alt_btn small">Cx5</button>
+              <button id="klawiszvx3" class="kws_alt_btn small">Vx5</button>
+              <button id="klawiszn" class="kws_alt_btn small">N</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:6px;">
+          <div class="kws_alt_group_label">Skróty</div>
+          <div class="kws_alt_btn_group" style="grid-template-columns: repeat(9, 1fr); margin-bottom:6px;">
+            <button id="klawisz1" class="kws_alt_btn small">1</button>
+            <button id="klawisz2" class="kws_alt_btn small">2</button>
+            <button id="klawisz3" class="kws_alt_btn small">3</button>
+            <button id="klawisz4" class="kws_alt_btn small">4</button>
+            <button id="klawisz5" class="kws_alt_btn small">5</button>
+            <button id="klawisz6" class="kws_alt_btn small">6</button>
+            <button id="klawisz7" class="kws_alt_btn small">7</button>
+            <button id="klawisz8" class="kws_alt_btn small">8</button>
+            <button id="klawisz9" class="kws_alt_btn small">9</button>
+          </div>
+          <button id="klawiszspacja" class="kws_alt_btn close_btn" style="width:100%;">ZAMKNIJ</button>
+        </div>
+      </div>`;
+
+    $('body').append(html);
+
+    // Position at center of current viewport (works with mobile zoom)
+    this._positionAltPilotInViewport();
+
+    // Make draggable
+    this._makeAltPilotDraggable();
+
+    // Bind button handlers
+    this.bindAlternativePilotButtons();
+
+    this._altPilotActive = true;
+  },
+
+  destroyAlternativePilot() {
+    $('#kws_alt_pilot_container').remove();
+    $('#kws_alt_pilot_styles').remove();
+
+    // Show original pilot
+    this._showOriginalPilot();
+
+    this._altPilotActive = false;
+  },
+
+  _positionAltPilotInViewport() {
+    const el = document.getElementById('kws_alt_pilot_container');
+    if (!el) return;
+
+    // Calculate center of the current visible viewport
+    const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+    const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+    const vpW = window.innerWidth;
+    const vpH = window.innerHeight;
+
+    // Temporarily show to measure
+    const elW = el.offsetWidth;
+    const elH = el.offsetHeight;
+
+    // Center horizontally, position near top third vertically
+    let posX = scrollX + Math.max(0, (vpW - elW) / 2);
+    let posY = scrollY + Math.max(10, (vpH - elH) / 3);
+
+    el.style.left = posX + 'px';
+    el.style.top = posY + 'px';
+  },
+
+  _hideOriginalPilot() {
     var kwsHidePilotElement = document.getElementById('kws_hidePilot');
     var mapPilotElement = document.getElementById('map_pilot');
     if (kwsHidePilotElement) {
@@ -59,105 +238,80 @@ const PilotMixin = {
       }
       var clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
       kwsHidePilotElement.dispatchEvent(clickEvent);
-    } else {
-      console.error('Element o ID "kws_hidePilot" nie został znaleziony.');
     }
-    var minimap = document.querySelector('#minimap_canvas');
-    var gridCanvas = document.querySelector('#minimap_grid_canvas');
-    var minimapLay = document.querySelector('.minimap_lay');
-    var kwsLocInfo = document.querySelector('#kws_locInfo');
-
-    if (minimap) {
-      minimap.style.left = '-15px';
-      minimap.style.top = '813px';
-    }
-
-    if (gridCanvas) {
-      gridCanvas.style.left = '-15px';
-      gridCanvas.style.top = '813px';
-    }
-
-    if (minimapLay) {
-      minimapLay.style.left = '-30px';
-      minimapLay.style.top = '802px';
-    }
-
-    if (kwsLocInfo) {
-      kwsLocInfo.style.left = '-35px';
-      kwsLocInfo.style.top = '1030px';
-    }
-
-    // Create button container
-    $('.clearfix').append('<div id="map_canvas_container" style="position:absolute; top:731px; left:59px; "></div>');
-
-    // Direction buttons (WASD + diagonals)
-    this._createPilotButton('#map_canvas_container', 'klawiszw', '530px', '144px', '70px', '70px', '&#8593;', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszq', '530px', '65px', '70px', '70px', 'Q', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawisze', '530px', '225px', '70px', '70px', 'E', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszs', '607px', '144px', '70px', '70px', '&#8595;', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawisza', '607px', '65px', '70px', '70px', '&#8592;', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszd', '607px', '225px', '70px', '70px', '&#8594;', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszx', '684px', '145px', '70px', '70px', 'x', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszz', '684px', '65px', '70px', '70px', 'Z', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszc', '684px', '225px', '70px', '70px', 'C', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszr', '761px', '100px', '70px', '70px', 'R', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszy', '761px', '11px', '70px', '70px', 'Y', '50px');
-    this._createPilotButton('#map_canvas_container', 'klawiszv', '761px', '189px', '70px', '70px', 'V', '50px');
-
-    // x5 multiplier buttons
-    this._createPilotButton('#map_canvas_container', 'klawiszqx3', '530px', '310px', '60px', '60px', 'Qx5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszwx3', '530px', '373px', '60px', '60px', '&#8593;x5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszex3', '530px', '436px', '60px', '60px', 'Ex5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszax3', '595px', '310px', '60px', '60px', '&#8592;x5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszsx3', '595px', '373px', '60px', '60px', 'x5&#8595;', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszdx3', '595px', '436px', '60px', '60px', '&#8594;x5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszzx3', '660px', '310px', '60px', '60px', 'Zx5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszcx3', '660px', '436px', '60px', '60px', 'Cx5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszvx3', '730px', '373px', '60px', '60px', 'Vx5', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszb5', '730px', '310px', '60px', '60px', 'B', '16px');
-    this._createPilotButton('#map_canvas_container', 'klawiszn', '730px', '436px', '60px', '60px', 'N', '16px');
-
-    // Number buttons
-    this._createPilotButton('#map_canvas_container', 'klawisz1', '851px', '89px', '50px', '50px', '1', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz2', '851px', '149px', '50px', '50px', '2', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz3', '851px', '209px', '50px', '50px', '3', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz4', '911px', '89px', '50px', '50px', '4', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz5', '911px', '149px', '50px', '50px', '5', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz6', '911px', '209px', '50px', '50px', '6', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz7', '971px', '89px', '50px', '50px', '7', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz8', '971px', '149px', '50px', '50px', '8', '20px');
-    this._createPilotButton('#map_canvas_container', 'klawisz9', '971px', '209px', '50px', '50px', '9', '20px');
-
-    // Close button
-    $('#map_canvas_container').append("<div style='position:absolute; top:1031px; left:89px; z-index:999;'><button id='klawiszspacja' style='width: 150px; height: 50px; border-radius: 5px; border: 2px solid white; padding: 5px; background-color: black; color: white; cursor: pointer; font-size: 20px;'>----------------</button></div>");
-
-    this.bindAlternativePilotButtons();
   },
 
-  _createPilotButton(container, id, top, left, width, height, label, fontSize) {
-    $(container).append(`<div style='position:absolute; top:${top}; left:${left}; z-index:999;'><button id='${id}' style='width: ${width}; height: ${height}; border-radius: 5px; border: 2px solid white; padding: 5px; background-color: black; color: white; cursor: pointer; font-size: ${fontSize};'>${label}</button></div>`);
+  _showOriginalPilot() {
+    var kwsHidePilotElement = document.getElementById('kws_hidePilot');
+    var mapPilotElement = document.getElementById('map_pilot');
+    if (kwsHidePilotElement) {
+      kwsHidePilotElement.value = '0';
+      var changeEvent = new Event('change');
+      kwsHidePilotElement.dispatchEvent(changeEvent);
+      if (kwsHidePilotElement.value === '0' && mapPilotElement) {
+        mapPilotElement.style.display = 'block';
+      }
+      var clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+      kwsHidePilotElement.dispatchEvent(clickEvent);
+    }
+  },
+
+  _makeAltPilotDraggable() {
+    const element = document.getElementById('kws_alt_pilot_container');
+    const handle = document.getElementById('kws_alt_pilot_header');
+    if (!element || !handle) return;
+
+    let offsetX = 0, offsetY = 0;
+    let isDragging = false;
+
+    const onStart = (e) => {
+      isDragging = true;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = element.getBoundingClientRect();
+      offsetX = clientX - rect.left;
+      offsetY = clientY - rect.top;
+      element.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      // Convert client coords to page coords (accounts for scroll/zoom)
+      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      let newX = scrollX + clientX - offsetX;
+      let newY = scrollY + clientY - offsetY;
+
+      // Keep within page bounds
+      newX = Math.max(0, newX);
+      newY = Math.max(0, newY);
+
+      element.style.left = newX + 'px';
+      element.style.top = newY + 'px';
+    };
+
+    const onEnd = () => {
+      isDragging = false;
+      element.style.transition = '';
+    };
+
+    handle.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    handle.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
   },
 
   bindAlternativePilotButtons() {
     const self = this;
 
-    // Close button - removes all pilot buttons
-    $('#klawiszspacja').click(() => {
-      $('#klawiszw, #klawiszy, #klawisz1, #klawisz2, #klawisz3, #klawisz4, #klawisz5, #klawisz6, #klawisz7, #klawisz8, #klawisz9, #klawiszq, #klawisze, #klawiszs, #klawisza, #klawiszd, #klawiszx, #klawiszz, #klawiszc, #klawiszr, #klawiszy, #klawiszv, #klawiszqx3, #klawiszwx3, #klawiszex3, #klawiszax3, #klawiszsx3, #klawiszdx3, #klawiszzx3, #klawiszcx3, #klawiszvx3, #klawiszb5, #klawiszspacja, #klawiszn').remove();
-
-      var kwsHidePilotElement = document.getElementById('kws_hidePilot');
-      var mapPilotElement = document.getElementById('map_pilot');
-      if (kwsHidePilotElement) {
-        kwsHidePilotElement.value = '0';
-        var changeEvent = new Event('change');
-        kwsHidePilotElement.dispatchEvent(changeEvent);
-        if (kwsHidePilotElement.value === '0' && mapPilotElement) {
-          mapPilotElement.style.display = 'block';
-        }
-        var clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-        kwsHidePilotElement.dispatchEvent(clickEvent);
-      }
-    });
+    // Close button
+    $('#klawiszspacja').click(() => self.destroyAlternativePilot());
 
     // Direction buttons
     $('#klawiszw').click(() => GAME.map_move(2));
@@ -196,7 +350,7 @@ const PilotMixin = {
     $('#klawisz6').click(() => GAME.socket.emit('ga', { a: 39, type: 46, rent: 3 }));
     $('#klawisz7').click(() => GAME.socket.emit('ga', { a: 10, type: 2, ct: 0 }));
     $('#klawisz8').click(() => {
-      let set = $("#ekw_sets").find(".option.ek_sets_all" + ":not(.current)").attr("data-set");
+      let set = $("#ekw_sets").find(".option.ek_sets_all:not(.current)").attr("data-set");
       if (set != undefined) {
         GAME.socket.emit('ga', { a: 64, type: 2, set: set });
       }

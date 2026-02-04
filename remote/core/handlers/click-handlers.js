@@ -376,7 +376,7 @@ const ClickHandlersMixin = {
     $("body").on("click", `[data-option="map_multi_pvp"]`, () => { this.pvpKill(); });
     $("body").on("click", `[data-option="map_quest_skip"]`, () => { this.questProceed(); kom_clear(); });
     $("body").on("click", `[data-option="map_quest_skip_time"]`, () => { this.useCompressor(); });
-    $("body").on("click", `[data-option="map_alternative_pilot"]`, () => { this.createAlternativePilot(); });
+    $("body").on("click", `[data-option="map_alternative_pilot"]`, () => { this.toggleAlternativePilot(); });
 
     // --- KEYBOARD SHORTCUTS ---
     $(document).keydown((event) => {
@@ -398,7 +398,7 @@ const ClickHandlersMixin = {
           let set = $("#ekw_sets").find(".option.ek_sets_all:not(.current)").attr("data-set");
           if (set != undefined) { GAME.socket.emit('ga', { a: 64, type: 2, set: set }); }
         }
-        else if (event.key === "=") { this.createAlternativePilot(); }
+        else if (event.key === "=") { this.toggleAlternativePilot(); }
         else if (event.key === ",") { this.goToPreviousChar(); }
         else if (event.key === ".") { this.goToNextChar(); }
       }

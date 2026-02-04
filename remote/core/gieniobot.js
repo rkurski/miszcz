@@ -161,6 +161,7 @@ if (typeof GAME === 'undefined') {
         this.addToCSS(`.spawn_switch{cursor:pointer;}`);
         this.addToCSS(`.quest_roll1{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:25px; cursor:pointer; filter:drop-shadow(0px 0px 10px lime)} .quest_roll2{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:75px; cursor:pointer; filter:drop-shadow(0px 0px 10px #00fdff)} .quest_roll3{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:125px; cursor:pointer; filter:drop-shadow(0px 0px 10px #ff0000)} .quest_roll:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll1:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll2:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll3:hover{background:url('/gfx/layout/dice.png') 0 -45px;}`);
         this.addToCSS(`#lastmap_bar { top: 115px !important; }`);
+        this.addToCSS(`.MoveIcon .pi.kws_pvp{background:url('https://i.imgur.com/QPQBcFp.png') center/contain no-repeat;} .MoveIcon .pi.kws_skip{background:url('https://i.imgur.com/wuK91VF.png') center/contain no-repeat;} .MoveIcon .pi.kws_clock{background:url('https://i.imgur.com/9YCvJKe.png') center/contain no-repeat;} .MoveIcon .pi.kws_alt{background:url('https://up.be3.ovh/upload/1709400449.png') center/contain no-repeat;}`);
         this.addToCSS(`button#changeProfileNext { position: absolute; top: 85px; right: 16px; background: linear-gradient(0deg, rgba(252,238,54,1) 0%, rgba(247,121,12,1) 100%); border: 2px solid #973804; border-radius: 5px; width: 52px; }`);
         this.addToCSS(`button#changeProfileNext:hover {
                     background: linear-gradient(0deg, rgba(247,121,12,1) 0%, rgba(252,238,54,1) 100%);
@@ -205,10 +206,10 @@ if (typeof GAME === 'undefined') {
         }, 100);
         $(`#minimap_con`).append(`<div id="kws_locInfo"><div class="sekcja">INFORMACJE O LOKACJI</div><div class="content"></div></div>`);
         $("#sett_page_local div").eq(0).prepend(`<b class=\"green\">Zmień tło strony </b><div class=\"game_input\"><input id=\"new_website_bg\" style=\"width:370px;\" type=\"text\" placeholder=\"Wklej URL obrazka...\"></div><button class=\"option newBtn kws_change_website_bg\" style=\"margin-left:5px;\">Zmień</button><button class=\"option newBtn kws_reset_website_bg\" style=\"margin-left:5px;\">Reset</button><br><b class=\"green\" style=\"margin-top:5px;display:inline-block;\">lub wybierz z listy: </b><select id=\"kws_bg_preset_select\" class=\"select_input\" style=\"margin-left:5px;min-width:200px;\"></select><br><br>`);
-        $('.MoveIcon[data-option="mob_spawner_go"]').after('<div class="MoveIcon bigg option" data-option="map_multi_pvp" data-toggle="tooltip" data-original-title="<div class=tt>Multiwalka PvP<br />Klawisz skrótu:<b class=orange>B</b></div>"><img src="https://i.imgur.com/QPQBcFp.png"></div>');
-        $('.MoveIcon[data-option="map_multi_pvp"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip" data-toggle="tooltip" data-original-title="<div class=tt>Opcja Dalej w otwartym zadaniu jeśli jest jedna. Atakuje bosy w zadaniach i zamyka raport z walki. W zadaniu nuda wybiera opcję na zabicie mobków. W zadaniu subki wybiera opcję za 100k. Zamyka komunikaty. Zbiera zasób na którym stoimy.<br />Klawisz skrótu:<b class=orange>X</b></div>"><img src="https://i.imgur.com/wuK91VF.png"></div>');
-        $('.MoveIcon[data-option="map_quest_skip"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip_time" data-toggle="tooltip" data-original-title="<div class=tt>Używanie zegarków w zadaniach<br />Klawisz skrótu:<b class=orange>N</b></div>"><img src="https://i.imgur.com/9YCvJKe.png"></div>');
-        $('.MoveIcon[data-option="map_quest_skip_time"]').after('<div class="MoveIcon bigg option" data-option="map_alternative_pilot" data-toggle="tooltip" data-original-title="<div class=tt>Ukryje pilota, pokazuje inną klawiaturę<br />Klawisz skrótu:<b class=orange>=</b></div>"><img src="https://up.be3.ovh/upload/1709400449.png"></div>');
+        $('.MoveIcon[data-option="mob_spawner_go"]').after('<div class="MoveIcon bigg option" data-option="map_multi_pvp" data-toggle="tooltip" data-original-title="<div class=tt>Multiwalka PvP<br />Klawisz skrótu:<b class=orange>B</b></div>"><i class="pi kws_pvp"></i></div>');
+        $('.MoveIcon[data-option="map_multi_pvp"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip" data-toggle="tooltip" data-original-title="<div class=tt>Opcja Dalej w otwartym zadaniu jeśli jest jedna. Atakuje bosy w zadaniach i zamyka raport z walki. W zadaniu nuda wybiera opcję na zabicie mobków. W zadaniu subki wybiera opcję za 100k. Zamyka komunikaty. Zbiera zasób na którym stoimy.<br />Klawisz skrótu:<b class=orange>X</b></div>"><i class="pi kws_skip"></i></div>');
+        $('.MoveIcon[data-option="map_quest_skip"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip_time" data-toggle="tooltip" data-original-title="<div class=tt>Używanie zegarków w zadaniach<br />Klawisz skrótu:<b class=orange>N</b></div>"><i class="pi kws_clock"></i></div>');
+        $('.MoveIcon[data-option="map_quest_skip_time"]').after('<div class="MoveIcon bigg option" data-option="map_alternative_pilot" data-toggle="tooltip" data-original-title="<div class=tt>Ukryje pilota, pokazuje inną klawiaturę<br />Klawisz skrótu:<b class=orange>=</b></div>"><i class="pi kws_alt"></i></div>');
         $("#changeProfile").before('<button id="changeProfilePrev" class="btn_small_gold" data-option="prevChar">Prev</button>');
         $("#changeProfile").after('<button id="changeProfileNext" class="btn_small_gold" data-option="nextChar">Next</button>');
         this.auto_abyss_interval = false;
@@ -582,7 +583,9 @@ if (typeof GAME === 'undefined') {
         return `<b class="orange">[~${lvls_gained} lvl'i]</b>`;
       }
       handleSockets(res) {
-        //console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        // if (res.a !== 598 && res.a !== 596) {
+        //   console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        // }
         switch (res.a) {
           case 7: //?? PvP fight result?
             if (!this.stopped) {

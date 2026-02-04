@@ -884,11 +884,11 @@ const AFO_RECONNECT_UI = {
 
     const modules = [
       { key: 'RESP', name: 'PVM', icon: '⚔️', stopKey: 'stop' },
-      { key: 'PVP', name: 'PVP', icon: '🎯', stopKey: 'stop' },
-      { key: 'LPVM', name: 'LPVM', icon: '📋', stopKey: 'Stop' },
-      { key: 'GLEBIA', name: 'GŁĘBIA', icon: '🌊', stopKey: 'stop' },
-      { key: 'CODE', name: 'KODY', icon: '📝', stopKey: 'stop' },
-      { key: 'RES', name: 'ZBIERAJKA', icon: '⛏️', stopKey: 'stop' },
+      { key: 'PVP', name: 'PVP', icon: '🗡️', stopKey: 'stop' },
+      { key: 'LPVM', name: 'LPVM', icon: '📜', stopKey: 'Stop' },
+      { key: 'GLEBIA', name: 'GŁĘBIA', icon: '🔪', stopKey: 'stop' },
+      { key: 'CODE', name: 'KODY', icon: '🔑', stopKey: 'stop' },
+      { key: 'RES', name: 'ZBIERAJKA', icon: '💎', stopKey: 'stop' },
     ];
 
     let html = '';
