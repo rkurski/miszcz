@@ -83,6 +83,22 @@ function setupGameOverrides() {
       }
     }, 1200);
     GAME.parseQuickOpts(1);
+    // Inject tournament wins row into char_stats_container when it appears
+    new MutationObserver((_, obs) => {
+      const container = document.getElementById('char_stats_container');
+      if (!container) return;
+      if (container.querySelector('.afo-tourn-wins')) return;
+      const rows = container.querySelectorAll('tr');
+      for (const row of rows) {
+        if (row.firstElementChild && row.firstElementChild.textContent.trim() === 'Wykonane zadania codzienne') {
+          const tr = document.createElement('tr');
+          tr.classList.add('afo-tourn-wins');
+          tr.innerHTML = `<td>Wygrane turnieje</td><td></td><td>${GAME.dots(GAME.char_data.tourn_wins)}</td>`;
+          row.after(tr);
+          break;
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
     kws.workers_info = [false, false];
     arena_count = 0;
     pvp_count = 0;

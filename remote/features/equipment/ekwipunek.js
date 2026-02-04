@@ -1062,6 +1062,7 @@ class filterQuest {
   }
   filterQuests() {
     const inputField = $("#quest-filter-input")[0];
+    if (!inputField) return;
     const searchText = inputField.value.toLowerCase();
     const questContainer = document.querySelector('#drag_con');
     const quests = questContainer.querySelectorAll('.qtrack');
