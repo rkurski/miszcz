@@ -66,6 +66,8 @@
 
     // Auto clan training assists (runs independently after login)
     'remote/features/clanAssist.js',
+    // Kukla Guardian - Strażnik Kukli (auto dragon ball fights)
+    'remote/features/kuklaGuardian.js',
   ];
 
   // CSS files to load (empty - gieniobot.js handles CSS internally)

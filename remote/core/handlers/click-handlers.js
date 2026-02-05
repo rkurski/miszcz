@@ -489,6 +489,23 @@ const ClickHandlersMixin = {
       }
     });
 
+    // --- KUKLA GUARDIAN TOGGLE (Strażnik Kukli) ---
+    $("body").on("click", `.qlink.manage_kukla_guardian`, () => {
+      if (typeof KUKLA_GUARDIAN === 'undefined') return;
+
+      if (KUKLA_GUARDIAN.enabled === true) {
+        // Currently enabled, disable it
+        KUKLA_GUARDIAN.stop();
+        $(".qlink.manage_kukla_guardian").removeClass("kws_active_icon");
+        console.log('[KuklaGuardian] Disabled via toggle');
+      } else {
+        // Currently disabled, enable it
+        KUKLA_GUARDIAN.start();
+        $(".qlink.manage_kukla_guardian").addClass("kws_active_icon");
+        console.log('[KuklaGuardian] Enabled via toggle');
+      }
+    });
+
     // --- QUEST ROLL HANDLERS ---
     $("body").on("click", `.quest_roll1.option`, () => {
       var id = parseInt($(".quest_roll.option").attr("data-qb_id"));

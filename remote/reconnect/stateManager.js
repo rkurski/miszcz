@@ -145,6 +145,13 @@ const AFO_STATE_MANAGER = {
       };
     }
 
+    // Save Kukla Guardian state (Strażnik Kukli)
+    if (typeof KUKLA_GUARDIAN !== 'undefined') {
+      state.kuklaGuardian = {
+        enabled: KUKLA_GUARDIAN.enabled || false
+      };
+    }
+
     // Save activities state if available
     if (window.AFO_ACTIVITIES_STATE) {
       state.activities = {
@@ -775,7 +782,22 @@ const AFO_STATE_MANAGER = {
         }
       }
 
-      // Show toast after all modules have been started (longest delay is 4s for abyss)
+      // Kukla Guardian (Strażnik Kukli)
+      if (state.kuklaGuardian && state.kuklaGuardian.enabled && typeof KUKLA_GUARDIAN !== 'undefined') {
+        console.log('[AFO_STATE_MANAGER] Starting Kukla Guardian...');
+        // Set enabled immediately so parseQuickOpts renders with active class
+        KUKLA_GUARDIAN.enabled = true;
+        KUKLA_GUARDIAN._stateRestored = true;
+        setTimeout(() => {
+          if (!KUKLA_GUARDIAN.running) {
+            KUKLA_GUARDIAN.start();
+          }
+          // Ensure icon has active class after any re-render
+          $('.qlink.manage_kukla_guardian').addClass('kws_active_icon');
+        }, 4500);
+      }
+
+      // Show toast after all modules have been started (longest delay is 4.5s for kukla guardian)
       setTimeout(() => {
         console.log('[AFO_STATE_MANAGER] ✅ All modules started, restore complete!');
         if (typeof AFO_RECONNECT_UI !== 'undefined') {

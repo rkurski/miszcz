@@ -957,6 +957,16 @@ const AFO_RECONNECT_UI = {
       }
     }
 
+    // Kukla Guardian (Strażnik Kukli)
+    if (state.kuklaGuardian && state.kuklaGuardian.enabled) {
+      html += `
+        <div class="afo-module-item active">
+          <span class="icon">🛡️</span>
+          Obserwator
+        </div>
+      `;
+    }
+
     container.innerHTML = html || `
       <div class="afo-module-item inactive">
         <span class="icon">😴</span>
