@@ -46,7 +46,7 @@ const AFO_RECONNECT_UI = {
   startStatusMonitor() {
     this._lastCharId = null;
 
-    setInterval(async () => {
+    this.statusMonitorInterval = setInterval(async () => {
       if (typeof GAME === 'undefined' || !GAME.server) return;
 
       // Detect char change
@@ -957,12 +957,22 @@ const AFO_RECONNECT_UI = {
       }
     }
 
-    // Kukla Guardian (Strażnik Kukli)
+    // Kukla Guardian (Obserwator)
     if (state.kuklaGuardian && state.kuklaGuardian.enabled) {
       html += `
         <div class="afo-module-item active">
           <span class="icon">🛡️</span>
           Obserwator
+        </div>
+      `;
+    }
+
+    // Clan Assist (Automatyczne Asysty)
+    if (state.clanAssist && state.clanAssist.enabled) {
+      html += `
+        <div class="afo-module-item active">
+          <span class="icon">🤝</span>
+          Asysty
         </div>
       `;
     }

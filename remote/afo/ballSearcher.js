@@ -98,6 +98,8 @@ const AFO_BALL_SEARCHER = {
   },
 
   bindSocketHandler() {
+    if (this._socketBound) return;
+    this._socketBound = true;
     GAME.socket.on('gr', (msg) => {
       if (this.active) {
         this.handleSockets(msg);

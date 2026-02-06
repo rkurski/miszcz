@@ -59,6 +59,8 @@ const AFO_DAILY = {
   },
 
   bindSocketHandler() {
+    if (this._socketBound) return;
+    this._socketBound = true;
     GAME.socket.on('gr', (msg) => {
       if (!DAILY.stop) {
         this.handleSockets(msg);

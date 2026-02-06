@@ -3,7 +3,7 @@
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.1.0
+ * Version: 2.2.0
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -70,7 +70,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.1.0';
+  var version = '2.2.0';
 
   // ============================================
   // SOCKET DETECTION
@@ -186,7 +186,9 @@ if (typeof GAME === 'undefined') {
         // Soul card sets dropdown - in top_bar, float right (where old sc_setss was)
         $("#top_bar").append(`<select id="sc_set_select"><option value="">-- Zestaw kart --</option></select>`);
         // Populate dropdown when module loads
+        let scSetAttempts = 0;
         let scSetPopulateInterval = setInterval(() => {
+          if (++scSetAttempts > 300) { clearInterval(scSetPopulateInterval); return; }
           if (typeof AFO_SOUL_CARD_SETS !== 'undefined') {
             clearInterval(scSetPopulateInterval);
             const select = $('#sc_set_select');
@@ -194,7 +196,9 @@ if (typeof GAME === 'undefined') {
               select.append(`<option value="${name}">${name}</option>`);
             });
             // Restore saved set when char_data is available
+            let restoreAttempts = 0;
             let restoreInterval = setInterval(() => {
+              if (++restoreAttempts > 150) { clearInterval(restoreInterval); return; }
               if (GAME.char_data?.id) {
                 clearInterval(restoreInterval);
                 const savedSet = AFO_SOUL_CARD_SETS.loadCurrentSet();
@@ -223,7 +227,7 @@ if (typeof GAME === 'undefined') {
           if ('char_data' in GAME) {
             this.updateTopBar();
           }
-        }, 1000);
+        }, 5000);
         this.setWebsiteBackground();
 
         // Bind click handlers (internal + external module)
@@ -231,9 +235,12 @@ if (typeof GAME === 'undefined') {
         if (typeof bindAllClickHandlers === 'function') {
           bindAllClickHandlers(this);
         }
-        GAME.socket.on('gr', (res) => {
-          this.handleSockets(res);
-        });
+        if (!this._socketBound) {
+          this._socketBound = true;
+          GAME.socket.on('gr', (res) => {
+            this.handleSockets(res);
+          });
+        }
 
         // Global cleanup on page unload to prevent memory leaks
         window.addEventListener('beforeunload', () => {
@@ -256,7 +263,9 @@ if (typeof GAME === 'undefined') {
         });
       }
       isLogged(cb) {
+        let waitAttempts = 0;
         let waitForID = setInterval(() => {
+          if (++waitAttempts > 150) { clearInterval(waitForID); return; }
           if (GAME.pid) {
             clearInterval(waitForID);
             cb(GAME.pid);
@@ -418,7 +427,9 @@ if (typeof GAME === 'undefined') {
       // are now in handlers/clan.js
 
       findWorker(worker, cb) {
+        let workerAttempts = 0;
         let waitForWorker = setInterval(() => {
+          if (++workerAttempts > 300) { clearInterval(waitForWorker); return; }
           let el = $(`button[data-emp="${worker.id}"]button[data-option="emp_job"]`);
           let emp_local = parseInt(el.attr("data-emp_local"));
           if (el.length) {
@@ -503,7 +514,9 @@ if (typeof GAME === 'undefined') {
           type: 9
         });
         JQS.ldr.finish().fadeIn();
+        let titleAttempts = 0;
         let wait_for_titles = setInterval(() => {
+          if (++titleAttempts > 300) { clearInterval(wait_for_titles); return; }
           let html = $("#char_titles").html();
           if (html.length) {
             clearInterval(wait_for_titles);
@@ -802,9 +815,12 @@ if (typeof GAME === 'undefined') {
       console.log('[Gieniobot] TournamentsMixin applied');
     }
 
-    GAME.socket.on('pong', function (ms) {
-      latency = ms;
-    });
+    if (!window._pongBound) {
+      window._pongBound = true;
+      GAME.socket.on('pong', function (ms) {
+        latency = ms;
+      });
+    }
 
     // Wait for charactersManager to be ready
     let charWait = setInterval(() => {

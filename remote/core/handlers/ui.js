@@ -16,7 +16,6 @@ const UIMixin = {
   // ============================================
 
   updateTopBar() {
-    GAME.socket.io.engine.pingInterval = 1000;
     let sk_status;
     let instances = [];
     let currentLevel = GAME.char_data.level;

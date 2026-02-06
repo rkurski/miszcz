@@ -87,7 +87,7 @@ function setupGameOverrides() {
     new MutationObserver((_, obs) => {
       const container = document.getElementById('char_stats_container');
       if (!container) return;
-      if (container.querySelector('.afo-tourn-wins')) return;
+      if (container.querySelector('.afo-tourn-wins')) { obs.disconnect(); return; }
       const rows = container.querySelectorAll('tr');
       for (const row of rows) {
         if (row.firstElementChild && row.firstElementChild.textContent.trim() === 'Wykonane zadania codzienne') {
@@ -95,6 +95,7 @@ function setupGameOverrides() {
           tr.classList.add('afo-tourn-wins');
           tr.innerHTML = `<td>Wygrane turnieje</td><td></td><td>${GAME.dots(GAME.char_data.tourn_wins)}</td>`;
           row.after(tr);
+          obs.disconnect();
           break;
         }
       }
@@ -159,7 +160,7 @@ function setupGameOverrides() {
       opts += ` <div class="autoArenaBuff" style="top:${arenaTop}px;"> <div style="padding-left:8px;"> <label for="aePvpBuff" style="cursor:pointer;">PVP BUFF</label> <div class="newCheckbox"><input type="checkbox" id="aePvpBuff" name="aePvpBuff" ${kws.settings.aePvpBuff ? "checked" : ""} /><label for="aePvpBuff"></label></div> </div> </div>`;
       const expeTop = getSideIconTop();
       opts += `<div class="qlink sideIcons manage_autoExpeditions${kws.autoExpeditions ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/v1M3iIS.png');display:block;top:${expeTop}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Wyprawy</div>"></div>`;
-      opts += ` <div class="autoExpeCodes" style="top:${expeTop + 28}px;"> <div style="padding-left:8px;"> <label for="aeCodes" style="cursor:pointer;">KODY</label> <div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" ${kws.settings.aeCodes ? "checked" : ""} /><label for="aeCodes"></label></div> </div> </div>`;
+      opts += ` <div class="autoExpeCodes" style="top:${expeTop}px;"> <div style="padding-left:8px;"> <label for="aeCodes" style="cursor:pointer;">KODY</label> <div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" ${kws.settings.aeCodes ? "checked" : ""} /><label for="aeCodes"></label></div> </div> </div>`;
       // Clan Assist toggle - only visible when klan_id != 0 and reborn >= 1
       const canShowClanAssist = GAME.char_data && GAME.char_data.klan_id && GAME.char_data.klan_id !== 0 && GAME.char_data.reborn >= 1;
       const clanAssistEnabled = typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.enabled !== false;

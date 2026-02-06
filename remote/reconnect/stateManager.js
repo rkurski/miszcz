@@ -152,6 +152,13 @@ const AFO_STATE_MANAGER = {
       };
     }
 
+    // Save Clan Assist state (Automatyczne Asysty)
+    if (typeof CLAN_ASSIST !== 'undefined') {
+      state.clanAssist = {
+        enabled: CLAN_ASSIST.enabled !== false
+      };
+    }
+
     // Save activities state if available
     if (window.AFO_ACTIVITIES_STATE) {
       state.activities = {
@@ -797,14 +804,28 @@ const AFO_STATE_MANAGER = {
         }, 4500);
       }
 
-      // Show toast after all modules have been started (longest delay is 4.5s for kukla guardian)
+      // Clan Assist (Automatyczne Asysty)
+      if (state.clanAssist && state.clanAssist.enabled && typeof CLAN_ASSIST !== 'undefined') {
+        console.log('[AFO_STATE_MANAGER] Starting Clan Assist...');
+        // Set enabled immediately so parseQuickOpts renders with active class
+        CLAN_ASSIST.enabled = true;
+        setTimeout(() => {
+          if (!CLAN_ASSIST.running) {
+            CLAN_ASSIST.start();
+          }
+          // Ensure icon has active class after any re-render
+          $('.qlink.manage_auto_clanAssist').addClass('kws_active_icon');
+        }, 5000);
+      }
+
+      // Show toast after all modules have been started (longest delay is 5s for clan assist)
       setTimeout(() => {
         console.log('[AFO_STATE_MANAGER] ✅ All modules started, restore complete!');
         if (typeof AFO_RECONNECT_UI !== 'undefined') {
           AFO_RECONNECT_UI.showToast('Stan przywrócony!', 'success');
           AFO_RECONNECT_UI.updateStatusFromStorage();
         }
-      }, 5000);
+      }, 5500);
     }, 1000);
   },
 
