@@ -115,6 +115,8 @@ const PilotMixin = {
           opacity: 0.7;
         }
         .kws_alt_btn.close_btn:hover { border-color: #ff4444; box-shadow: 0 0 8px 2px #ff4444; opacity: 1; }
+        .kws_alt_btn.txt_btn { font-size: 11px; line-height: 1.1; }
+        .kws_alt_btn.ico_btn.clock { background-image: url('https://i.imgur.com/9YCvJKe.png'); background-size: contain; }
       </style>`);
     }
 
@@ -158,23 +160,23 @@ const PilotMixin = {
               <button id="klawiszb5" class="kws_alt_btn small">B</button>
               <button id="klawiszcx3" class="kws_alt_btn small">Cx5</button>
               <button id="klawiszvx3" class="kws_alt_btn small">Vx5</button>
-              <button id="klawiszn" class="kws_alt_btn small">N</button>
+              <button id="klawiszn" class="kws_alt_btn small ico_btn clock" title="Zegarek (N)"></button>
             </div>
           </div>
         </div>
 
         <div style="margin-top:6px;">
           <div class="kws_alt_group_label">Skróty</div>
-          <div class="kws_alt_btn_group" style="grid-template-columns: repeat(9, 1fr); margin-bottom:6px;">
-            <button id="klawisz1" class="kws_alt_btn small">1</button>
-            <button id="klawisz2" class="kws_alt_btn small">2</button>
-            <button id="klawisz3" class="kws_alt_btn small">3</button>
-            <button id="klawisz4" class="kws_alt_btn small">4</button>
-            <button id="klawisz5" class="kws_alt_btn small">5</button>
-            <button id="klawisz6" class="kws_alt_btn small">6</button>
-            <button id="klawisz7" class="kws_alt_btn small">7</button>
-            <button id="klawisz8" class="kws_alt_btn small">8</button>
-            <button id="klawisz9" class="kws_alt_btn small">9</button>
+          <div class="kws_alt_btn_group" style="grid-template-columns: repeat(6, 1fr); margin-bottom:6px;">
+            <!-- <button id="klawisz1" class="kws_alt_btn small">1</button> // native game key -->
+            <button id="klawisz2" class="kws_alt_btn small txt_btn" title="Prywatna Planeta">PP</button>
+            <button id="klawisz3" class="kws_alt_btn small txt_btn" title="Klanowa Planeta">PK</button>
+            <button id="klawisz4" class="kws_alt_btn small txt_btn" title="Błogosławieństwo">BLESS</button>
+            <button id="klawisz5" class="kws_alt_btn small txt_btn" title="VIP + Ekspedycja">VIP</button>
+            <!-- <button id="klawisz6" class="kws_alt_btn small txt_btn" title="Postać klanowa">KLAN</button> -->
+            <button id="klawisz7" class="kws_alt_btn small txt_btn" title="Ustaw wyprawę">WYP</button>
+            <button id="klawisz8" class="kws_alt_btn small txt_btn" title="Zmień zestaw">SET</button>
+            <!-- <button id="klawisz9" class="kws_alt_btn small">9</button> // native game key -->
           </div>
           <button id="klawiszspacja" class="kws_alt_btn close_btn" style="width:100%;">ZAMKNIJ</button>
         </div>
