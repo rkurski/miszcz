@@ -68,6 +68,8 @@
     'remote/features/clanAssist.js',
     // Kukla Guardian - Strażnik Kukli (auto dragon ball fights)
     'remote/features/kuklaGuardian.js',
+    // Trader Auto-Buy - Auto Handlarz (auto trader purchasing)
+    'remote/features/traderAutoBuy.js',
   ];
 
   // CSS files to load (empty - gieniobot.js handles CSS internally)
