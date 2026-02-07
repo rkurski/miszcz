@@ -12904,7 +12904,11 @@ console.log('[AFO] Reconnect index module loaded');
     loopInterval: 30000,     // 30 seconds between loops
     fightDelay: 2000,        // 2 seconds between fights
     pageLoadDelay: 1000,     // 1 second wait after page switch
-    fightCount: 0            // Total fights this session
+    fightCount: 0,           // Total fights this session
+    // Pause/resume combat modules during fights
+    pauseDelay: 2000,        // 2s wait after pausing before fights
+    _pausedModules: null,    // Snapshot of paused modules (null = not paused)
+    _safetyTimer: null       // Safety timer to force resume after 120s
   };
 
   // Make it globally accessible
@@ -12915,7 +12919,8 @@ console.log('[AFO] Reconnect index module loaded');
    * @returns {boolean}
    */
   function isSpecialUser() {
-    return GAME.server === 20 && GAME.char_data && GAME.char_data.id === 2860;
+    // return GAME.server === 20 && GAME.char_data && GAME.char_data.id === 2860;
+    false
   }
 
   /**
@@ -12924,6 +12929,48 @@ console.log('[AFO] Reconnect index module loaded');
    */
   function getDefaultEnabled() {
     return isSpecialUser();
+  }
+
+  /**
+   * Snapshot which combat modules (PVP, RESP) are active and pause them.
+   * @returns {Object|null} snapshot or null if no combat modules are active
+   */
+  function snapshotAndPauseCombatModules() {
+    const snapshot = {
+      PVP: typeof PVP !== 'undefined' && PVP.stop === false,
+      RESP: typeof RESP !== 'undefined' && RESP.stop === false
+    };
+
+    if (!snapshot.PVP && !snapshot.RESP) return null;
+
+    if (snapshot.PVP) PVP.stop = true;
+    if (snapshot.RESP) RESP.stop = true;
+
+    console.log('[KuklaGuardian] Paused combat modules:', JSON.stringify(snapshot));
+    return snapshot;
+  }
+
+  /**
+   * Resume combat modules that were active before the pause.
+   * @param {Object} snapshot - from snapshotAndPauseCombatModules()
+   */
+  function resumeCombatModules(snapshot) {
+    if (!snapshot) return;
+
+    if (snapshot.PVP && typeof PVP !== 'undefined' && typeof AFO_PVP !== 'undefined') {
+      PVP.stop = false;
+      AFO_PVP.start();
+      console.log('[KuklaGuardian] Resumed PVP');
+    }
+
+    if (snapshot.RESP && typeof RESP !== 'undefined' && typeof AFO_RESP !== 'undefined') {
+      RESP.stop = false;
+      AFO_RESP.action();
+      if (!RESP.reloadint) {
+        RESP.reloadint = setInterval(() => AFO_RESP.reload_map(), 60000);
+      }
+      console.log('[KuklaGuardian] Resumed RESP');
+    }
   }
 
   /**
@@ -12942,31 +12989,75 @@ console.log('[AFO] Reconnect index module loaded');
 
       console.log(`[KuklaGuardian] Found ${buttons.length} balls to fight`);
 
-      for (const btn of buttons) {
-        if (!KUKLA_GUARDIAN.running) break;
+      if (buttons.length > 0) {
+        // Pause PVP/RESP if active
+        const snapshot = snapshotAndPauseCombatModules();
+        KUKLA_GUARDIAN._pausedModules = snapshot;
 
-        const ballId = btn.dataset.ball_id;
-        const charId = btn.dataset.char_id;
+        if (snapshot) {
+          // Safety timer: auto-resume after 120s in case of total hang
+          KUKLA_GUARDIAN._safetyTimer = setTimeout(() => {
+            console.warn('[KuklaGuardian] Safety timer triggered! Force-resuming modules.');
+            if (KUKLA_GUARDIAN._pausedModules) {
+              resumeCombatModules(KUKLA_GUARDIAN._pausedModules);
+              KUKLA_GUARDIAN._pausedModules = null;
+            }
+          }, 120000);
 
-        console.log(`[KuklaGuardian] emitOrder → ball=${ballId}, char=${charId}`);
-
-        try {
-          GAME.emitOrder({
-            a: 33,
-            type: 6,
-            char_id: Number(charId),
-            ball: Number(ballId)
-          });
-          KUKLA_GUARDIAN.fightCount++;
-        } catch (e) {
-          console.warn('[KuklaGuardian] emitOrder error:', e);
+          // Wait for current actions to finish
+          console.log(`[KuklaGuardian] Waiting ${KUKLA_GUARDIAN.pauseDelay}ms for modules to settle...`);
+          await delay(KUKLA_GUARDIAN.pauseDelay);
         }
 
-        await delay(KUKLA_GUARDIAN.fightDelay);
+        // Fight all balls
+        for (const btn of buttons) {
+          if (!KUKLA_GUARDIAN.running) break;
+
+          const ballId = btn.dataset.ball_id;
+          const charId = btn.dataset.char_id;
+
+          console.log(`[KuklaGuardian] emitOrder → ball=${ballId}, char=${charId}`);
+
+          try {
+            GAME.emitOrder({
+              a: 33,
+              type: 6,
+              char_id: Number(charId),
+              ball: Number(ballId)
+            });
+            KUKLA_GUARDIAN.fightCount++;
+          } catch (e) {
+            console.warn('[KuklaGuardian] emitOrder error:', e);
+          }
+
+          await delay(KUKLA_GUARDIAN.fightDelay);
+        }
+
+        // Resume paused modules
+        if (KUKLA_GUARDIAN._pausedModules) {
+          console.log('[KuklaGuardian] Fights complete, resuming modules...');
+          resumeCombatModules(KUKLA_GUARDIAN._pausedModules);
+          KUKLA_GUARDIAN._pausedModules = null;
+        }
+        if (KUKLA_GUARDIAN._safetyTimer) {
+          clearTimeout(KUKLA_GUARDIAN._safetyTimer);
+          KUKLA_GUARDIAN._safetyTimer = null;
+        }
       }
     } catch (e) {
       console.error('[KuklaGuardian] runOnce error:', e);
     } finally {
+      // Safety: resume modules even on error
+      if (KUKLA_GUARDIAN._pausedModules) {
+        console.log('[KuklaGuardian] Finally: resuming modules after error/stop');
+        resumeCombatModules(KUKLA_GUARDIAN._pausedModules);
+        KUKLA_GUARDIAN._pausedModules = null;
+      }
+      if (KUKLA_GUARDIAN._safetyTimer) {
+        clearTimeout(KUKLA_GUARDIAN._safetyTimer);
+        KUKLA_GUARDIAN._safetyTimer = null;
+      }
+
       if (KUKLA_GUARDIAN.running) {
         KUKLA_GUARDIAN.timer = setTimeout(() => runOnce(), KUKLA_GUARDIAN.loopInterval);
       }
@@ -12998,6 +13089,18 @@ console.log('[AFO] Reconnect index module loaded');
       clearTimeout(KUKLA_GUARDIAN.timer);
       KUKLA_GUARDIAN.timer = null;
     }
+
+    // Resume any paused modules
+    if (KUKLA_GUARDIAN._pausedModules) {
+      console.log('[KuklaGuardian] Stop called while modules paused, resuming...');
+      resumeCombatModules(KUKLA_GUARDIAN._pausedModules);
+      KUKLA_GUARDIAN._pausedModules = null;
+    }
+    if (KUKLA_GUARDIAN._safetyTimer) {
+      clearTimeout(KUKLA_GUARDIAN._safetyTimer);
+      KUKLA_GUARDIAN._safetyTimer = null;
+    }
+
     console.log('[KuklaGuardian] STOP');
   }
 

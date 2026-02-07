@@ -42,7 +42,8 @@
     // { id: 1938, name: 'Sfera', gfx: '/gfx/items/0/000/1938.png' },
     // { id: 1937, name: 'Sfera', gfx: '/gfx/items/0/000/1937.png' },
     // { id: 1936, name: 'Sfera', gfx: '/gfx/items/0/000/1936.png' },
-    { id: 1935, name: 'Tytuł', gfx: '/gfx/items/0/192/1708.png' },
+    { id: 1251, name: 'Kula Energii', gfx: '/gfx/items/0/55/1251.png' },
+    { id: 1935, name: 'Tytuł', gfx: '/gfx/items/0/83/1935.png' },
   ];
 
   const ITEMS_TOKENS = [
