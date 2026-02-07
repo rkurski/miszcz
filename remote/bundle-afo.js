@@ -3877,7 +3877,7 @@ const AFO_BALL_SEARCHER = {
 
     if (dbPageSwitch.length > 0 && existingButton.length === 0) {
       $(`<button class="gold_button search_balls" style="margin-left:10px;">SZUKAJ KUL</button>`)
-        .insertAfter(dbPageSwitch);
+        .insertBefore(dbPageSwitch);
       console.log('[BALL_SEARCHER] Button injected');
     }
   },

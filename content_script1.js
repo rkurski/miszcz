@@ -68,6 +68,8 @@
     'remote/features/clanAssist.js',
     // Kukla Guardian - Strażnik Kukli (auto dragon ball fights)
     'remote/features/kuklaGuardian.js',
+    // Train Blessings - Quick-use blessy na stronie treningu
+    'remote/features/trainBlessings.js',
     // Trader Auto-Buy - Auto Handlarz (auto trader purchasing)
     'remote/features/traderAutoBuy.js',
   ];
