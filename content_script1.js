@@ -72,6 +72,8 @@
     'remote/features/trainBlessings.js',
     // Trader Auto-Buy - Auto Handlarz (auto trader purchasing)
     'remote/features/traderAutoBuy.js',
+    // Exchange Highlight - podświetlanie posiadanych upominków w wymianie
+    'remote/features/exchangeHighlight.js',
   ];
 
   // CSS files to load (empty - gieniobot.js handles CSS internally)
