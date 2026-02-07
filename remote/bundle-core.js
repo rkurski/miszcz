@@ -2771,8 +2771,8 @@ const AFO_SOUL_CARD_SETS = {
     const hasSlotClass = slotsContainer.attr('class')?.match(/slots\d+/);
 
     if (!hasSlotClass) {
-      console.log('[SoulCardSets] Cards page not loaded, switching...');
-      GAME.page_switch('game_cards');
+      console.log('[SoulCardSets] Cards page not loaded, fetching data...');
+      GAME.emitOrder({a: 58, type: 0});
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },
@@ -2975,7 +2975,7 @@ console.log('[SoulCardSets] Module loaded');
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.2.0
+ * Version: 2.3.0
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -3007,7 +3007,7 @@ console.log('[SoulCardSets] Module loaded');
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
-const GIENIOBOT_DEV_MODE = true;
+const GIENIOBOT_DEV_MODE = false;
 
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');
@@ -3042,7 +3042,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.2.0';
+  var version = '2.3.0';
 
   // ============================================
   // SOCKET DETECTION
@@ -8438,11 +8438,9 @@ new cardPackOpener();
       return 0;
     }
 
-    // Navigate to equipment page
+    // Navigate to equipment page (no page switch - just fetch data in background)
     async function navigateToEkwPage(page, page2) {
-      console.log('[Activities] Navigating to ekw page', page, '/', page2);
-      GAME.page_switch('game_ekw');
-      await delay(1000);  // Wait 1s after page switch
+      console.log('[Activities] Fetching ekw page', page, '/', page2, '(no page switch)');
       GAME.emitOrder({ a: 12, page: page, page2: page2 });
       await delay(1000);  // Wait 1s for items to load
     }
@@ -8814,8 +8812,8 @@ new cardPackOpener();
       'Odbierz nagrodę VIP': async () => {
         console.log('[Activities] Executing: Odbierz nagrodę VIP');
 
-        // Open VIP page
-        GAME.page_switch('game_vip');
+        // Fetch VIP data (no page switch)
+        GAME.socket.emit('ga', { a: 54, type: 0 });
         await delay(1000);
 
         // Collect rewards recursively
@@ -12980,8 +12978,8 @@ console.log('[AFO] Reconnect index module loaded');
     if (!KUKLA_GUARDIAN.running) return;
 
     try {
-      console.log('[KuklaGuardian] page_switch → game_balls');
-      GAME.page_switch('game_balls');
+      console.log('[KuklaGuardian] Loading balls data (no page switch)');
+      GAME.emitOrder({a: 33, type: 0});
 
       await delay(KUKLA_GUARDIAN.pageLoadDelay);
 

@@ -234,8 +234,8 @@ const AFO_SOUL_CARD_SETS = {
     const hasSlotClass = slotsContainer.attr('class')?.match(/slots\d+/);
 
     if (!hasSlotClass) {
-      console.log('[SoulCardSets] Cards page not loaded, switching...');
-      GAME.page_switch('game_cards');
+      console.log('[SoulCardSets] Cards page not loaded, fetching data...');
+      GAME.emitOrder({a: 58, type: 0});
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },

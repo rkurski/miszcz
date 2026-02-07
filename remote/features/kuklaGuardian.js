@@ -113,8 +113,8 @@
     if (!KUKLA_GUARDIAN.running) return;
 
     try {
-      console.log('[KuklaGuardian] page_switch → game_balls');
-      GAME.page_switch('game_balls');
+      console.log('[KuklaGuardian] Loading balls data (no page switch)');
+      GAME.emitOrder({a: 33, type: 0});
 
       await delay(KUKLA_GUARDIAN.pageLoadDelay);
 

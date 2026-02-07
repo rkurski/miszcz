@@ -1,7 +1,7 @@
   {
     "name": "Gieniobot Master",
     "description": "Gieniobot Master",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "manifest_version": 3,
     "permissions": [
       "tabs",
