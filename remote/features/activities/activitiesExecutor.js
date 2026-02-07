@@ -677,11 +677,9 @@
       return 0;
     }
 
-    // Navigate to equipment page
+    // Navigate to equipment page (no page switch - just fetch data in background)
     async function navigateToEkwPage(page, page2) {
-      console.log('[Activities] Navigating to ekw page', page, '/', page2);
-      GAME.page_switch('game_ekw');
-      await delay(1000);  // Wait 1s after page switch
+      console.log('[Activities] Fetching ekw page', page, '/', page2, '(no page switch)');
       GAME.emitOrder({ a: 12, page: page, page2: page2 });
       await delay(1000);  // Wait 1s for items to load
     }
@@ -1053,8 +1051,8 @@
       'Odbierz nagrodę VIP': async () => {
         console.log('[Activities] Executing: Odbierz nagrodę VIP');
 
-        // Open VIP page
-        GAME.page_switch('game_vip');
+        // Fetch VIP data (no page switch)
+        GAME.socket.emit('ga', { a: 54, type: 0 });
         await delay(1000);
 
         // Collect rewards recursively

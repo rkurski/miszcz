@@ -83,6 +83,23 @@ function setupGameOverrides() {
       }
     }, 1200);
     GAME.parseQuickOpts(1);
+    // Inject tournament wins row into char_stats_container when it appears
+    new MutationObserver((_, obs) => {
+      const container = document.getElementById('char_stats_container');
+      if (!container) return;
+      if (container.querySelector('.afo-tourn-wins')) { obs.disconnect(); return; }
+      const rows = container.querySelectorAll('tr');
+      for (const row of rows) {
+        if (row.firstElementChild && row.firstElementChild.textContent.trim() === 'Wykonane zadania codzienne') {
+          const tr = document.createElement('tr');
+          tr.classList.add('afo-tourn-wins');
+          tr.innerHTML = `<td>Wygrane turnieje</td><td></td><td>${GAME.dots(GAME.char_data.tourn_wins)}</td>`;
+          row.after(tr);
+          obs.disconnect();
+          break;
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
     kws.workers_info = [false, false];
     arena_count = 0;
     pvp_count = 0;
@@ -133,17 +150,26 @@ function setupGameOverrides() {
         opts += `<div class="qlink get_titles_list" style="background-image: url('https://i.imgur.com/k88insr.png');" data-toggle="tooltip" data-original-title="<div class=tt>Zmień tytuł</div>"></div>`;
       }
       opts += `<div class="qlink load_afo" style="background-image: url('https://i.imgur.com/pOti3b8.png');" data-toggle="tooltip" data-original-title="<div class=tt>Załaduj Gieniobota</div>"></div>`;
-      opts += `<div class="qlink sideIcons manage_auto_abyss${kws.auto_abyss ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/j5eQv2B.png');display:block;top:-136px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie Otchłani</div>"></div>`;
-      opts += `<div class="qlink sideIcons manage_auto_arena${kws.auto_arena ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/XQz5nRu.png');display:block;top:-104px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie na Arenie</div>"></div>`;
-      opts += ` <div class="autoArenaBuff"> <div style="padding-left:8px;"> <label for="aePvpBuff" style="cursor:pointer;">PVP BUFF</label> <div class="newCheckbox"><input type="checkbox" id="aePvpBuff" name="aePvpBuff" ${kws.settings.aePvpBuff ? "checked" : ""} /><label for="aePvpBuff"></label></div> </div> </div>`;
-      opts += `<div class="qlink sideIcons manage_autoExpeditions${kws.autoExpeditions ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/v1M3iIS.png');display:block;top:-72px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Wyprawy</div>"></div>`;
-      opts += ` <div class="autoExpeCodes"> <div style="padding-left:8px;"> <label for="aeCodes" style="cursor:pointer;">KODY</label> <div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" ${kws.settings.aeCodes ? "checked" : ""} /><label for="aeCodes"></label></div> </div> </div>`;
+      // Dynamic positioning for side icons - no gaps when some are hidden
+      let sideIconIndex = 0;
+      const getSideIconTop = () => -136 + (sideIconIndex++ * 32);
+
+      opts += `<div class="qlink sideIcons manage_auto_abyss${kws.auto_abyss ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/j5eQv2B.png');display:block;top:${getSideIconTop()}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie Otchłani</div>"></div>`;
+      const arenaTop = getSideIconTop();
+      opts += `<div class="qlink sideIcons manage_auto_arena${kws.auto_arena ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/XQz5nRu.png');display:block;top:${arenaTop}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Atakowanie na Arenie</div>"></div>`;
+      opts += ` <div class="autoArenaBuff" style="top:${arenaTop}px;"> <div style="padding-left:8px;"> <label for="aePvpBuff" style="cursor:pointer;">PVP BUFF</label> <div class="newCheckbox"><input type="checkbox" id="aePvpBuff" name="aePvpBuff" ${kws.settings.aePvpBuff ? "checked" : ""} /><label for="aePvpBuff"></label></div> </div> </div>`;
+      const expeTop = getSideIconTop();
+      opts += `<div class="qlink sideIcons manage_autoExpeditions${kws.autoExpeditions ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/v1M3iIS.png');display:block;top:${expeTop}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Wyprawy</div>"></div>`;
+      opts += ` <div class="autoExpeCodes" style="top:${expeTop}px;"> <div style="padding-left:8px;"> <label for="aeCodes" style="cursor:pointer;">KODY</label> <div class="newCheckbox"><input type="checkbox" id="aeCodes" name="aeCodes" ${kws.settings.aeCodes ? "checked" : ""} /><label for="aeCodes"></label></div> </div> </div>`;
       // Clan Assist toggle - only visible when klan_id != 0 and reborn >= 1
       const canShowClanAssist = GAME.char_data && GAME.char_data.klan_id && GAME.char_data.klan_id !== 0 && GAME.char_data.reborn >= 1;
       const clanAssistEnabled = typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.enabled !== false;
       if (canShowClanAssist) {
-        opts += `<div class="qlink sideIcons manage_auto_clanAssist${clanAssistEnabled ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/DbP8Snj.png');display:block;top:-40px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Asysty</div>"></div>`;
+        opts += `<div class="qlink sideIcons manage_auto_clanAssist${clanAssistEnabled ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/DbP8Snj.png');display:block;top:${getSideIconTop()}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Automatyczne Asysty</div>"></div>`;
       }
+      // Kukla Guardian toggle (Strażnik Kukli)
+      const kuklaGuardianEnabled = typeof KUKLA_GUARDIAN !== 'undefined' && KUKLA_GUARDIAN.enabled === true;
+      opts += `<div class="qlink sideIcons manage_kukla_guardian${kuklaGuardianEnabled ? ' kws_active_icon' : ''}" style="background-repeat: no-repeat; background-position: center; background-image: url('https://i.imgur.com/5mP0N9b.png');display:block;top:${getSideIconTop()}px;position:absolute;" data-toggle="tooltip" data-original-title="<div class=tt>[Włącz / Wyłącz] Strażnik Kukli</div>"></div>`;
     }
     $('#quick_bar').html(opts);
     if (GAME.char_id && GAME.char_data.klan_rent === 0) {

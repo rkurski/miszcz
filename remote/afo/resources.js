@@ -36,6 +36,8 @@ const AFO_RES = {
   },
 
   bindSocketHandler() {
+    if (this._socketBound) return;
+    this._socketBound = true;
     GAME.socket.on('gr', (res) => {
       this.HandleResponse(res);
     });

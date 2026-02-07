@@ -71,7 +71,7 @@ const AFO_BALL_SEARCHER = {
 
     if (dbPageSwitch.length > 0 && existingButton.length === 0) {
       $(`<button class="gold_button search_balls" style="margin-left:10px;">SZUKAJ KUL</button>`)
-        .insertAfter(dbPageSwitch);
+        .insertBefore(dbPageSwitch);
       console.log('[BALL_SEARCHER] Button injected');
     }
   },
@@ -98,6 +98,8 @@ const AFO_BALL_SEARCHER = {
   },
 
   bindSocketHandler() {
+    if (this._socketBound) return;
+    this._socketBound = true;
     GAME.socket.on('gr', (msg) => {
       if (this.active) {
         this.handleSockets(msg);

@@ -12,6 +12,7 @@
 const AFO_LPVM = {
 
   Finder: null,
+  tppIntervalId: null,
 
   // ============================================
   // INITIALIZATION
@@ -21,7 +22,23 @@ const AFO_LPVM = {
     this.loadEasyStar();
     this.bindSocketHandler();
     this.injectTPPDisplay();
-    setInterval(() => this.updateTPP(), 1000);
+    this.startTPPUpdater();
+  },
+
+  startTPPUpdater() {
+    if (this.tppIntervalId) return;
+    this.tppIntervalId = setInterval(() => {
+      if (!LPVM.Stop) {
+        this.updateTPP();
+      }
+    }, 5000);
+  },
+
+  stopTPPUpdater() {
+    if (this.tppIntervalId) {
+      clearInterval(this.tppIntervalId);
+      this.tppIntervalId = null;
+    }
   },
 
   injectTPPDisplay() {
@@ -52,6 +69,8 @@ const AFO_LPVM = {
   },
 
   bindSocketHandler() {
+    if (this._socketBound) return;
+    this._socketBound = true;
     GAME.socket.on('gr', (msg) => {
       this.HandleSockets(msg);
     });

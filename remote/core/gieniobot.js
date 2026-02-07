@@ -3,7 +3,7 @@
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.1.0
+ * Version: 2.3.0
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -70,7 +70,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.1.0';
+  var version = '2.3.0';
 
   // ============================================
   // SOCKET DETECTION
@@ -139,6 +139,7 @@ if (typeof GAME === 'undefined') {
         this.addToCSS(`#quick_bar{z-index:4;} .sideIcons{ width:29px; height:29px; left:-37px; background-size:contain; border-radius:5px; border: 2px solid transparent; } .sideIcons:hover{border-color: #3fc1c9; box-shadow: 0 0 8px 2px #3fc1c9;} .qlink.kws_active_icon{animation-name:kws_active_icon;animation-duration:2s;animation-iteration-count:infinite;}@keyframes kws_active_icon { 0% { box-shadow: 0 0 8px 2px #3fc1c9; border-color: #3fc1c9; } 50% { box-shadow: 0 0 8px 2px #f9ca24; border-color: #f9ca24; } 100% { box-shadow: 0 0 8px 2px #3fc1c9; border-color: #3fc1c9; } } .autoExpeCodes{background:#12121294; border:1px solid rgb(87, 87, 114); border-radius:5px 0px 0px 5px; position:absolute; top:-100px; left:-97px; padding:5px; display:none; color:#ffe500c7; user-select:none;} .manage_autoExpeditions:hover + .autoExpeCodes, .autoExpeCodes:hover{ display:flex; } .autoExpeCodes .newCheckbox{margin: 0 auto; display: block;} .autoArenaBuff{background:#12121294; border:1px solid rgb(87, 87, 114); border-radius:5px 0px 0px 5px; position:absolute; top:-104px; left:-125px; padding:5px; display:none; color:#ffe500c7; user-select:none;} .manage_auto_arena:hover ~ .autoArenaBuff, .autoArenaBuff:hover{ display:flex; } .autoArenaBuff .newCheckbox{margin: 0 auto; display: block;} `);
         this.addToCSS(`.kws_active_button{animation-name:kws_active_button;animation-duration:2s;animation-iteration-count:infinite;}@keyframes kws_active_button { 0% { box-shadow: 0 0 8px 2px #3fc1c9; border-color: #3fc1c9; } 50% { box-shadow: 0 0 8px 2px #f9ca24; border-color: #f9ca24; } 100% { box-shadow: 0 0 8px 2px #3fc1c9; border-color: #3fc1c9; } }`)
         this.addToCSS(`.manage_auto_clanAssist{border-radius:5px; border: 2px solid transparent;} .manage_auto_clanAssist:hover{border-color: #3fc1c9; box-shadow: 0 0 8px 2px #3fc1c9;}`);
+        this.addToCSS(`.manage_kukla_guardian{border-radius:5px; border: 2px solid transparent;} .manage_kukla_guardian:hover{border-color: #3fc1c9; box-shadow: 0 0 8px 2px #3fc1c9;}`);
         this.addToCSS(`#secondary_char_stats .instance{margin-top:10px; cursor:pointer; width:100px;} #secondary_char_stats .activities{margin-top:-5px; cursor:pointer; width:100px;} #secondary_char_stats ul {margin-top:-18px; margin-left:-18px;} .ico.a11{background:url("${getGieniobotUrl('images/instances.png')}"); background-repeat: no-repeat; background-size: inherit; background-position: center;} .ico.a12{background-image: url(${getGieniobotUrl('images/activity.png')}); background-repeat: no-repeat; background-size: inherit; background-position: center;}`);
         this.addToCSS(`.ssj_uio{background:url("https://i.imgur.com/EcfEUcG.png");}`);
         this.addToCSS(`#quick_allTransformations { position:absolute; top:33px; z-index:1; background:rgb(0 0 0 / 59%); display:none; flex-direction: column-reverse; padding:5px 5px 0px 5px; border-radius:5px; box-shadow:0px 0px 5px 0px rgb(32 96 185);} .show_qat:hover + #quick_allTransformations, #quick_allTransformations:hover { display:flex; } #quick_allTransformations .option { display:block; margin:0px 0px 5px 0px; }`);
@@ -161,6 +162,7 @@ if (typeof GAME === 'undefined') {
         this.addToCSS(`.spawn_switch{cursor:pointer;}`);
         this.addToCSS(`.quest_roll1{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:25px; cursor:pointer; filter:drop-shadow(0px 0px 10px lime)} .quest_roll2{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:75px; cursor:pointer; filter:drop-shadow(0px 0px 10px #00fdff)} .quest_roll3{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:125px; cursor:pointer; filter:drop-shadow(0px 0px 10px #ff0000)} .quest_roll:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll1:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll2:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll3:hover{background:url('/gfx/layout/dice.png') 0 -45px;}`);
         this.addToCSS(`#lastmap_bar { top: 115px !important; }`);
+        this.addToCSS(`.MoveIcon .pi.kws_pvp{background:url('https://i.imgur.com/QPQBcFp.png') center/contain no-repeat;} .MoveIcon .pi.kws_skip{background:url('https://i.imgur.com/wuK91VF.png') center/contain no-repeat;} .MoveIcon .pi.kws_clock{background:url('https://i.imgur.com/9YCvJKe.png') center/contain no-repeat;} .MoveIcon .pi.kws_alt{background:url('https://up.be3.ovh/upload/1709400449.png') center/contain no-repeat;}`);
         this.addToCSS(`button#changeProfileNext { position: absolute; top: 85px; right: 16px; background: linear-gradient(0deg, rgba(252,238,54,1) 0%, rgba(247,121,12,1) 100%); border: 2px solid #973804; border-radius: 5px; width: 52px; }`);
         this.addToCSS(`button#changeProfileNext:hover {
                     background: linear-gradient(0deg, rgba(247,121,12,1) 0%, rgba(252,238,54,1) 100%);
@@ -184,7 +186,9 @@ if (typeof GAME === 'undefined') {
         // Soul card sets dropdown - in top_bar, float right (where old sc_setss was)
         $("#top_bar").append(`<select id="sc_set_select"><option value="">-- Zestaw kart --</option></select>`);
         // Populate dropdown when module loads
+        let scSetAttempts = 0;
         let scSetPopulateInterval = setInterval(() => {
+          if (++scSetAttempts > 300) { clearInterval(scSetPopulateInterval); return; }
           if (typeof AFO_SOUL_CARD_SETS !== 'undefined') {
             clearInterval(scSetPopulateInterval);
             const select = $('#sc_set_select');
@@ -192,7 +196,9 @@ if (typeof GAME === 'undefined') {
               select.append(`<option value="${name}">${name}</option>`);
             });
             // Restore saved set when char_data is available
+            let restoreAttempts = 0;
             let restoreInterval = setInterval(() => {
+              if (++restoreAttempts > 150) { clearInterval(restoreInterval); return; }
               if (GAME.char_data?.id) {
                 clearInterval(restoreInterval);
                 const savedSet = AFO_SOUL_CARD_SETS.loadCurrentSet();
@@ -205,10 +211,10 @@ if (typeof GAME === 'undefined') {
         }, 100);
         $(`#minimap_con`).append(`<div id="kws_locInfo"><div class="sekcja">INFORMACJE O LOKACJI</div><div class="content"></div></div>`);
         $("#sett_page_local div").eq(0).prepend(`<b class=\"green\">Zmień tło strony </b><div class=\"game_input\"><input id=\"new_website_bg\" style=\"width:370px;\" type=\"text\" placeholder=\"Wklej URL obrazka...\"></div><button class=\"option newBtn kws_change_website_bg\" style=\"margin-left:5px;\">Zmień</button><button class=\"option newBtn kws_reset_website_bg\" style=\"margin-left:5px;\">Reset</button><br><b class=\"green\" style=\"margin-top:5px;display:inline-block;\">lub wybierz z listy: </b><select id=\"kws_bg_preset_select\" class=\"select_input\" style=\"margin-left:5px;min-width:200px;\"></select><br><br>`);
-        $('.MoveIcon[data-option="mob_spawner_go"]').after('<div class="MoveIcon bigg option" data-option="map_multi_pvp" data-toggle="tooltip" data-original-title="<div class=tt>Multiwalka PvP<br />Klawisz skrótu:<b class=orange>B</b></div>"><img src="https://i.imgur.com/QPQBcFp.png"></div>');
-        $('.MoveIcon[data-option="map_multi_pvp"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip" data-toggle="tooltip" data-original-title="<div class=tt>Opcja Dalej w otwartym zadaniu jeśli jest jedna. Atakuje bosy w zadaniach i zamyka raport z walki. W zadaniu nuda wybiera opcję na zabicie mobków. W zadaniu subki wybiera opcję za 100k. Zamyka komunikaty. Zbiera zasób na którym stoimy.<br />Klawisz skrótu:<b class=orange>X</b></div>"><img src="https://i.imgur.com/wuK91VF.png"></div>');
-        $('.MoveIcon[data-option="map_quest_skip"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip_time" data-toggle="tooltip" data-original-title="<div class=tt>Używanie zegarków w zadaniach<br />Klawisz skrótu:<b class=orange>N</b></div>"><img src="https://i.imgur.com/9YCvJKe.png"></div>');
-        $('.MoveIcon[data-option="map_quest_skip_time"]').after('<div class="MoveIcon bigg option" data-option="map_alternative_pilot" data-toggle="tooltip" data-original-title="<div class=tt>Ukryje pilota, pokazuje inną klawiaturę<br />Klawisz skrótu:<b class=orange>=</b></div>"><img src="https://up.be3.ovh/upload/1709400449.png"></div>');
+        $('.MoveIcon[data-option="mob_spawner_go"]').after('<div class="MoveIcon bigg option" data-option="map_multi_pvp" data-toggle="tooltip" data-original-title="<div class=tt>Multiwalka PvP<br />Klawisz skrótu:<b class=orange>B</b></div>"><i class="pi kws_pvp"></i></div>');
+        $('.MoveIcon[data-option="map_multi_pvp"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip" data-toggle="tooltip" data-original-title="<div class=tt>Opcja Dalej w otwartym zadaniu jeśli jest jedna. Atakuje bosy w zadaniach i zamyka raport z walki. W zadaniu nuda wybiera opcję na zabicie mobków. W zadaniu subki wybiera opcję za 100k. Zamyka komunikaty. Zbiera zasób na którym stoimy.<br />Klawisz skrótu:<b class=orange>X</b></div>"><i class="pi kws_skip"></i></div>');
+        $('.MoveIcon[data-option="map_quest_skip"]').after('<div class="MoveIcon bigg option" data-option="map_quest_skip_time" data-toggle="tooltip" data-original-title="<div class=tt>Używanie zegarków w zadaniach<br />Klawisz skrótu:<b class=orange>N</b></div>"><i class="pi kws_clock"></i></div>');
+        $('.MoveIcon[data-option="map_quest_skip_time"]').after('<div class="MoveIcon bigg option" data-option="map_alternative_pilot" data-toggle="tooltip" data-original-title="<div class=tt>Ukryje pilota, pokazuje inną klawiaturę<br />Klawisz skrótu:<b class=orange>=</b></div>"><i class="pi kws_alt"></i></div>');
         $("#changeProfile").before('<button id="changeProfilePrev" class="btn_small_gold" data-option="prevChar">Prev</button>');
         $("#changeProfile").after('<button id="changeProfileNext" class="btn_small_gold" data-option="nextChar">Next</button>');
         this.auto_abyss_interval = false;
@@ -221,7 +227,7 @@ if (typeof GAME === 'undefined') {
           if ('char_data' in GAME) {
             this.updateTopBar();
           }
-        }, 1000);
+        }, 5000);
         this.setWebsiteBackground();
 
         // Bind click handlers (internal + external module)
@@ -229,9 +235,12 @@ if (typeof GAME === 'undefined') {
         if (typeof bindAllClickHandlers === 'function') {
           bindAllClickHandlers(this);
         }
-        GAME.socket.on('gr', (res) => {
-          this.handleSockets(res);
-        });
+        if (!this._socketBound) {
+          this._socketBound = true;
+          GAME.socket.on('gr', (res) => {
+            this.handleSockets(res);
+          });
+        }
 
         // Global cleanup on page unload to prevent memory leaks
         window.addEventListener('beforeunload', () => {
@@ -254,7 +263,9 @@ if (typeof GAME === 'undefined') {
         });
       }
       isLogged(cb) {
+        let waitAttempts = 0;
         let waitForID = setInterval(() => {
+          if (++waitAttempts > 150) { clearInterval(waitForID); return; }
           if (GAME.pid) {
             clearInterval(waitForID);
             cb(GAME.pid);
@@ -416,7 +427,9 @@ if (typeof GAME === 'undefined') {
       // are now in handlers/clan.js
 
       findWorker(worker, cb) {
+        let workerAttempts = 0;
         let waitForWorker = setInterval(() => {
+          if (++workerAttempts > 300) { clearInterval(waitForWorker); return; }
           let el = $(`button[data-emp="${worker.id}"]button[data-option="emp_job"]`);
           let emp_local = parseInt(el.attr("data-emp_local"));
           if (el.length) {
@@ -501,7 +514,9 @@ if (typeof GAME === 'undefined') {
           type: 9
         });
         JQS.ldr.finish().fadeIn();
+        let titleAttempts = 0;
         let wait_for_titles = setInterval(() => {
+          if (++titleAttempts > 300) { clearInterval(wait_for_titles); return; }
           let html = $("#char_titles").html();
           if (html.length) {
             clearInterval(wait_for_titles);
@@ -582,7 +597,9 @@ if (typeof GAME === 'undefined') {
         return `<b class="orange">[~${lvls_gained} lvl'i]</b>`;
       }
       handleSockets(res) {
-        //console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        // if (res.a !== 598 && res.a !== 596) {
+        //   console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        // }
         switch (res.a) {
           case 7: //?? PvP fight result?
             if (!this.stopped) {
@@ -798,9 +815,12 @@ if (typeof GAME === 'undefined') {
       console.log('[Gieniobot] TournamentsMixin applied');
     }
 
-    GAME.socket.on('pong', function (ms) {
-      latency = ms;
-    });
+    if (!window._pongBound) {
+      window._pongBound = true;
+      GAME.socket.on('pong', function (ms) {
+        latency = ms;
+      });
+    }
 
     // Wait for charactersManager to be ready
     let charWait = setInterval(() => {

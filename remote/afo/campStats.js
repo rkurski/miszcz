@@ -53,7 +53,7 @@ const AFO_CAMP_STATS = {
         console.log('[AFO_CAMP_STATS] Character changed:', this.currentCharId, '->', GAME.char_id);
         this.onCharSwitch();
       }
-    }, 1000);
+    }, 5000);
   },
 
   onCharSwitch() {
