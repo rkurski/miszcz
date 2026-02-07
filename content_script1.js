@@ -167,22 +167,24 @@
   }
 
   /**
-   * Load all scripts sequentially
+   * Load all scripts from a single bundle file (production)
    */
-  async function loadAllScripts() {
-    // First, try to get extension URL for DEV_MODE
-    if (DEV_MODE) {
-      await getExtensionUrl();
-    }
+  async function loadBundle() {
+    const url = GITHUB_URL + 'remote/bundle-core.js';
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const code = await response.text();
+    const script = document.createElement('script');
+    script.textContent = code;
+    script.dataset.source = 'bundle-core.js';
+    document.body.appendChild(script);
+    console.log('[Gieniobot] Bundle loaded!');
+  }
 
-    console.log(`[Gieniobot] Starting script load... (DEV_MODE: ${DEV_MODE}, LOCAL: ${EXTENSION_URL ? 'yes' : 'no'})`);
-
-    // Load CSS first (parallel)
-    if (STYLES.length > 0) {
-      await Promise.all(STYLES.map(loadStyle));
-    }
-
-    // Load scripts sequentially (dependencies matter)
+  /**
+   * Load all scripts sequentially (dev mode / fallback)
+   */
+  async function loadScriptsIndividually() {
     for (const script of SCRIPTS) {
       try {
         await loadScript(script);
@@ -190,7 +192,34 @@
         console.error(`[Gieniobot] Failed to load ${script}, continuing...`);
       }
     }
+  }
 
+  /**
+   * Load all scripts
+   */
+  async function loadAllScripts() {
+    // DEV_MODE: load individual files for development
+    if (DEV_MODE) {
+      await getExtensionUrl();
+      console.log(`[Gieniobot] Starting script load... (DEV_MODE: ${DEV_MODE}, LOCAL: ${EXTENSION_URL ? 'yes' : 'no'})`);
+
+      if (STYLES.length > 0) {
+        await Promise.all(STYLES.map(loadStyle));
+      }
+
+      await loadScriptsIndividually();
+      console.log('[Gieniobot] All scripts loaded!');
+      return;
+    }
+
+    // PRODUCTION: load single bundle
+    console.log('[Gieniobot] Loading bundle...');
+    try {
+      await loadBundle();
+    } catch (error) {
+      console.warn('[Gieniobot] Bundle failed, falling back to individual files...', error);
+      await loadScriptsIndividually();
+    }
     console.log('[Gieniobot] All scripts loaded!');
   }
 
