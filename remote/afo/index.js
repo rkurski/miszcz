@@ -198,7 +198,7 @@ const AFO = {
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.init();
     if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.init();
-    if (typeof AFO_CAMP_STATS !== 'undefined') AFO_CAMP_STATS.init();
+    // Note: AFO_CAMP_STATS is now self-initializing (no need to call init() here)
 
     // Bind submodule handlers
     if (typeof AFO_PVP !== 'undefined') AFO_PVP.bindHandlers();

@@ -2975,7 +2975,7 @@ console.log('[SoulCardSets] Module loaded');
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.3.0
+ * Version: 2.3.1
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -3007,7 +3007,7 @@ console.log('[SoulCardSets] Module loaded');
 // ============================================
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
-const GIENIOBOT_DEV_MODE = false;
+const GIENIOBOT_DEV_MODE = true;
 
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');
@@ -3042,7 +3042,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.3.0';
+  var version = '2.3.1';
 
   // ============================================
   // SOCKET DETECTION
@@ -12637,7 +12637,7 @@ console.log('[AFO] Reconnect index module loaded');
 
   // Global state
   const CLAN_ASSIST = {
-    enabled: true,           // Toggle state for auto-assist (can be disabled via icon)
+    enabled: false,          // Toggle state for auto-assist (off by default, like other modules)
     running: false,          // Currently processing assists
     lastRun: 0,              // Timestamp of last run
     checkInterval: 30000,    // 30 seconds between checks

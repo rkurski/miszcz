@@ -80,7 +80,7 @@ if (typeof GAME === 'undefined') {
           'codes.js',
           'glebia.js',
           'ballSearcher.js',
-          'campStats.js',
+          // Note: campStats.js moved to content_script1.js (self-initializing, independent of AFO)
           'dailyQuests.js',
           'index.js'
         ];

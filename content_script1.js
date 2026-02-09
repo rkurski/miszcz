@@ -74,6 +74,8 @@
     'remote/features/traderAutoBuy.js',
     // Exchange Highlight - podświetlanie posiadanych upominków w wymianie
     'remote/features/exchangeHighlight.js',
+    // Camp Stats - statystyki wypraw (self-initializing)
+    'remote/afo/campStats.js',
   ];
 
   // CSS files to load (empty - gieniobot.js handles CSS internally)

@@ -25,7 +25,7 @@
 
   // Global state
   const CLAN_ASSIST = {
-    enabled: true,           // Toggle state for auto-assist (can be disabled via icon)
+    enabled: false,          // Toggle state for auto-assist (off by default, like other modules)
     running: false,          // Currently processing assists
     lastRun: 0,              // Timestamp of last run
     checkInterval: 30000,    // 30 seconds between checks
