@@ -264,18 +264,85 @@
     };
 
     const json = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const filename = `camp_stats_s${GAME.server}_${GAME.char_data?.name || GAME.char_id}_${Date.now()}.json`;
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `camp_stats_s${GAME.server}_${GAME.char_data?.name || GAME.char_id}_${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Always show modal with download/copy options
+    showExportModal(json, filename);
+  }
 
-    console.log('[CampStats] Exported stats');
+  function showExportModal(json, filename) {
+    // Remove existing modal
+    const existing = document.getElementById('afo_cs_export_modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'afo_cs_export_modal';
+    modal.className = 'afo_modal_overlay';
+    modal.innerHTML = `
+      <div class="afo_modal">
+        <div class="afo_modal_header">
+          <b>Eksport statystyk</b>
+          <span class="afo_modal_close" id="afo_cs_export_close">&times;</span>
+        </div>
+        <div class="afo_modal_body">
+          <div class="afo_cs_import_info">
+            Zapisz lub skopiuj poniższy JSON:<br>
+            <code style="color:#4a9; font-size:11px;">${filename}</code>
+          </div>
+          <textarea id="afo_cs_export_text" readonly rows="12" style="width:100%; box-sizing:border-box; background:#0a1520; color:#ccc; border:1px solid #305779; border-radius:4px; padding:6px; font-family:monospace; font-size:10px; resize:vertical;"></textarea>
+        </div>
+        <div class="afo_modal_footer">
+          <button id="afo_cs_export_download" class="afo_btn_green">Pobierz plik</button>
+          <button id="afo_cs_export_copy" class="afo_btn_green">Kopiuj</button>
+          <button id="afo_cs_export_cancel" class="afo_btn_gray">Zamknij</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Set raw JSON value
+    document.getElementById('afo_cs_export_text').value = json;
+
+    // Close handlers
+    const closeModal = () => modal.remove();
+    document.getElementById('afo_cs_export_close').addEventListener('click', closeModal);
+    document.getElementById('afo_cs_export_cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Download handler
+    document.getElementById('afo_cs_export_download').addEventListener('click', () => {
+      try {
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log('[CampStats] Download triggered from modal');
+      } catch (e) {
+        alert('Pobieranie nie działa w tej przeglądarce. Użyj przycisku Kopiuj.');
+      }
+    });
+
+    // Copy handler
+    document.getElementById('afo_cs_export_copy').addEventListener('click', () => {
+      const textarea = document.getElementById('afo_cs_export_text');
+      textarea.select();
+      textarea.setSelectionRange(0, 99999); // For mobile
+      navigator.clipboard.writeText(json).then(() => {
+        alert('Skopiowano do schowka!');
+      }).catch(() => {
+        alert('Nie udało się skopiować. Zaznacz tekst ręcznie i skopiuj.');
+      });
+    });
+
+    console.log('[CampStats] Showing export modal');
   }
 
   function validateImportData(data) {
