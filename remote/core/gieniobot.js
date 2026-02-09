@@ -3,7 +3,7 @@
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.3.0
+ * Version: 2.3.1
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -70,7 +70,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.3.0';
+  var version = '2.3.1';
 
   // ============================================
   // SOCKET DETECTION
