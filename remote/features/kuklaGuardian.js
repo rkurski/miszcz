@@ -92,12 +92,20 @@
 
     if (snapshot.PVP && typeof PVP !== 'undefined' && typeof AFO_PVP !== 'undefined') {
       PVP.stop = false;
-      AFO_PVP.start();
-      console.log('[KuklaGuardian] Resumed PVP');
+      PVP.caseNumber = 0;  // Reset to start of PVP cycle
+
+      // Use setTimeout to guarantee loop restart even if race condition occurs
+      // This gives GAME.is_loading time to synchronize and avoids immediate execution in undefined state
+      window.setTimeout(() => {
+        AFO_PVP.start();
+      }, 100);
+
+      console.log('[KuklaGuardian] Resumed PVP (with delayed start)');
     }
 
     if (snapshot.RESP && typeof RESP !== 'undefined' && typeof AFO_RESP !== 'undefined') {
       RESP.stop = false;
+      RESP.loc = GAME.char_data.loc;  // Remember location for spawn calculations
       AFO_RESP.action();
       if (!RESP.reloadint) {
         RESP.reloadint = setInterval(() => AFO_RESP.reload_map(), 60000);
