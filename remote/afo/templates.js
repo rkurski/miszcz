@@ -365,6 +365,28 @@ const AFO_Templates = {
         width: 180px;
         min-width: 160px;
       }
+    `,
+
+    assist: `
+      #assist_Panel {
+        top: 400px;
+        right: 200px;
+        width: 200px;
+        min-width: 180px;
+      }
+
+      #assist_Panel .select-group {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      #assist_Panel .select-label {
+        color: var(--afo-text-muted);
+        font-size: 10px;
+        margin-bottom: 4px;
+        display: block;
+      }
     `
   },
 
@@ -407,6 +429,10 @@ const AFO_Templates = {
           </div>
           <div class='afo-button gh_button gh_daily'>
             <span>📅 Dzienne</span>
+            <b class='gh_status red'>Off</b>
+          </div>
+          <div class='afo-button gh_button gh_assist'>
+            <span>🤝 Asystent</span>
             <b class='gh_status red'>Off</b>
           </div>
         </div>
@@ -734,6 +760,28 @@ const AFO_Templates = {
           <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
         </div>
       </div>
+    `,
+
+    assist: `
+      <div id="assist_Panel" class="afo-panel">
+        <div class="afo-header assist_dragg">🤝 ASYSTENT</div>
+        <div class="panel-content">
+          <div class='afo-button assist_button assist_train'>
+            <span>🏋️ Trenuj</span>
+            <b class='assist_status red'>Off</b>
+          </div>
+          <div class='afo-button assist_button assist_assist'>
+            <span>🤝 Asystuj</span>
+            <b class='assist_status red'>Off</b>
+          </div>
+          <div class="select-group">
+            <label class='select-label'>Wybierz gracza:</label>
+            <select id='assist_player_select' class='afo-select'>
+              <option value="0">-</option>
+            </select>
+          </div>
+        </div>
+      </div>
     `
   },
 
@@ -851,6 +899,7 @@ const AFO_Templates = {
     $("body").append(this.html.res);
     $("body").append(this.html.lpvm);
     $("body").append(this.html.glebia);
+    $("body").append(this.html.assist);
 
     // Hide sub-panels initially
     $("#pvp_Panel").hide();
@@ -859,6 +908,7 @@ const AFO_Templates = {
     $("#res_Panel").hide();
     $("#lpvm_Panel").hide();
     $("#glebia_Panel").hide();
+    $("#assist_Panel").hide();
 
     // Setup custom draggable with touch support and viewport containment
     this.makeDraggable(document.getElementById('main_Panel'), document.querySelector('.panel_dragg'));
@@ -868,6 +918,7 @@ const AFO_Templates = {
     this.makeDraggable(document.getElementById('lpvm_Panel'), document.querySelector('.lpvm_dragg'));
     this.makeDraggable(document.getElementById('code_Panel'), document.querySelector('.code_dragg'));
     this.makeDraggable(document.getElementById('glebia_Panel'), document.querySelector('.glebia_dragg'));
+    this.makeDraggable(document.getElementById('assist_Panel'), document.querySelector('.assist_dragg'));
 
     // Setup viewport containment on resize
     this.setupViewportContainment();
