@@ -226,6 +226,29 @@ var DAILY = {
 };
 
 // ============================================
+// CLAN TRAINING ASSISTANT STATE
+// ============================================
+var ASSIST = {
+  stop: true,
+  trainStop: true,
+  assistStop: true,
+  selectedPlayer: '',
+  selectedPlayerId: 0,
+  wait: 400,
+
+  // Training state machine
+  trainState: 0,
+  assistReceived: false,
+
+  // Assist state machine
+  assistState: 0,
+
+  // Cached data
+  clanMembers: [],
+  clanTrains: []
+};
+
+// ============================================
 // INIT LOCATION-DEPENDENT STATE
 // ============================================
 function initAFOState() {
@@ -243,6 +266,7 @@ window.LPVM = LPVM;
 window.RES = RES;
 window.CODE = CODE;
 window.DAILY = DAILY;
+window.ASSIST = ASSIST;
 window.initAFOState = initAFOState;
 
 console.log('[AFO] State module loaded');

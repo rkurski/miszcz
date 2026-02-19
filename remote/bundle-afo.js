@@ -227,6 +227,29 @@ var DAILY = {
 };
 
 // ============================================
+// CLAN TRAINING ASSISTANT STATE
+// ============================================
+var ASSIST = {
+  stop: true,
+  trainStop: true,
+  assistStop: true,
+  selectedPlayer: '',
+  selectedPlayerId: 0,
+  wait: 400,
+
+  // Training state machine
+  trainState: 0,
+  assistReceived: false,
+
+  // Assist state machine
+  assistState: 0,
+
+  // Cached data
+  clanMembers: [],
+  clanTrains: []
+};
+
+// ============================================
 // INIT LOCATION-DEPENDENT STATE
 // ============================================
 function initAFOState() {
@@ -244,6 +267,7 @@ window.LPVM = LPVM;
 window.RES = RES;
 window.CODE = CODE;
 window.DAILY = DAILY;
+window.ASSIST = ASSIST;
 window.initAFOState = initAFOState;
 
 console.log('[AFO] State module loaded');
@@ -617,6 +641,28 @@ const AFO_Templates = {
         width: 180px;
         min-width: 160px;
       }
+    `,
+
+    assist: `
+      #assist_Panel {
+        top: 400px;
+        right: 200px;
+        width: 200px;
+        min-width: 180px;
+      }
+
+      #assist_Panel .select-group {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      #assist_Panel .select-label {
+        color: var(--afo-text-muted);
+        font-size: 10px;
+        margin-bottom: 4px;
+        display: block;
+      }
     `
   },
 
@@ -659,6 +705,10 @@ const AFO_Templates = {
           </div>
           <div class='afo-button gh_button gh_daily'>
             <span>📅 Dzienne</span>
+            <b class='gh_status red'>Off</b>
+          </div>
+          <div class='afo-button gh_button gh_assist'>
+            <span>🤝 Asystent</span>
             <b class='gh_status red'>Off</b>
           </div>
         </div>
@@ -986,6 +1036,28 @@ const AFO_Templates = {
           <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
         </div>
       </div>
+    `,
+
+    assist: `
+      <div id="assist_Panel" class="afo-panel">
+        <div class="afo-header assist_dragg">🤝 ASYSTENT</div>
+        <div class="panel-content">
+          <div class='afo-button assist_button assist_train'>
+            <span>🏋️ Trenuj</span>
+            <b class='assist_status red'>Off</b>
+          </div>
+          <div class='afo-button assist_button assist_assist'>
+            <span>🤝 Asystuj</span>
+            <b class='assist_status red'>Off</b>
+          </div>
+          <div class="select-group">
+            <label class='select-label'>Wybierz gracza:</label>
+            <select id='assist_player_select' class='afo-select'>
+              <option value="0">-</option>
+            </select>
+          </div>
+        </div>
+      </div>
     `
   },
 
@@ -1103,6 +1175,7 @@ const AFO_Templates = {
     $("body").append(this.html.res);
     $("body").append(this.html.lpvm);
     $("body").append(this.html.glebia);
+    $("body").append(this.html.assist);
 
     // Hide sub-panels initially
     $("#pvp_Panel").hide();
@@ -1111,6 +1184,7 @@ const AFO_Templates = {
     $("#res_Panel").hide();
     $("#lpvm_Panel").hide();
     $("#glebia_Panel").hide();
+    $("#assist_Panel").hide();
 
     // Setup custom draggable with touch support and viewport containment
     this.makeDraggable(document.getElementById('main_Panel'), document.querySelector('.panel_dragg'));
@@ -1120,6 +1194,7 @@ const AFO_Templates = {
     this.makeDraggable(document.getElementById('lpvm_Panel'), document.querySelector('.lpvm_dragg'));
     this.makeDraggable(document.getElementById('code_Panel'), document.querySelector('.code_dragg'));
     this.makeDraggable(document.getElementById('glebia_Panel'), document.querySelector('.glebia_dragg'));
+    this.makeDraggable(document.getElementById('assist_Panel'), document.querySelector('.assist_dragg'));
 
     // Setup viewport containment on resize
     this.setupViewportContainment();
@@ -4721,6 +4796,281 @@ const AFO_BALL_SEARCHER = {
 // Export
 window.AFO_BALL_SEARCHER = AFO_BALL_SEARCHER;
 console.log('[AFO] Ball Searcher module loaded');
+
+
+// ========== remote/afo/assist.js ==========
+/**
+ * ============================================================================
+ * AFO - Clan Training Assistant Module
+ * ============================================================================
+ *
+ * Automates clan training and assists:
+ * - TRENUJ: Start training, cancel when selected player assists, loop
+ * - ASYSTUJ: Monitor selected player's trainings and assist ASAP
+ *
+ * ============================================================================
+ */
+
+const AFO_ASSIST = {
+
+  // ============================================
+  // MAIN LOOPS
+  // ============================================
+
+  /**
+   * TRENUJ Loop:
+   * 1. Start training (1h strength)
+   * 2. Wait for selected player to assist
+   * 3. Cancel training
+   * 4. Cooldown and repeat
+   */
+  startTraining() {
+    if (ASSIST.trainStop || GAME.is_training) return;
+
+    ASSIST.trainState = 1;
+
+    // Start 1h strength training
+    GAME.socket.emit('ga', {
+      a: 8,
+      type: 2,
+      stat: 1,      // Siła
+      duration: 1   // 1 godzina
+    });
+
+    console.log('[AFO_ASSIST] Training started');
+    ASSIST.trainState = 2; // Wait for assist
+
+    setTimeout(() => this.checkTrainProgress(), ASSIST.wait);
+  },
+
+  checkTrainProgress() {
+    if (ASSIST.trainStop) {
+      ASSIST.trainState = 0;
+      return;
+    }
+
+    // Check if assist received
+    if (ASSIST.assistReceived && GAME.is_training) {
+      console.log('[AFO_ASSIST] Assist received, canceling training');
+      this.cancelTraining();
+    } else {
+      // Keep checking
+      setTimeout(() => this.checkTrainProgress(), 1000);
+    }
+  },
+
+  cancelTraining() {
+    ASSIST.trainState = 3;
+
+    // Cancel current training
+    GAME.socket.emit('ga', {a: 8, type: 3});
+
+    console.log('[AFO_ASSIST] Training canceled');
+
+    // Reset and restart after cooldown
+    setTimeout(() => {
+      ASSIST.trainState = 0;
+      ASSIST.assistReceived = false;
+      this.startTraining(); // Loop
+    }, ASSIST.wait);
+  },
+
+  /**
+   * ASYSTUJ Loop:
+   * 1. Fetch clan trainings list
+   * 2. Find selected player's training
+   * 3. Assist if found and not already assisting
+   * 4. Cooldown and repeat
+   */
+  startAssisting() {
+    if (ASSIST.assistStop || ASSIST.selectedPlayerId === 0) return;
+
+    ASSIST.assistState = 1;
+    this.fetchTrains();
+  },
+
+  fetchTrains() {
+    if (ASSIST.assistStop) {
+      ASSIST.assistState = 0;
+      return;
+    }
+
+    // Request clan trainings
+    GAME.socket.emit('ga', {a: 39, type: 54});
+
+    console.log('[AFO_ASSIST] Fetching trainings');
+
+    // Wait for parseClanData(17) to populate ASSIST.clanTrains
+    setTimeout(() => this.findPlayerTrain(), ASSIST.wait);
+  },
+
+  findPlayerTrain() {
+    if (ASSIST.assistStop) {
+      ASSIST.assistState = 0;
+      return;
+    }
+
+    ASSIST.assistState = 3;
+
+    const trains = ASSIST.clanTrains;
+    if (!trains || trains.length === 0) {
+      // No trainings, retry
+      setTimeout(() => this.fetchTrains(), 2000);
+      return;
+    }
+
+    // Find selected player's training where we haven't assisted yet
+    const playerTrain = trains.find(t =>
+      t.char_id === ASSIST.selectedPlayerId &&
+      (!t.helpers || !t.helpers.chars || t.helpers.chars.indexOf(GAME.char_id) === -1)
+    );
+
+    if (playerTrain) {
+      console.log('[AFO_ASSIST] Found training for', ASSIST.selectedPlayer);
+      this.doAssist(playerTrain.id, playerTrain.char_id);
+    } else {
+      // No training found, retry
+      setTimeout(() => this.fetchTrains(), 2000);
+    }
+  },
+
+  doAssist(tid, target) {
+    ASSIST.assistState = 4;
+
+    GAME.socket.emit('ga', {
+      a: 39,
+      type: 55,
+      tid: tid,
+      target: target
+    });
+
+    console.log('[AFO_ASSIST] Assist sent to', ASSIST.selectedPlayer);
+
+    // Cooldown and restart loop
+    setTimeout(() => {
+      ASSIST.assistState = 0;
+      this.startAssisting();
+    }, ASSIST.wait);
+  },
+
+  // ============================================
+  // CLAN DATA HANDLER (called from hook)
+  // ============================================
+
+  handleClanData(res, type) {
+    switch(type) {
+      case 4:  // Lista członków
+        ASSIST.clanMembers = res.players || [];
+        this.updateMemberSelect();
+        console.log('[AFO_ASSIST] Clan members updated:', ASSIST.clanMembers.length);
+        break;
+
+      case 17: // Lista treningów
+        ASSIST.clanTrains = res.trains || [];
+        console.log('[AFO_ASSIST] Clan trainings updated:', ASSIST.clanTrains.length);
+        break;
+
+      case 18: // Aktualizacja treningu (nowa asysta)
+        if (res.assistant && res.assistant[0] == ASSIST.selectedPlayerId) {
+          ASSIST.assistReceived = true;
+          console.log('[AFO_ASSIST] Assist detected from', ASSIST.selectedPlayer);
+        }
+        break;
+    }
+  },
+
+  // ============================================
+  // UI UPDATES
+  // ============================================
+
+  updateMemberSelect() {
+    const select = $('#assist_player_select');
+    if (select.length === 0) return;
+
+    select.empty();
+    select.append('<option value="0">-</option>');
+
+    // Sort alphabetically, exclude self
+    const sorted = ASSIST.clanMembers
+      .filter(p => p.id !== GAME.char_id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    sorted.forEach(player => {
+      const selected = player.id == ASSIST.selectedPlayerId ? 'selected' : '';
+      select.append(`<option value="${player.id}" ${selected}>${player.name}</option>`);
+    });
+  },
+
+  // ============================================
+  // PANEL HANDLERS
+  // ============================================
+
+  bindHandlers() {
+    // TRENUJ toggle
+    $('#assist_Panel .assist_train').click(() => {
+      if (ASSIST.trainStop) {
+        ASSIST.trainStop = false;
+        ASSIST.trainState = 0;
+        ASSIST.assistReceived = false;
+        $('.assist_train .assist_status').removeClass('red').addClass('green').html('On');
+        this.startTraining();
+      } else {
+        ASSIST.trainStop = true;
+        ASSIST.trainState = 0;
+        $('.assist_train .assist_status').removeClass('green').addClass('red').html('Off');
+      }
+    });
+
+    // ASYSTUJ toggle
+    $('#assist_Panel .assist_assist').click(() => {
+      if (ASSIST.assistStop) {
+        if (ASSIST.selectedPlayerId === 0) {
+          GAME.komunikat('Wybierz gracza z listy!');
+          return;
+        }
+        ASSIST.assistStop = false;
+        ASSIST.assistState = 0;
+        $('.assist_assist .assist_status').removeClass('red').addClass('green').html('On');
+        this.startAssisting();
+      } else {
+        ASSIST.assistStop = true;
+        ASSIST.assistState = 0;
+        $('.assist_assist .assist_status').removeClass('green').addClass('red').html('Off');
+      }
+    });
+
+    // Player select change
+    $('#assist_player_select').on('change', function() {
+      const playerId = parseInt($(this).val());
+      const playerName = $(this).find('option:selected').text();
+
+      ASSIST.selectedPlayerId = playerId;
+      ASSIST.selectedPlayer = playerName;
+
+      console.log('[AFO_ASSIST] Selected player:', playerName, '(ID:', playerId, ')');
+    });
+
+    console.log('[AFO_ASSIST] Handlers bound');
+  },
+
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+
+  init() {
+    // Fetch initial clan members list
+    if (GAME.char_data && GAME.char_data.klan_id > 0) {
+      setTimeout(() => {
+        GAME.socket.emit('ga', {a: 39, type: 15});
+        console.log('[AFO_ASSIST] Fetching initial clan members');
+      }, 1200);
+    }
+  }
+};
+
+// Export
+window.AFO_ASSIST = AFO_ASSIST;
+console.log('[AFO] Assist module loaded');
 
 
 // ========== remote/afo/dailyQuests.js ==========
@@ -10098,7 +10448,8 @@ console.log('[AFO] Daily Quests module loaded');
  * - afo/resources.js  - Resource mining logic
  * - afo/codes.js      - Codes/training logic
  * - afo/glebia.js     - Głębia (depth dungeon) logic
- * 
+ * - afo/assist.js     - Clan training assistant logic
+ *
  * ============================================================================
  */
 
@@ -10276,11 +10627,27 @@ const AFO = {
       }
     });
 
+    // ASYSTENT main button - show/hide submenu
+    $('#main_Panel .gh_assist').click(() => {
+      if ($(".gh_assist .gh_status").hasClass("red")) {
+        $(".gh_assist .gh_status").removeClass("red").addClass("green").html("On");
+        $("#assist_Panel").show();
+      } else {
+        $(".gh_assist .gh_status").removeClass("green").addClass("red").html("Off");
+        $("#assist_Panel").hide();
+        ASSIST.trainStop = true;
+        ASSIST.assistStop = true;
+        $(".assist_train .assist_status, .assist_assist .assist_status")
+          .removeClass("green").addClass("red").html("Off");
+      }
+    });
+
     // Initialize submodules that need EasyStar
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.init();
     if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.init();
+    if (typeof AFO_ASSIST !== 'undefined') AFO_ASSIST.init();
     // Note: AFO_CAMP_STATS is now self-initializing (no need to call init() here)
 
     // Bind submodule handlers
@@ -10292,6 +10659,7 @@ const AFO = {
     if (typeof AFO_GLEBIA !== 'undefined') AFO_GLEBIA.bindHandlers();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.bindHandlers();
     if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.bindHandlers();
+    if (typeof AFO_ASSIST !== 'undefined') AFO_ASSIST.bindHandlers();
 
     // List mines after delay
     setTimeout(() => {
@@ -10375,6 +10743,17 @@ const AFO = {
       };
     }
 
+    // Hook parseClanData for ASSIST module
+    if (!GAME.parseClanData_original) {
+      GAME.parseClanData_original = GAME.parseClanData.bind(GAME);
+      GAME.parseClanData = function(res, type) {
+        GAME.parseClanData_original(res, type);
+        if (typeof AFO_ASSIST !== 'undefined') {
+          AFO_ASSIST.handleClanData(res, type);
+        }
+      };
+    }
+
     console.log('[AFO] GAME overrides applied');
   },
 
@@ -10412,6 +10791,10 @@ const AFO = {
     CODE.stop = true;
     DAILY.stop = true;
     if (typeof GLEBIA !== 'undefined') GLEBIA.stop = true;
+    if (typeof ASSIST !== 'undefined') {
+      ASSIST.trainStop = true;
+      ASSIST.assistStop = true;
+    }
 
     $(".pvp_pvp .pvp_status").removeClass("green").addClass("red").html("Off");
     $(".resp_resp .resp_status").removeClass("green").addClass("red").html("Off");
@@ -10420,6 +10803,8 @@ const AFO = {
     $(".code_code .code_status").removeClass("green").addClass("red").html("Off");
     $(".glebia_toggle .glebia_status").removeClass("green").addClass("red").html("Off");
     $(".gh_daily .gh_status").removeClass("green").addClass("red").html("Off");
+    $(".assist_train .assist_status, .assist_assist .assist_status")
+      .removeClass("green").addClass("red").html("Off");
 
     console.log('[AFO] All modules stopped');
   }

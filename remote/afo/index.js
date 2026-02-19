@@ -15,7 +15,8 @@
  * - afo/resources.js  - Resource mining logic
  * - afo/codes.js      - Codes/training logic
  * - afo/glebia.js     - Głębia (depth dungeon) logic
- * 
+ * - afo/assist.js     - Clan training assistant logic
+ *
  * ============================================================================
  */
 
@@ -193,11 +194,27 @@ const AFO = {
       }
     });
 
+    // ASYSTENT main button - show/hide submenu
+    $('#main_Panel .gh_assist').click(() => {
+      if ($(".gh_assist .gh_status").hasClass("red")) {
+        $(".gh_assist .gh_status").removeClass("red").addClass("green").html("On");
+        $("#assist_Panel").show();
+      } else {
+        $(".gh_assist .gh_status").removeClass("green").addClass("red").html("Off");
+        $("#assist_Panel").hide();
+        ASSIST.trainStop = true;
+        ASSIST.assistStop = true;
+        $(".assist_train .assist_status, .assist_assist .assist_status")
+          .removeClass("green").addClass("red").html("Off");
+      }
+    });
+
     // Initialize submodules that need EasyStar
     if (typeof AFO_LPVM !== 'undefined') AFO_LPVM.init();
     if (typeof AFO_RES !== 'undefined') AFO_RES.init();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.init();
     if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.init();
+    if (typeof AFO_ASSIST !== 'undefined') AFO_ASSIST.init();
     // Note: AFO_CAMP_STATS is now self-initializing (no need to call init() here)
 
     // Bind submodule handlers
@@ -209,6 +226,7 @@ const AFO = {
     if (typeof AFO_GLEBIA !== 'undefined') AFO_GLEBIA.bindHandlers();
     if (typeof AFO_BALL_SEARCHER !== 'undefined') AFO_BALL_SEARCHER.bindHandlers();
     if (typeof AFO_DAILY !== 'undefined') AFO_DAILY.bindHandlers();
+    if (typeof AFO_ASSIST !== 'undefined') AFO_ASSIST.bindHandlers();
 
     // List mines after delay
     setTimeout(() => {
@@ -292,6 +310,17 @@ const AFO = {
       };
     }
 
+    // Hook parseClanData for ASSIST module
+    if (!GAME.parseClanData_original) {
+      GAME.parseClanData_original = GAME.parseClanData.bind(GAME);
+      GAME.parseClanData = function(res, type) {
+        GAME.parseClanData_original(res, type);
+        if (typeof AFO_ASSIST !== 'undefined') {
+          AFO_ASSIST.handleClanData(res, type);
+        }
+      };
+    }
+
     console.log('[AFO] GAME overrides applied');
   },
 
@@ -329,6 +358,10 @@ const AFO = {
     CODE.stop = true;
     DAILY.stop = true;
     if (typeof GLEBIA !== 'undefined') GLEBIA.stop = true;
+    if (typeof ASSIST !== 'undefined') {
+      ASSIST.trainStop = true;
+      ASSIST.assistStop = true;
+    }
 
     $(".pvp_pvp .pvp_status").removeClass("green").addClass("red").html("Off");
     $(".resp_resp .resp_status").removeClass("green").addClass("red").html("Off");
@@ -337,6 +370,8 @@ const AFO = {
     $(".code_code .code_status").removeClass("green").addClass("red").html("Off");
     $(".glebia_toggle .glebia_status").removeClass("green").addClass("red").html("Off");
     $(".gh_daily .gh_status").removeClass("green").addClass("red").html("Off");
+    $(".assist_train .assist_status, .assist_assist .assist_status")
+      .removeClass("green").addClass("red").html("Off");
 
     console.log('[AFO] All modules stopped');
   }
