@@ -200,14 +200,6 @@ const ClickHandlersMixin = {
       }
     });
 
-    // --- TOP BAR HANDLERS ---
-    $("body").on("click", `.kws_top_bar_section.sk_info`, () => {
-      GAME.page_switch('game_balls');
-    });
-    $("body").on("click", `.kws_top_bar_section.trader_info`, () => {
-      GAME.page_switch('game_events');
-    });
-
     // --- SOUL CARD SET HANDLER ---
     $("body").on("change", "#sc_set_select", async function () {
       const setName = $(this).val();
@@ -215,17 +207,6 @@ const ClickHandlersMixin = {
         await AFO_SOUL_CARD_SETS.switchToSet(setName);
         // Selection stays - it's saved and restored on reload
       }
-    });
-
-    // --- ADDITIONAL STATS ---
-    $("body").on("click", `.kws_top_bar_section.additional_stats`, () => {
-      this.handleAdditionalTopBarVisibility();
-    });
-    $("body").on("click", `.kws_additional_top_bar_section.additional_stats_reset`, () => {
-      this.resetCalculatedPower();
-    });
-    $("body").on("click", `.kws_top_bar_section.train_upgr_info`, () => {
-      GAME.page_switch('game_train');
     });
 
     // --- TRACKER ---
@@ -431,22 +412,6 @@ const ClickHandlersMixin = {
     $("body").on("click", ".qlink.go_to_emp", (el) => {
       let emp = parseInt($(el.target).attr("emp"));
       GAME.socket.emit('ga', { a: 50, type: 5, e: emp });
-    });
-
-    // --- SPAWNER ---
-    $("#kws_spawn").draggable({ handle: ".sekcja" });
-    $('.spawn_switch').on('click', function () { $("#kws_spawn2").toggle(); });
-    $("#kws_spawn input[type=checkbox], input[type=text]").change((chb) => {
-      switch ($(chb.target).attr("name")) {
-        case "ignoreMobs":
-          GAME.spawner[1] = $('#kws_spawn input[name="ignoreMobs"]').map((index, element) => {
-            return element.checked ? 1 : 0;
-          }).get();
-          break;
-        case "usePaToSpawn":
-          this.updatePaToSpawn($(chb.target).val());
-          break;
-      }
     });
 
     // --- SECONDARY STATS UI ---

@@ -16,6 +16,7 @@ const UIMixin = {
   // ============================================
 
   updateTopBar() {
+    // Calculate stats (existing logic)
     let sk_status;
     let instances = [];
     let currentLevel = GAME.char_data.level;
@@ -38,51 +39,79 @@ const UIMixin = {
       train_upgr = "AKTYWNE";
     }
 
-    if ('char_data' in GAME) {
-      instances = [GAME.char_data.icd_1, GAME.char_data.icd_2, GAME.char_data.icd_3, GAME.char_data.icd_4, GAME.char_data.icd_5, GAME.char_data.icd_6];
-    }
+    // Update sidebar stats (NEW)
+    const $sk = $('#kws-stat-sk');
+    $sk.text(sk_status);
+    $sk.toggleClass('status-active', sk_status === 'AKTYWNE');
+    $sk.toggleClass('status-timer', sk_status !== 'AKTYWNE');
 
-    let sum_instances = instances.reduce((a, b) => a + b, 0);
-    let activity = $('#char_activity').text();
-    let received = $("#act_prizes").find("div.act_prize.disabled").length;
+    const $kody = $('#kws-stat-kody');
+    $kody.text(train_upgr);
+    $kody.toggleClass('status-active', train_upgr === 'AKTYWNE');
+    $kody.toggleClass('status-timer', train_upgr !== 'AKTYWNE');
+
+    $('#kws-stat-lvlh').text(lvlh);
+    $('#kws-stat-pvp').text(pvp_count);
+    $('#kws-stat-arena').text(arena_count);
+
+    // Show/hide trader (Saturday only)
     let is_trader = new Date();
-    let trader = `<span class='kws_top_bar_section trader_info' style='cursor:pointer;'>HANDLARZ</span> `;
+    $('.trader_info').toggle(is_trader.getDay() === 6);
 
-    var latencyColor;
-    switch (true) {
-      case (latency < 51): latencyColor = "lime"; break;
-      case (latency < 100): latencyColor = "yellow"; break;
-      case (latency < 140): latencyColor = "orange"; break;
-      default: latencyColor = "red"; break;
+    // Update latency
+    const $latency = $('#kws-latency');
+    $latency.text(`⇅ ${latency}`);
+    $latency.removeClass('latency-good latency-ok latency-bad latency-critical');
+    if (latency < 51) $latency.addClass('latency-good');
+    else if (latency < 100) $latency.addClass('latency-ok');
+    else if (latency < 140) $latency.addClass('latency-bad');
+    else $latency.addClass('latency-critical');
+
+    // Update additional stats if visible
+    if ($('.kws-additional-content').is(':visible')) {
+      this.updateAdditionalStats();
     }
 
-    let latencyElement = `<span class='kws_top_bar_section latencyElement' style='cursor:pointer;color:${latencyColor}'>⇅${latency}</span>`;
-    let additionalStats = `<span class='kws_top_bar_section additional_stats' style='cursor:pointer;color:${this.additionalTopBarVisible ? "orange" : "white"}'>STATY</span>`;
+    // Secondary stats (existing logic - keep unchanged)
+    if ('char_data' in GAME) {
+      instances = [GAME.char_data.icd_1, GAME.char_data.icd_2, GAME.char_data.icd_3,
+      GAME.char_data.icd_4, GAME.char_data.icd_5, GAME.char_data.icd_6];
+      let sum_instances = instances.reduce((a, b) => a + b, 0);
+      $("#secondary_char_stats .instance ul").html(`${sum_instances}/12`);
 
-    let instance = `${sum_instances}/12`;
-    $("#secondary_char_stats .instance ul").html(instance);
+      let activity = $('#char_activity').text();
+      let received = $("#act_prizes").find("div.act_prize.disabled").length;
+      $("#secondary_char_stats .activities ul").html(`${activity}/185 (${received}/5)`);
+    }
 
-    let activities = `${activity}/185 (${received}/5)`;
-    $("#secondary_char_stats .activities ul").html(activities);
+    this.adjustCurrentCharacterId();
+  },
 
-    let innerHTML = ` <span class='kws_top_bar_section sk_info' style='cursor:pointer;'>SK: <span style="color:${sk_status == "AKTYWNE" ? "lime" : "white"};">${sk_status}</span></span> <span class='kws_top_bar_section train_upgr_info' style='cursor:pointer;'>KODY: <span style="color:${train_upgr == "AKTYWNE" ? "lime" : "white"};">${train_upgr}</span></span><span class='kws_top_bar_section lvl' style='cursor:pointer;'>LVL: <span>${lvlh}/H</span></span><span class='kws_top_bar_section pvp' style='cursor:pointer;'>PVP: <span>${pvp_count}</span></span><span class='kws_top_bar_section arena' style='cursor:pointer;'>ARENA: <span>${arena_count}</span></span> ${is_trader.getDay() == 6 ? trader : ''} ${additionalStats} <span class='kws_top_bar_section version' style='cursor:pointer;'>v<span>${version}</span></span> ${latencyElement}`;
-    $(".kws_top_bar").html(innerHTML);
-
-    if (this.baselinePower == undefined) {
+  updateAdditionalStats() {
+    if (this.baselinePower === undefined) {
       this.baselinePower = GAME.char_data.moc;
     }
-    if (this.baselineLevel == undefined) {
+    if (this.baselineLevel === undefined) {
       this.baselineLevel = GAME.char_data.level;
     }
 
     let calculated_power = GAME.dots(GAME.char_data.moc - this.baselinePower);
-    let calculatedPowerReset = `<span class='kws_additional_top_bar_section additional_stats_reset' style='cursor:pointer;color:"white"'>RESET</span>`;
     let futureStats = this.prepareFutureStatsData();
     let calculated_levels = GAME.dots(GAME.char_data.level - this.baselineLevel);
 
-    $(".kws_additional_top_bar").html(` <span class='kws_additional_top_bar_section pvm_power' style='cursor:pointer;'>ZDOBYTA MOC: <span style="color:lime;">${calculated_power}</span></span> <span class='kws_additional_top_bar_section future_stats' style='cursor:pointer;'>${futureStats.length > 0 ? futureStats : ''}</span><span class='kws_additional_top_bar_section lvlsGained' style='cursor:pointer;'>ZDOBYTE LVL: <span>${calculated_levels}</span></span><span class='kws_additional_top_bar_section psk' style='cursor:pointer;'>PSK: ${GAME.dots(GAME.char_data.minor_ball)}</span> ${calculatedPowerReset}`);
+    $('#kws-stat-power').html(`<span style="color:lime;">${calculated_power}</span>`);
 
-    this.adjustCurrentCharacterId();
+    // Hide FUTURE row if empty
+    const $futureRow = $('#kws-stat-future').closest('tr');
+    if (futureStats && futureStats.length > 0) {
+      $futureRow.show();
+      $('#kws-stat-future').html(futureStats);
+    } else {
+      $futureRow.hide();
+    }
+
+    $('#kws-stat-lvl-gained').text(calculated_levels);
+    $('#kws-stat-psk').text(GAME.dots(GAME.char_data.minor_ball));
   },
 
   // ============================================

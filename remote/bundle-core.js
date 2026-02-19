@@ -273,14 +273,6 @@ const ClickHandlersMixin = {
       }
     });
 
-    // --- TOP BAR HANDLERS ---
-    $("body").on("click", `.kws_top_bar_section.sk_info`, () => {
-      GAME.page_switch('game_balls');
-    });
-    $("body").on("click", `.kws_top_bar_section.trader_info`, () => {
-      GAME.page_switch('game_events');
-    });
-
     // --- SOUL CARD SET HANDLER ---
     $("body").on("change", "#sc_set_select", async function () {
       const setName = $(this).val();
@@ -288,17 +280,6 @@ const ClickHandlersMixin = {
         await AFO_SOUL_CARD_SETS.switchToSet(setName);
         // Selection stays - it's saved and restored on reload
       }
-    });
-
-    // --- ADDITIONAL STATS ---
-    $("body").on("click", `.kws_top_bar_section.additional_stats`, () => {
-      this.handleAdditionalTopBarVisibility();
-    });
-    $("body").on("click", `.kws_additional_top_bar_section.additional_stats_reset`, () => {
-      this.resetCalculatedPower();
-    });
-    $("body").on("click", `.kws_top_bar_section.train_upgr_info`, () => {
-      GAME.page_switch('game_train');
     });
 
     // --- TRACKER ---
@@ -504,22 +485,6 @@ const ClickHandlersMixin = {
     $("body").on("click", ".qlink.go_to_emp", (el) => {
       let emp = parseInt($(el.target).attr("emp"));
       GAME.socket.emit('ga', { a: 50, type: 5, e: emp });
-    });
-
-    // --- SPAWNER ---
-    $("#kws_spawn").draggable({ handle: ".sekcja" });
-    $('.spawn_switch').on('click', function () { $("#kws_spawn2").toggle(); });
-    $("#kws_spawn input[type=checkbox], input[type=text]").change((chb) => {
-      switch ($(chb.target).attr("name")) {
-        case "ignoreMobs":
-          GAME.spawner[1] = $('#kws_spawn input[name="ignoreMobs"]').map((index, element) => {
-            return element.checked ? 1 : 0;
-          }).get();
-          break;
-        case "usePaToSpawn":
-          this.updatePaToSpawn($(chb.target).val());
-          break;
-      }
     });
 
     // --- SECONDARY STATS UI ---
@@ -789,6 +754,7 @@ const UIMixin = {
   // ============================================
 
   updateTopBar() {
+    // Calculate stats (existing logic)
     let sk_status;
     let instances = [];
     let currentLevel = GAME.char_data.level;
@@ -811,51 +777,79 @@ const UIMixin = {
       train_upgr = "AKTYWNE";
     }
 
-    if ('char_data' in GAME) {
-      instances = [GAME.char_data.icd_1, GAME.char_data.icd_2, GAME.char_data.icd_3, GAME.char_data.icd_4, GAME.char_data.icd_5, GAME.char_data.icd_6];
-    }
+    // Update sidebar stats (NEW)
+    const $sk = $('#kws-stat-sk');
+    $sk.text(sk_status);
+    $sk.toggleClass('status-active', sk_status === 'AKTYWNE');
+    $sk.toggleClass('status-timer', sk_status !== 'AKTYWNE');
 
-    let sum_instances = instances.reduce((a, b) => a + b, 0);
-    let activity = $('#char_activity').text();
-    let received = $("#act_prizes").find("div.act_prize.disabled").length;
+    const $kody = $('#kws-stat-kody');
+    $kody.text(train_upgr);
+    $kody.toggleClass('status-active', train_upgr === 'AKTYWNE');
+    $kody.toggleClass('status-timer', train_upgr !== 'AKTYWNE');
+
+    $('#kws-stat-lvlh').text(lvlh);
+    $('#kws-stat-pvp').text(pvp_count);
+    $('#kws-stat-arena').text(arena_count);
+
+    // Show/hide trader (Saturday only)
     let is_trader = new Date();
-    let trader = `<span class='kws_top_bar_section trader_info' style='cursor:pointer;'>HANDLARZ</span> `;
+    $('.trader_info').toggle(is_trader.getDay() === 6);
 
-    var latencyColor;
-    switch (true) {
-      case (latency < 51): latencyColor = "lime"; break;
-      case (latency < 100): latencyColor = "yellow"; break;
-      case (latency < 140): latencyColor = "orange"; break;
-      default: latencyColor = "red"; break;
+    // Update latency
+    const $latency = $('#kws-latency');
+    $latency.text(`⇅ ${latency}`);
+    $latency.removeClass('latency-good latency-ok latency-bad latency-critical');
+    if (latency < 51) $latency.addClass('latency-good');
+    else if (latency < 100) $latency.addClass('latency-ok');
+    else if (latency < 140) $latency.addClass('latency-bad');
+    else $latency.addClass('latency-critical');
+
+    // Update additional stats if visible
+    if ($('.kws-additional-content').is(':visible')) {
+      this.updateAdditionalStats();
     }
 
-    let latencyElement = `<span class='kws_top_bar_section latencyElement' style='cursor:pointer;color:${latencyColor}'>⇅${latency}</span>`;
-    let additionalStats = `<span class='kws_top_bar_section additional_stats' style='cursor:pointer;color:${this.additionalTopBarVisible ? "orange" : "white"}'>STATY</span>`;
+    // Secondary stats (existing logic - keep unchanged)
+    if ('char_data' in GAME) {
+      instances = [GAME.char_data.icd_1, GAME.char_data.icd_2, GAME.char_data.icd_3,
+      GAME.char_data.icd_4, GAME.char_data.icd_5, GAME.char_data.icd_6];
+      let sum_instances = instances.reduce((a, b) => a + b, 0);
+      $("#secondary_char_stats .instance ul").html(`${sum_instances}/12`);
 
-    let instance = `${sum_instances}/12`;
-    $("#secondary_char_stats .instance ul").html(instance);
+      let activity = $('#char_activity').text();
+      let received = $("#act_prizes").find("div.act_prize.disabled").length;
+      $("#secondary_char_stats .activities ul").html(`${activity}/185 (${received}/5)`);
+    }
 
-    let activities = `${activity}/185 (${received}/5)`;
-    $("#secondary_char_stats .activities ul").html(activities);
+    this.adjustCurrentCharacterId();
+  },
 
-    let innerHTML = ` <span class='kws_top_bar_section sk_info' style='cursor:pointer;'>SK: <span style="color:${sk_status == "AKTYWNE" ? "lime" : "white"};">${sk_status}</span></span> <span class='kws_top_bar_section train_upgr_info' style='cursor:pointer;'>KODY: <span style="color:${train_upgr == "AKTYWNE" ? "lime" : "white"};">${train_upgr}</span></span><span class='kws_top_bar_section lvl' style='cursor:pointer;'>LVL: <span>${lvlh}/H</span></span><span class='kws_top_bar_section pvp' style='cursor:pointer;'>PVP: <span>${pvp_count}</span></span><span class='kws_top_bar_section arena' style='cursor:pointer;'>ARENA: <span>${arena_count}</span></span> ${is_trader.getDay() == 6 ? trader : ''} ${additionalStats} <span class='kws_top_bar_section version' style='cursor:pointer;'>v<span>${version}</span></span> ${latencyElement}`;
-    $(".kws_top_bar").html(innerHTML);
-
-    if (this.baselinePower == undefined) {
+  updateAdditionalStats() {
+    if (this.baselinePower === undefined) {
       this.baselinePower = GAME.char_data.moc;
     }
-    if (this.baselineLevel == undefined) {
+    if (this.baselineLevel === undefined) {
       this.baselineLevel = GAME.char_data.level;
     }
 
     let calculated_power = GAME.dots(GAME.char_data.moc - this.baselinePower);
-    let calculatedPowerReset = `<span class='kws_additional_top_bar_section additional_stats_reset' style='cursor:pointer;color:"white"'>RESET</span>`;
     let futureStats = this.prepareFutureStatsData();
     let calculated_levels = GAME.dots(GAME.char_data.level - this.baselineLevel);
 
-    $(".kws_additional_top_bar").html(` <span class='kws_additional_top_bar_section pvm_power' style='cursor:pointer;'>ZDOBYTA MOC: <span style="color:lime;">${calculated_power}</span></span> <span class='kws_additional_top_bar_section future_stats' style='cursor:pointer;'>${futureStats.length > 0 ? futureStats : ''}</span><span class='kws_additional_top_bar_section lvlsGained' style='cursor:pointer;'>ZDOBYTE LVL: <span>${calculated_levels}</span></span><span class='kws_additional_top_bar_section psk' style='cursor:pointer;'>PSK: ${GAME.dots(GAME.char_data.minor_ball)}</span> ${calculatedPowerReset}`);
+    $('#kws-stat-power').html(`<span style="color:lime;">${calculated_power}</span>`);
 
-    this.adjustCurrentCharacterId();
+    // Hide FUTURE row if empty
+    const $futureRow = $('#kws-stat-future').closest('tr');
+    if (futureStats && futureStats.length > 0) {
+      $futureRow.show();
+      $('#kws-stat-future').html(futureStats);
+    } else {
+      $futureRow.hide();
+    }
+
+    $('#kws-stat-lvl-gained').text(calculated_levels);
+    $('#kws-stat-psk').text(GAME.dots(GAME.char_data.minor_ball));
   },
 
   // ============================================
@@ -2975,7 +2969,7 @@ console.log('[SoulCardSets] Module loaded');
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.3.1
+ * Version: 2.3.2
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -3042,7 +3036,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.3.1';
+  var version = '2.3.2';
 
   // ============================================
   // SOCKET DETECTION
@@ -3077,6 +3071,318 @@ if (typeof GAME === 'undefined') {
         window.a24value = match[1];
       }
     });
+
+    // ============================================
+    // SIDEBAR CSS (inline - no separate file needed)
+    // ============================================
+    const SIDEBAR_CSS = `
+/* ============================================
+   KWS SIDEBAR - Main Container
+   ============================================ */
+
+#kws_sidebar {
+  background: linear-gradient(180deg, rgba(0,20,40,0.95) 0%, rgba(0,10,25,0.98) 100%);
+  position: fixed;
+  top: 120px;
+  left: 5px;
+  z-index: 9998;
+  width: 220px;
+  padding: 5px;
+  border-radius: 5px;
+  border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill;
+  border-style: solid;
+  border-width: 7px 8px 7px 7px;
+  user-select: none;
+  font-family: 'Play', sans-serif;
+  font-size: 13px;
+  color: white;
+  transition: left 0.3s ease;
+}
+
+/* Collapsed state */
+#kws_sidebar.kws-collapsed {
+  left: -215px;
+}
+
+#kws_sidebar.kws-collapsed:hover {
+  left: -5px;
+}
+
+/* Header */
+.kws-sidebar-header {
+  position: absolute;
+  top: -27px;
+  left: -7px;
+  background: rgba(0,0,0,0.9);
+  background-size: 100% 100%;
+  width: 220px;
+  cursor: pointer;
+  text-align: center;
+  font-weight: bold;
+  font-size: 12px;
+  padding: 5px 0;
+  border-radius: 5px 5px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.kws-sidebar-toggle {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  transition: transform 0.3s;
+}
+
+.kws-sidebar-toggle.rotated {
+  transform: rotate(180deg);
+}
+
+/* Content */
+.kws-sidebar-content {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.kws-sidebar-content::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+/* Sections */
+.kws-sidebar-section {
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  padding-bottom: 8px;
+}
+
+.kws-sidebar-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.kws-sidebar-section-title {
+  font-weight: bold;
+  font-size: 11px;
+  color: #63aaff;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.kws-sidebar-section-title.kws-expandable {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: color 0.2s;
+}
+
+.kws-sidebar-section-title.kws-expandable:hover {
+  color: orange;
+}
+
+.kws-expand-icon {
+  font-size: 10px;
+  transition: transform 0.3s;
+  display: inline-block;
+}
+
+.kws-expand-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* Stats Table */
+.kws-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kws-stat-row {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.kws-stat-row:hover {
+  background: rgba(255,165,0,0.2);
+}
+
+.kws-stat-label {
+  font-size: 12px;
+  color: #aaa;
+  padding: 3px 5px;
+  width: 70px;
+  text-transform: uppercase;
+}
+
+.kws-stat-value {
+  font-size: 12px;
+  color: white;
+  padding: 3px 5px;
+  text-align: right;
+  font-weight: bold;
+}
+
+.kws-stat-value.status-active {
+  color: lime;
+}
+
+.kws-stat-value.status-timer {
+  color: white;
+}
+
+/* Additional Stats */
+.kws-additional-content {
+  margin-top: 5px;
+}
+
+.kws-reset-btn {
+  background: #31313a69;
+  border: solid #ffffff4d 1px;
+  width: 100%;
+  height: 28px;
+  line-height: 26px;
+  text-align: center;
+  font-family: 'Play', sans-serif;
+  font-size: 11px;
+  font-weight: Bold;
+  color: #fff;
+  text-transform: uppercase;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 5px;
+  transition: all 0.2s;
+}
+
+.kws-reset-btn:hover {
+  background: #31313a;
+  border-color: orange;
+}
+
+/* Spawn Settings */
+.kws-spawn-content {
+  margin-top: 5px;
+}
+
+.kws-spawn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 10px;
+  margin-bottom: 8px;
+}
+
+.kws-spawn-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kws-spawn-label {
+  font-size: 11px;
+  color: white;
+  cursor: pointer;
+}
+
+.kws-spawn-label:hover {
+  color: orange;
+}
+
+.kws-pa-input {
+  width: 100%;
+  background: #040e13;
+  color: white;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin-top: 8px;
+  text-align: center;
+  font-family: 'Play', sans-serif;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.kws-pa-input::placeholder {
+  color: #666;
+}
+
+/* Footer */
+.kws-sidebar-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.2);
+  font-size: 11px;
+}
+
+.kws-version {
+  color: #888;
+}
+
+.kws-latency {
+  font-weight: bold;
+  cursor: pointer;
+}
+
+/* Latency colors */
+.kws-latency.latency-good { color: lime; }
+.kws-latency.latency-ok { color: yellow; }
+.kws-latency.latency-bad { color: orange; }
+.kws-latency.latency-critical { color: red; }
+
+/* ============================================
+   RESPONSIVE - Mobile
+   ============================================ */
+
+@media (max-width: 1024px) {
+  #kws_sidebar {
+    width: 180px;
+    font-size: 11px;
+  }
+
+  .kws-sidebar-header {
+    width: 180px;
+  }
+
+  .kws-stat-label,
+  .kws-stat-value {
+    font-size: 10px;
+    padding: 2px 3px;
+  }
+
+  .kws-spawn-label {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 768px) {
+  #kws_sidebar {
+    top: 80px;
+    width: 160px;
+  }
+
+  #kws_sidebar.kws-collapsed {
+    left: -155px;
+  }
+
+  .kws-sidebar-header {
+    width: 160px;
+  }
+}
+
+/* ============================================
+   LEGACY CLEANUP - Hide old elements
+   ============================================ */
+
+.kws_top_bar,
+.kws_additional_top_bar,
+#kws_spawn {
+  display: none !important;
+}
+`;
 
     // ============================================
     // MAIN BOT CLASS
@@ -3122,16 +3428,18 @@ if (typeof GAME === 'undefined') {
         this.addToCSS(`.option.ls.spawner{ position:absolute; top:60px; right:40px; background-size: 100% 100%; border: solid #6f6f6f 1px; }`);
         this.addToCSS(`#kws_minimap_settings{ margin:10px 0px 0px 0px; border-top:solid white 1px; padding-top:10px; } #field_sett #field_options{ height:407px; } #minimap_con{ ${this.minimap.side == 1 ? `left: -4px; right: unset;` : this.minimap.side == 2 ? `left: -210px; right: unset;` : ""} opacity: ${this.minimap.opacity / 100} } #minimap_range{ width:150px; display:inline-block; vertical-align:middle;} .smin_butt{background: #31313a69 !important; border: solid #ffffff4d 1px !important; width:auto !important; height:32px !important; line-height: 30px; display: inline-block; text-align: center; font-family: 'Play', sans-serif; font-size: 13px; font-weight: Bold; color: #fff; text-decoration: none; text-transform: uppercase; border: none; padding: 0 10px; border-radius: 5px; cursor: pointer; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000; margin-top:2px; float:none !important;} .smin_input{background: #040e13; height: 31px; border: solid #ffffff4d 1px !important; display: inline-block; text-align:center; font-size: 13px; color: #305779; font-family: 'Play', sans-serif; vertical-align: middle;border-radius: 5px;}`);
         this.addToCSS(`#kws_locInfo{background:url("/gfx/layout/tloPilot.png");position: absolute;top: 220px;z-index: 2;width: 204px;padding: 5px;border-radius: 5px;border-image: url(/gfx/layout/mapborder.png) 7 8 7 7 fill;border-style: solid;border-width: 7px 8px 7px 7px; display:${this.minimap.loc_info == 0 ? `none` : `block`}} #kws_locInfo .sekcja{position:absolute;top:-20px;left:0px;background:url("https://i.imgur.com/Mi3kUpg.png");background-size:100% 100%;width:190px;}`);
-        this.addToCSS(`.kws_top_bar{float:left !important; position: absolute; z-index: -1;} .kws_top_bar_section{color:white;padding:3px 5px 3px 5px;border-radius:5px;margin-right:8px;user-select:none;}`);
         this.addToCSS(`.go_to_emp_con{ position:absolute; top:33px; z-index:1; background:rgb(0 0 0 / 59%); display:none; flex-direction: column-reverse; padding:5px 5px 0px 5px; border-radius:5px; box-shadow:0px 0px 5px 0px rgb(32 96 185);} .empPos:hover + .go_to_emp_con, .go_to_emp_con:hover { display:flex; } .go_to_emp_con .qlink { display:block; margin:0px 0px 5px 0px; }`);
         this.addToCSS(`#ekw_sets_buy button, div[data-option="change_ekw_set"]{height:20px !important; line-height:19px !important; margin-top:9px !important;}`);
         this.addToCSS(`#page_game_camp .ekw_slot.smaller img{ width: 64px; } #page_game_camp div[data-item_id="1923"].smaller img { width: 32px; position: absolute; margin-top: -64px; margin-left: 34px; }`);
-        this.addToCSS(`#kws_spawn{ background: rgba(0,0,0,0.9); position: fixed; top: 120px;left: 5px; z-index: 9999; width: 200px; padding: 1px; border-radius: 5px; border-style: solid; border-width: 7px 8px 7px 7px; display:block; user-select: none; color: #333333; } #kws_spawn .sekcja { position: absolute; top: -27px; left: -7px; background: rgba(0,0,0,0.9); filter: hue-rotate(150deg); background-size: 100% 100%; width: 200px; cursor: all-scroll; } #kws_spawn .spawn_row{border-bottom:solid gray 1px; color: white; font-size: 13px; display: flex; padding:4px;}`);
-        $("#map_canvas_container").append(`<div id="kws_spawn"> <div class="sekcja"><img src="/gfx/layout/war.png" class="spawn_switch">USTAWIENIA SPAWNU</div><div id="kws_spawn2" style="">${this.spawnList()}</div>`);
-        this.addToCSS(`#sc_set_select{background:#040e13;color:#fff;font-family:'Play',sans-serif;font-size:13px;padding:3px 8px;border:1px solid white;border-radius:5px;margin:3px 5px 0 0;cursor:pointer;height:24px;float:right;} #sc_set_select:hover{border-color:orange;} #sc_set_select option{background:#040e13;color:#fff;}`);
+
+        // NEW UNIFIED SIDEBAR (replaces old kws_top_bar + kws_spawn)
+        this.addToCSS(SIDEBAR_CSS);
+        $("#game_win").append(this.buildSidebarHTML());
+        this.initSidebarHandlers();
+
+        this.addToCSS(`#sc_set_select{background:#040e13;color:#fff;font-family:'Play',sans-serif;font-size:13px;padding:3px 8px;border:1px solid white;border-radius:5px;margin:3px 25px 0 0;cursor:pointer;height:24px;float:right;} #sc_set_select:hover{border-color:orange;} #sc_set_select option{background:#040e13;color:#fff;}`);
         this.addToCSS(`#kws_bg_preset_select{background:#040e13;color:#fff;font-family:'Play',sans-serif;font-size:13px;padding:3px 8px;border:1px solid #305779;border-radius:5px;cursor:pointer;} #kws_bg_preset_select:hover{border-color:orange;} #kws_bg_preset_select option{background:#040e13;color:#fff;}`);
         this.addToCSS(`#sc_sets .sc_sets_all { min-width: 40px; width: auto; padding: 0 5px; } .cards_set_name_input { background: #040e13; height: 31px; width: 180px; border: solid #ffffff4d 1px; display: inline-block; text-align: center; font-size: 13px; color: #305779; font-family: 'Play', sans-serif; vertical-align: middle; border-radius: 5px; margin-right: 5px; } .cards_set_name_button { margin-top: 2px; }`);
-        this.addToCSS(`.spawn_switch{cursor:pointer;}`);
         this.addToCSS(`.quest_roll1{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:25px; cursor:pointer; filter:drop-shadow(0px 0px 10px lime)} .quest_roll2{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:75px; cursor:pointer; filter:drop-shadow(0px 0px 10px #00fdff)} .quest_roll3{position:absolute; width:50px; height:50px; background:url('/gfx/layout/dice.png') 0 0; top:-25px; left:125px; cursor:pointer; filter:drop-shadow(0px 0px 10px #ff0000)} .quest_roll:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll1:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll2:hover{background:url('/gfx/layout/dice.png') 0 -45px;} .quest_roll3:hover{background:url('/gfx/layout/dice.png') 0 -45px;}`);
         this.addToCSS(`#lastmap_bar { top: 115px !important; }`);
         this.addToCSS(`.MoveIcon .pi.kws_pvp{background:url('https://i.imgur.com/QPQBcFp.png') center/contain no-repeat;} .MoveIcon .pi.kws_skip{background:url('https://i.imgur.com/wuK91VF.png') center/contain no-repeat;} .MoveIcon .pi.kws_clock{background:url('https://i.imgur.com/9YCvJKe.png') center/contain no-repeat;} .MoveIcon .pi.kws_alt{background:url('https://up.be3.ovh/upload/1709400449.png') center/contain no-repeat;}`);
@@ -3145,9 +3453,6 @@ if (typeof GAME === 'undefined') {
                     background: linear-gradient(0deg, rgba(247,121,12,1) 0%, rgba(252,238,54,1) 100%);
                     border: 0px solid #973804;
                 }`);
-        this.addToCSS(`.kws_additional_top_bar{float:left !important; position: absolute; z-index: -1; display: none} .kws_additional_top_bar_section{color:white;padding:3px 5px 3px 5px;border-radius:5px;margin-right:8px;user-select:none;}`);
-        $("#top_bar").append(`<div class="kws_top_bar"></div>`);
-        $("#top_bar").append(`<div class="kws_additional_top_bar"></div>`);
         $("#bless_type_2").click();
         $(`.channel_opts .option.chat_icon.load`).addClass('better_chat_loading').removeAttr('id').removeAttr('data-option');
         $("#clan_inner_planets h3").eq(0).append(`<button id="poka_telep" style="margin-left:5px;" class="newBtn">pokaż / ukryj salę telep</button>`);
@@ -3531,6 +3836,182 @@ if (typeof GAME === 'undefined') {
           return false;
         }
       }
+      /**
+       * Build unified sidebar HTML (replaces old kws_top_bar + kws_spawn)
+       */
+      buildSidebarHTML() {
+        // Generate spawn checkboxes (grid 2x3)
+        // Layout: left column (Normal, Champion, Elita), right column (Legend, Epicki, Mist.)
+        const ranks = ['Normal', 'Champion', 'Elita', 'Legend', 'Epicki', 'Mist.'];
+        const order = [0, 3, 1, 4, 2, 5]; // Normal/Legend, Champion/Epicki, Elita/Mist.
+        let spawnCheckboxes = '';
+        for (const i of order) {
+          const checked = (GAME.spawner && GAME.spawner[1][i]) ? 'checked' : '';
+          spawnCheckboxes += `
+            <div class="kws-spawn-checkbox">
+              <div class="newCheckbox">
+                <input id="kws_spawner_ignore_${i}" type="checkbox"
+                       class="kws_spawner_check" value="${i}" ${checked} />
+                <label for="kws_spawner_ignore_${i}"></label>
+              </div>
+              <label for="kws_spawner_ignore_${i}" class="kws-spawn-label">${ranks[i]}</label>
+            </div>`;
+        }
+
+        return `
+          <div id="kws_sidebar" class="kws-sidebar">
+            <div class="kws-sidebar-header">
+              <img src="/gfx/layout/war.png" class="kws-sidebar-toggle">
+              <span>GIENIOBOT</span>
+            </div>
+
+            <div class="kws-sidebar-content">
+
+              <!-- STATUS Section -->
+              <div class="kws-sidebar-section">
+                <div class="kws-sidebar-section-title">STATUS</div>
+                <table class="kws-stats-table">
+                  <tr class="kws-stat-row sk_info" data-page="game_balls">
+                    <td class="kws-stat-label">SK</td>
+                    <td class="kws-stat-value" id="kws-stat-sk">--</td>
+                  </tr>
+                  <tr class="kws-stat-row train_upgr_info" data-page="game_train">
+                    <td class="kws-stat-label">KODY</td>
+                    <td class="kws-stat-value" id="kws-stat-kody">--</td>
+                  </tr>
+                  <tr class="kws-stat-row">
+                    <td class="kws-stat-label">LVL/H</td>
+                    <td class="kws-stat-value" id="kws-stat-lvlh">--</td>
+                  </tr>
+                  <tr class="kws-stat-row">
+                    <td class="kws-stat-label">PVP</td>
+                    <td class="kws-stat-value" id="kws-stat-pvp">--</td>
+                  </tr>
+                  <tr class="kws-stat-row" data-page="game_arena">
+                    <td class="kws-stat-label">ARENA</td>
+                    <td class="kws-stat-value" id="kws-stat-arena">--</td>
+                  </tr>
+                  <tr class="kws-stat-row trader_info" data-page="game_events" style="display:none;">
+                    <td class="kws-stat-label">HANDLARZ</td>
+                    <td class="kws-stat-value">✓</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- DODATKOWE Section (expandable) -->
+              <div class="kws-sidebar-section">
+                <div class="kws-sidebar-section-title kws-expandable" id="kws-toggle-additional">
+                  <span class="kws-expand-icon">▶</span> DODATKOWE
+                </div>
+                <div class="kws-additional-content" style="display:none;">
+                  <table class="kws-stats-table">
+                    <tr><td class="kws-stat-label">MOC</td>
+                        <td class="kws-stat-value" id="kws-stat-power">--</td></tr>
+                    <tr><td class="kws-stat-label" style="font-size:10px;">FUTURE</td>
+                        <td class="kws-stat-value" id="kws-stat-future" style="font-size:10px;">--</td></tr>
+                    <tr><td class="kws-stat-label">LVL</td>
+                        <td class="kws-stat-value" id="kws-stat-lvl-gained">--</td></tr>
+                    <tr><td class="kws-stat-label">PSK</td>
+                        <td class="kws-stat-value" id="kws-stat-psk">--</td></tr>
+                  </table>
+                  <button class="kws-reset-btn" id="kws-reset-stats">RESET</button>
+                </div>
+              </div>
+
+              <!-- SPAWN Section (expandable, default open) -->
+              <div class="kws-sidebar-section">
+                <div class="kws-sidebar-section-title kws-expandable" id="kws-toggle-spawn">
+                  <span class="kws-expand-icon expanded">▶</span> SPAWN
+                </div>
+                <div class="kws-spawn-content">
+                  <div class="kws-spawn-grid">${spawnCheckboxes}</div>
+                  <input id="kws_pa_max" class="kws-pa-input" type="text" placeholder="Max PA" value="${GAME.spawner?.[0] || 1000}" />
+                </div>
+              </div>
+
+              <!-- Footer -->
+              <div class="kws-sidebar-footer">
+                <span class="kws-version">v<span id="kws-version-text">${version}</span></span>
+                <span class="kws-latency" id="kws-latency">⇅ --</span>
+              </div>
+
+            </div>
+          </div>`;
+      }
+
+      /**
+       * Initialize sidebar event handlers
+       */
+      initSidebarHandlers() {
+        // Restore saved state from localStorage
+        const sidebarState = {
+          collapsed: localStorage.getItem('kws_sidebar_collapsed') === 'true',
+          additionalExpanded: localStorage.getItem('kws_sidebar_additional_expanded') === 'true',
+          spawnExpanded: localStorage.getItem('kws_sidebar_spawn_expanded') !== 'false', // default true
+        };
+
+        if (sidebarState.collapsed) {
+          $('#kws_sidebar').addClass('kws-collapsed');
+          $('.kws-sidebar-toggle').addClass('rotated');
+        }
+        if (sidebarState.additionalExpanded) {
+          $('#kws-toggle-additional .kws-expand-icon').addClass('expanded');
+          $('.kws-additional-content').show();
+        }
+        // SPAWN: default open, hide only if explicitly set to false
+        if (!sidebarState.spawnExpanded) {
+          $('#kws-toggle-spawn .kws-expand-icon').removeClass('expanded');
+          $('.kws-spawn-content').hide();
+        }
+
+        // Toggle sidebar collapse
+        $('.kws-sidebar-header').on('click', () => {
+          $('#kws_sidebar').toggleClass('kws-collapsed');
+          $('.kws-sidebar-toggle').toggleClass('rotated');
+          const isCollapsed = $('#kws_sidebar').hasClass('kws-collapsed');
+          localStorage.setItem('kws_sidebar_collapsed', isCollapsed.toString());
+        });
+
+        // Expandable sections
+        $('#kws-toggle-additional').on('click', function () {
+          $(this).find('.kws-expand-icon').toggleClass('expanded');
+          $('.kws-additional-content').slideToggle(200);
+          const isExpanded = $(this).find('.kws-expand-icon').hasClass('expanded');
+          localStorage.setItem('kws_sidebar_additional_expanded', isExpanded.toString());
+        });
+
+        $('#kws-toggle-spawn').on('click', function () {
+          $(this).find('.kws-expand-icon').toggleClass('expanded');
+          $('.kws-spawn-content').slideToggle(200);
+          const isExpanded = $(this).find('.kws-expand-icon').hasClass('expanded');
+          localStorage.setItem('kws_sidebar_spawn_expanded', isExpanded.toString());
+        });
+
+        // Stat row clicks (navigate to pages)
+        $('.kws-stat-row[data-page]').on('click', function () {
+          const page = $(this).data('page');
+          if (page) GAME.page_switch(page);
+        });
+
+        // Reset button
+        $('#kws-reset-stats').on('click', () => {
+          this.resetCalculatedPower();
+        });
+
+        // Spawn checkboxes
+        $('.kws_spawner_check').on('change', () => {
+          GAME.spawner[1] = $('.kws_spawner_check').map((i, el) => {
+            return el.checked ? 1 : 0;
+          }).get();
+        });
+
+        // PA input
+        $('#kws_pa_max').on('change', (e) => {
+          this.updatePaToSpawn($(e.target).val());
+        });
+      }
+
+      // Legacy method - kept for backward compatibility but no longer used in UI
       spawnList() {
         let mob = "";
         for (var i = 0; i < 6; i++) {
@@ -3539,6 +4020,7 @@ if (typeof GAME === 'undefined') {
         mob += `<div class="spawn_row" style="flex-direction: column;align-items: center;"><div>Użyte PA na spawn</div><div class="game_input small"><input id="kws_pa_max" name="usePaToSpawn" type="text" value="1000"></div></div>`;
         return mob;
       }
+
       updatePaToSpawn(pats) {
         let pa = parseInt(pats);
         if (!pa || pa <= 0 || pa > 1000 || pa != pats) {
@@ -3714,6 +4196,9 @@ if (typeof GAME === 'undefined') {
         var thisCharId = GAME.char_id;
         if (thisCharId != this.charactersManager.currentCharacterId) {
           this.charactersManager.setCurrentCharacterId(thisCharId);
+          // Reset baseline stats when character changes
+          this.baselinePower = GAME.char_data.moc;
+          this.baselineLevel = GAME.char_data.level;
         }
       }
       resetAFO() {
