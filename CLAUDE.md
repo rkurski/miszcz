@@ -7,6 +7,19 @@
 ## Projekt
 Chrome Extension (MV3) automatyzująca grę kosmiczni.pl. Vanilla JS, brak npm/buildu/testów/TypeScript. Reload rozszerzenia = update.
 
+## Dystrybucja
+- **Rozszerzenie Chrome** - ładuje skrypty z `remote/` dynamicznie
+- **Klient desktopowy** - Tauri v2 (`client/`), branch `klient-wip`
+- **APK Android** - Tauri v2 mobile (`client/gen/android/`)
+- **Bundle** - `bundle.py` generuje pojedynczy plik HTML z wszystkimi skryptami (do debugowania/reverse-engineering)
+
+## Strategia zmian (WAŻNE)
+**Mocno preferuj zmiany w `remote/`** - aktualizują się automatycznie bez rebuildu.
+
+Zmiany wymagające nowej wersji klienta/APK (pliki poza `remote/`):
+- Unikaj jeśli możliwe
+- Jeśli feature jest duży / ma wartość z oddzielenia / są konkretne argumenty → zapytaj usera czy budujemy nową paczkę czy zostajemy full remote
+
 ## Kluczowe pliki
 - `content_script.js` - extension context, CSP bridge (CustomEvent) do chrome.storage
 - `content_script1.js` - loader, kolejność ładowania skryptów ma znaczenie
