@@ -2383,12 +2383,100 @@ function setupGameOverrides() {
     $('#available_servers option[value=' + this.server + ']').prop('selected', true);
   };
 
+  // ============================================
+  // WAR SOCKET FILTER - Drop war score sockets (596/598) before any processing
+  // ============================================
+  const origOnevent = GAME.socket.onevent;
+  GAME.socket.onevent = function (packet) {
+    const args = packet.data || [];
+    // args[0] = event name ('gr'), args[1] = response data
+    if (args[0] === 'gr' && args[1]?.a && (args[1].a === 596 || args[1].a === 598)) {
+      return; // Drop completely - zero processing
+    }
+    return origOnevent.apply(this, arguments);
+  };
+
   console.log('[GameOverrides] All GAME.* overrides applied');
 }
 
 // Export function
 window.setupGameOverrides = setupGameOverrides;
 console.log('[GameOverrides] Module loaded');
+
+// ============================================
+// WAR_CONTAINER TOUCH DRAG
+// Self-initializing IIFE - runs immediately on script load
+// ============================================
+(function() {
+  'use strict';
+
+  function setupWarContainerDrag() {
+    const container = document.getElementById('war_container');
+    const handle = document.getElementById('war_switch');
+    if (!container || !handle) return;
+
+    // Skip if already initialized
+    if (handle.dataset.touchDragInit) return;
+    handle.dataset.touchDragInit = 'true';
+
+    let isDragging = false;
+    let offsetX = 0, offsetY = 0;
+
+    const getPos = (e) => e.touches?.[0]
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      : { x: e.clientX, y: e.clientY };
+
+    const onStart = (e) => {
+      isDragging = true;
+      const pos = getPos(e);
+      const rect = container.getBoundingClientRect();
+      offsetX = pos.x - rect.left;
+      offsetY = pos.y - rect.top;
+      container.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const pos = getPos(e);
+      // Viewport clamping
+      const x = Math.max(0, Math.min(window.innerWidth - container.offsetWidth, pos.x - offsetX));
+      const y = Math.max(0, Math.min(window.innerHeight - container.offsetHeight, pos.y - offsetY));
+      container.style.left = x + 'px';
+      container.style.top = y + 'px';
+    };
+
+    const onEnd = () => { isDragging = false; };
+
+    // Mouse events (supplement jQuery UI)
+    handle.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch events (main purpose - jQuery UI doesn't support these)
+    handle.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+
+    // CSS for touch
+    handle.style.touchAction = 'none';
+
+    console.log('[GameOverrides] war_container touch drag initialized');
+  }
+
+  // Init immediately or wait for element
+  if (document.getElementById('war_container')) {
+    setupWarContainerDrag();
+  } else {
+    const observer = new MutationObserver(() => {
+      if (document.getElementById('war_container')) {
+        observer.disconnect();
+        setupWarContainerDrag();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+})();
 
 
 // ========== remote/core/handlers/empire.js ==========
@@ -3118,6 +3206,8 @@ if (typeof GAME === 'undefined') {
   width: 220px;
   cursor: pointer;
   text-align: center;
+  touch-action: none;
+  user-select: none;
   font-weight: bold;
   font-size: 12px;
   padding: 5px 0;
@@ -3964,13 +4054,78 @@ if (typeof GAME === 'undefined') {
           $('.kws-spawn-content').hide();
         }
 
-        // Toggle sidebar collapse
-        $('.kws-sidebar-header').on('click', () => {
-          $('#kws_sidebar').toggleClass('kws-collapsed');
-          $('.kws-sidebar-toggle').toggleClass('rotated');
-          const isCollapsed = $('#kws_sidebar').hasClass('kws-collapsed');
-          localStorage.setItem('kws_sidebar_collapsed', isCollapsed.toString());
-        });
+        // ============================================
+        // UNIFIED: Vertical drag + collapse toggle (with threshold)
+        // ============================================
+        const sidebar = document.getElementById('kws_sidebar');
+        const header = document.querySelector('.kws-sidebar-header');
+        const DRAG_THRESHOLD = 5;
+
+        // Restore saved Y position
+        const savedTop = localStorage.getItem('kws_sidebar_top');
+        if (savedTop) {
+          sidebar.style.top = savedTop + 'px';
+        }
+
+        let isDragging = false;
+        let hasMoved = false;
+        let startY = 0, startTop = 0;
+
+        const getY = (e) => e.touches?.[0]?.clientY ?? e.clientY;
+
+        const onStart = (e) => {
+          isDragging = true;
+          hasMoved = false;
+          startY = getY(e);
+          startTop = sidebar.getBoundingClientRect().top;
+        };
+
+        const onMove = (e) => {
+          if (!isDragging) return;
+
+          // Don't allow drag when collapsed
+          if (sidebar.classList.contains('kws-collapsed')) return;
+
+          const deltaY = getY(e) - startY;
+
+          // Only start actual drag after threshold
+          if (Math.abs(deltaY) > DRAG_THRESHOLD) {
+            hasMoved = true;
+            e.preventDefault();
+            sidebar.style.transition = 'none';
+            const newTop = Math.max(0, Math.min(window.innerHeight - 100, startTop + deltaY));
+            sidebar.style.top = newTop + 'px';
+          }
+        };
+
+        const onEnd = () => {
+          if (!isDragging) return;
+          isDragging = false;
+
+          if (hasMoved) {
+            // Was a drag - save position
+            sidebar.style.transition = '';
+            localStorage.setItem('kws_sidebar_top', parseInt(sidebar.style.top));
+          } else {
+            // Was a click - toggle collapse
+            sidebar.classList.toggle('kws-collapsed');
+            document.querySelector('.kws-sidebar-toggle').classList.toggle('rotated');
+            const isCollapsed = sidebar.classList.contains('kws-collapsed');
+            localStorage.setItem('kws_sidebar_collapsed', isCollapsed.toString());
+          }
+
+          hasMoved = false;
+        };
+
+        // Mouse events
+        header.addEventListener('mousedown', onStart);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+
+        // Touch events
+        header.addEventListener('touchstart', onStart, { passive: true });
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onEnd);
 
         // Expandable sections
         $('#kws-toggle-additional').on('click', function () {
@@ -4052,7 +4207,7 @@ if (typeof GAME === 'undefined') {
       }
       handleSockets(res) {
         // if (res.a !== 598 && res.a !== 596) {
-        //   console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
         // }
         switch (res.a) {
           case 7: //?? PvP fight result?

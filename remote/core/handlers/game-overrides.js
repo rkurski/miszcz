@@ -463,9 +463,97 @@ function setupGameOverrides() {
     $('#available_servers option[value=' + this.server + ']').prop('selected', true);
   };
 
+  // ============================================
+  // WAR SOCKET FILTER - Drop war score sockets (596/598) before any processing
+  // ============================================
+  const origOnevent = GAME.socket.onevent;
+  GAME.socket.onevent = function (packet) {
+    const args = packet.data || [];
+    // args[0] = event name ('gr'), args[1] = response data
+    if (args[0] === 'gr' && args[1]?.a && (args[1].a === 596 || args[1].a === 598)) {
+      return; // Drop completely - zero processing
+    }
+    return origOnevent.apply(this, arguments);
+  };
+
   console.log('[GameOverrides] All GAME.* overrides applied');
 }
 
 // Export function
 window.setupGameOverrides = setupGameOverrides;
 console.log('[GameOverrides] Module loaded');
+
+// ============================================
+// WAR_CONTAINER TOUCH DRAG
+// Self-initializing IIFE - runs immediately on script load
+// ============================================
+(function() {
+  'use strict';
+
+  function setupWarContainerDrag() {
+    const container = document.getElementById('war_container');
+    const handle = document.getElementById('war_switch');
+    if (!container || !handle) return;
+
+    // Skip if already initialized
+    if (handle.dataset.touchDragInit) return;
+    handle.dataset.touchDragInit = 'true';
+
+    let isDragging = false;
+    let offsetX = 0, offsetY = 0;
+
+    const getPos = (e) => e.touches?.[0]
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      : { x: e.clientX, y: e.clientY };
+
+    const onStart = (e) => {
+      isDragging = true;
+      const pos = getPos(e);
+      const rect = container.getBoundingClientRect();
+      offsetX = pos.x - rect.left;
+      offsetY = pos.y - rect.top;
+      container.style.transition = 'none';
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const pos = getPos(e);
+      // Viewport clamping
+      const x = Math.max(0, Math.min(window.innerWidth - container.offsetWidth, pos.x - offsetX));
+      const y = Math.max(0, Math.min(window.innerHeight - container.offsetHeight, pos.y - offsetY));
+      container.style.left = x + 'px';
+      container.style.top = y + 'px';
+    };
+
+    const onEnd = () => { isDragging = false; };
+
+    // Mouse events (supplement jQuery UI)
+    handle.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch events (main purpose - jQuery UI doesn't support these)
+    handle.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+
+    // CSS for touch
+    handle.style.touchAction = 'none';
+
+    console.log('[GameOverrides] war_container touch drag initialized');
+  }
+
+  // Init immediately or wait for element
+  if (document.getElementById('war_container')) {
+    setupWarContainerDrag();
+  } else {
+    const observer = new MutationObserver(() => {
+      if (document.getElementById('war_container')) {
+        observer.disconnect();
+        setupWarContainerDrag();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+})();
