@@ -3074,7 +3074,7 @@ console.log('[SoulCardSets] Module loaded');
  *   - Click Handlers:       bindClickHandlers (lines 1264-1819)
  * Lines 2343-2355: kws instance creation
  * Lines 2356-2761: GAME.* method overrides
- * Lines 2762-2770: ballManager & ekwipunek initialization
+ * Lines 2762-2770: ekwipunek initialization (ball modules self-initialize)
  * 
  * DEV_MODE:
  * ---------
@@ -4207,7 +4207,7 @@ if (typeof GAME === 'undefined') {
       }
       handleSockets(res) {
         // if (res.a !== 598 && res.a !== 596) {
-        console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        //   console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
         // }
         switch (res.a) {
           case 7: //?? PvP fight result?
@@ -4455,17 +4455,14 @@ if (typeof GAME === 'undefined') {
     // setupGameOverrides() is called after kws initialization above
     // ============================================
 
-    // ballManager and ekwipunek initialized after all scripts loaded
-    let kulka = null;
+    // ekwipunek initialized after all scripts loaded (ball modules self-initialize via IIFEs)
     let ekwipunekObj = null;
 
-    // Wait for ballManager to be available
-    let ballWait = setInterval(() => {
-      if (typeof ballManager !== 'undefined' && typeof ekwipunekMenager !== 'undefined') {
-        clearInterval(ballWait);
-        kulka = new ballManager();
+    let ekwWait = setInterval(() => {
+      if (typeof ekwipunekMenager !== 'undefined') {
+        clearInterval(ekwWait);
         ekwipunekObj = new ekwipunekMenager();
-        console.log('[Gieniobot] ballManager and ekwipunek initialized');
+        console.log('[Gieniobot] ekwipunek initialized');
       }
     }, 100);
   }
@@ -4473,912 +4470,1805 @@ if (typeof GAME === 'undefined') {
 }
 
 // ========== remote/features/ball/ballExp.js ==========
-class ballExp {
-  constructor() {
-      this.expText = 'Exp do NEXT';
-      this.expNonStopText = 'Exp no stop';
-      this.stopText = 'STOP';
-      this.synergy = parseInt($("#ss_synergy_lvl").html());
-      this.hasStarted = false;
-      this.nonStopExp = false;
-      $("body").on("click", `button[data-option="ss_page"][data-page="upgrade"]`, () => {
-          this.showExpButtons();
-      });
-      $("body").on("click", `button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon`, () => {
-          if(this.hasStarted) {
-              this.stopUpgrading();
-          }
-          this.hideExpButtons();
-      });
-      $("body").on("click", `button[data-option="ss_lvlup_next"]`, () => {
-          this.controller();
-      });
-      $("body").on("click", `button[data-option="ss_lvlup_nonstop"]`, () => {
-          this.nonStopExp = true;
-          this.controller();
-      });
-  }
+// Ball EXP grinder - auto-upgrade to fill exp bar.
+// Two modes: "Exp do NEXT" (stop at level) and "Exp non-stop".
+(function () {
+    'use strict';
 
-  controller() {
-      if (this.hasStarted) {
-          this.hasStarted = false;
-          this.nonStopExp = false;
-          this.stopUpgrading();
-      } else {
-          this.hasStarted = true;
-          this.startUpgrading()
-      }
-      this.switchButtonText();
-  }
+    const BALL_EXP = {
+        isRunning: false,
+        nonStop: false,
 
-  startUpgrading() {
-      GAME.completeProgress = () => {
-          var res = GAME.progress;
-          switch (res.a) {
-              case 45:
-                  if (res.ball) {
-                      GAME.parseData(55, res);
-                      if (this.hasStarted) {
-                          this.upgrade();
-                      }
-                  }
-                  break;
-          }
-          delete GAME.progress;
-      }
+        async run() {
+            if (!BALL_MANAGER.acquire('exp')) return;
+            this.isRunning = true;
+            this._updateUI();
 
-      this.upgrade();
-  }
+            try {
+                while (this.isRunning) {
+                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+                    const res = await BALL_RESPONSE.waitForResponse(10000);
+                    if (!res || !this.isRunning) break;
 
-  stopUpgrading() {
-      GAME.completeProgress = () => {
-          var res = GAME.progress;
-          switch (res.a) {
-              case 45:
-                  if (res.ball) {
-                      GAME.parseData(55, res);
-                  }
-                  break;
-          }
-          delete GAME.progress;
-      }
+                    if (!this.nonStop && res.bd) {
+                        const exp = parseInt(res.bd.exp) || 0;
+                        const needed = parseInt(res.bd.next_lvl) || 0;
+                        if (needed > 0 && exp >= needed) break;
+                    }
+                }
+            } catch (e) {
+                console.warn('[BallExp] Error:', e.message);
+            }
 
-      if (this.hasStarted) {
-          this.controller()
-      }
-  }
+            this.isRunning = false;
+            this.nonStop = false;
+            BALL_MANAGER.release('exp');
+            this._updateUI();
+        },
 
-  upgrade() {
-      var expKuli = $('#ss_exp').text();
-      var expKuliBezSpacji = expKuli.replace(/\s/g, '');
-      var expKuliPodzielony = expKuliBezSpacji.split('/');
-      var expKuli = parseInt(expKuliPodzielony[0]);
-      var expKuliPotrzebny = parseInt(expKuliPodzielony[1]);
-      
-      if (expKuli < expKuliPotrzebny || this.nonStopExp) {
-          GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-      } else {
-          this.stopUpgrading();
-      }
-  }
+        stop() {
+            this.isRunning = false;
+            this.nonStop = false;
+            this._updateUI();
+        },
 
-  showExpButtons() {
-      $("#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar").after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
-      $("#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar").after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
-  }
+        _updateUI() {
+            if (this.isRunning) {
+                $('#ss_lvlup_next').html('STOP');
+                $('#ss_lvlup_nonstop').html('STOP');
+            } else {
+                $('#ss_lvlup_next').html('Exp do NEXT');
+                $('#ss_lvlup_nonstop').html('Exp no stop');
+            }
+        },
 
-  switchButtonText() {
-      $("#ss_lvlup_next").html(this.hasStarted ? this.stopText : this.expText);
-      $("#ss_lvlup_nonstop").html(this.hasStarted ? this.stopText : this.expNonStopText);
-  }
+        _showButtons() {
+            const anchor = $('#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar');
+            if (!$('#ss_lvlup_next').length) {
+                anchor.after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
+                anchor.after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
+            }
+        },
 
-  hideExpButtons() {
-      $("#ss_lvlup_next").remove();
-      $("#ss_lvlup_nonstop").remove();
-  }
-}
+        _hideButtons() {
+            $('#ss_lvlup_next').remove();
+            $('#ss_lvlup_nonstop').remove();
+        }
+    };
+
+    window.BALL_EXP = BALL_EXP;
+
+    // UI event handlers
+    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+        BALL_EXP._showButtons();
+    });
+    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+        if (BALL_EXP.isRunning) BALL_EXP.stop();
+        BALL_EXP._hideButtons();
+    });
+    $('body').on('click', '#ss_lvlup_next', () => {
+        if (BALL_EXP.isRunning) {
+            BALL_EXP.stop();
+        } else {
+            BALL_EXP.nonStop = false;
+            BALL_EXP.run();
+        }
+    });
+    $('body').on('click', '#ss_lvlup_nonstop', () => {
+        if (BALL_EXP.isRunning) {
+            BALL_EXP.stop();
+        } else {
+            BALL_EXP.nonStop = true;
+            BALL_EXP.run();
+        }
+    });
+})();
+
 
 // ========== remote/features/ball/ballUpgrade.js ==========
-class ballUpgrade {
-  constructor() {
-      this.upgradeAllText = 'Ulepszaj wszystkie';
-      this.stopText = 'STOP';
-      this.waitingForResponse = false;
-      this.bonuses = [];
-      this.synergy = parseInt($("#ss_synergy_lvl").html());
-      this.hasStarted = false;
-      $("body").on("click", `button[data-option="ss_page"][data-page="upgrade"]`, () => {
-          this.showCheckboxes();
-          this.showUpgradeAllButton();
-      });
-      $("body").on("click", `button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon`, () => {
-          if (this.hasStarted) {
-              this.stopUpgrading();
-          }
-          this.hideCheckboxes();
-          this.hideUpgradeAllButton();
-      });
-      $("body").on("click", `button[data-option="ss_upgrade_all"]`, () => {
-          this.controller();
-      });
-  }
+// Ball stat upgrader - auto-upgrade with checkbox-based stat selection.
+// Accepts upgrades when sum of selected stat changes >= 0.
+(function () {
+    'use strict';
 
-  controller() {
-      if (this.hasStarted) {
-          this.hasStarted = false;
-          this.stopUpgrading();
-      } else {
-          this.hasStarted = true;
-          this.startUpgrading();
-      }
-      this.switchCheckboxesState();
-      this.switchButtonText();
-  }
+    const BALL_UPGRADE = {
+        isRunning: false,
+        bonuses: [],
 
-  startUpgrading() {
-      if (this.hasStarted) {
-          GAME.completeProgress = () => {
-              var res = GAME.progress;
-              switch (res.a) {
-                  case 45:
-                      if (res.ball) {
-                          GAME.parseData(55, res);
-                          if (this.hasStarted) {
-                              if(this.waitingForResponse) {
-                                  this.waitingForResponse = false;
-                              }
-                              this.upgrade();
-                          }
-                      }
-                      break;
-              }
-              delete GAME.progress;
-          }
-          this.bonuses = [];
-          this.upgrade();
-      }
-  }
+        async run() {
+            if (!BALL_MANAGER.acquire('upgrade')) return;
+            this.isRunning = true;
+            this._updateUI();
+            this._disableCheckboxes(true);
 
-  stopUpgrading() {
-      GAME.completeProgress = () => {
-          var res = GAME.progress;
-          switch (res.a) {
-              case 45:
-                  if (res.ball) {
-                      GAME.parseData(55, res);
-                  }
-                  break;
-          }
-          delete GAME.progress;
-      }
+            try {
+                while (this.isRunning) {
+                    // Read which stats user wants to track
+                    this._markBonuses();
+                    if (this.bonuses.length === 0 || this.bonuses.every(v => v === false)) {
+                        GAME.komunikat('[Kula] Zaznacz przynajmniej jeden stat!');
+                        break;
+                    }
 
-      this.waitingForResponse = false;
+                    // Evaluate current upgrade offer
+                    const shouldAccept = this._evaluateBonuses();
+                    if (shouldAccept) {
+                        GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
+                        await this._delay(300);
+                    }
 
-      if (this.hasStarted) {
-          this.controller()
-      }
-  }
+                    // Request next upgrade
+                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+                    const res = await BALL_RESPONSE.waitForResponse(10000);
+                    if (!res || !this.isRunning) break;
+                }
+            } catch (e) {
+                console.warn('[BallUpgrade] Error:', e.message);
+            }
 
-  upgrade() {
-      if(this.waitingForResponse) {
-          return;
-      }
+            this.isRunning = false;
+            BALL_MANAGER.release('upgrade');
+            this._disableCheckboxes(false);
+            this._updateUI();
+        },
 
-      this.rateUpgrade();
-  }
+        stop() {
+            this.isRunning = false;
+            this._disableCheckboxes(false);
+            this._updateUI();
+        },
 
-  sendUpgrade() {
-      GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-      this.waitingForResponse = true;
-  }
+        _markBonuses() {
+            this.bonuses = [];
+            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((index) => {
+                const cb = $(`#bon${index + 1}_upgrade`)[0];
+                this.bonuses.push(cb ? cb.checked : false);
+            });
+        },
 
-  rateUpgrade() {
-      var shouldAcceptUpgrade = false;
-      this.markBonuses();
-      shouldAcceptUpgrade = this.evaluateBonuses();
-      if (shouldAcceptUpgrade) {
-          GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
-      }
+        _evaluateBonuses() {
+            let sum = 0;
+            this.bonuses.forEach((shouldInclude, index) => {
+                if (shouldInclude) {
+                    sum += parseFloat($(`#ss_change_${index + 1}`).text()) || 0;
+                }
+            });
+            return sum >= 0;
+        },
 
-      setTimeout(this.sendUpgrade, shouldAcceptUpgrade ? 300 : 0);
-  }
+        _disableCheckboxes(disabled) {
+            $('.ball_stats.stat_page input[type=checkbox]').prop('disabled', disabled);
+        },
 
-  markBonuses() {
-      this.bonuses = [];
-      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((value, index, array) => {
-          this.bonuses.push($(`#bon${value + 1}_upgrade`)[0].checked);
-      }, this);
+        _updateUI() {
+            const btn = $('button[data-option="ss_upgrade_all"]');
+            btn.html(this.isRunning ? 'STOP' : 'Ulepszaj wszystkie');
+        },
 
-      let allUnchecked = this.bonuses.every((value, index, array) => {
-          value == false;
-      }, this);
+        _showCheckboxes() {
+            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
+                if (!$(`#bon${index + 1}_upgrade`).length) {
+                    $(`#stat${index + 1}_bon`).after(
+                        `<input type="checkbox" id="bon${index + 1}_upgrade" value="${index + 1}">`
+                    );
+                }
+            });
+        },
 
-      if(allUnchecked) {
-          this.stopUpgrading
-      }
-  }
+        _hideCheckboxes() {
+            $('.ball_stats.stat_page input[type=checkbox]').remove();
+        },
 
-  evaluateBonuses() {
-      var sum = 0;
-      this.bonuses.forEach((shouldInclude, index, array) => {
-          if(shouldInclude) {
-              sum += parseFloat($(`#ss_change_${index+1}`).text());
-          }
-      }, this);
+        _showButton() {
+            if (!$('button[data-option="ss_upgrade_all"]').length) {
+                $('#ss_page_upgrade > button').after(
+                    '<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>'
+                );
+            }
+        },
 
-      return sum >= 0;
-  }
+        _hideButton() {
+            $('button[data-option="ss_upgrade_all"]').remove();
+        },
 
-  showCheckboxes() {
-      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
-          $(`#stat${index + 1}_bon`).after(`<input type="checkbox" id="bon${index + 1}_upgrade" value=${index + 1}>`);
-      });
-  }
+        _delay(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+    };
 
-  switchCheckboxesState() {
-      $(".ball_stats.stat_page input[type=checkbox]").each((index) => {
-          $(`#bon${index + 1}_upgrade`).prop('disabled', this.hasStarted);
-      });
-  }
+    window.BALL_UPGRADE = BALL_UPGRADE;
 
-  hideCheckboxes() {
-      $(".ball_stats.stat_page input[type=checkbox]").each((index) => {
-          $(`#bon${index + 1}_upgrade`).remove();
-      });
-  }
+    // UI event handlers
+    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+        BALL_UPGRADE._showCheckboxes();
+        BALL_UPGRADE._showButton();
+    });
+    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+        if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
+        BALL_UPGRADE._hideCheckboxes();
+        BALL_UPGRADE._hideButton();
+    });
+    $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
+        if (BALL_UPGRADE.isRunning) {
+            BALL_UPGRADE.stop();
+        } else {
+            BALL_UPGRADE.run();
+        }
+    });
+})();
 
-  showUpgradeAllButton() {
-      $("#ss_page_upgrade > button").after('<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>');
-  }
-
-  switchButtonText() {
-      $('#ss_page_upgrade button[data-option="ss_upgrade_all"]').html(`${this.hasStarted ? this.stopText : this.upgradeAllText}`);
-  }
-
-  hideUpgradeAllButton() {
-      $('#ss_page_upgrade button[data-option="ss_upgrade_all"]').remove();
-  }
-}
 
 // ========== remote/features/ball/ballReset.js ==========
-class ballReset {
-  constructor() {
-      this.synergy = 6;
-      this.hasStarted = false;
-      this.bonsCombinations = [];
-      this.css = ` #ballResetPanel { position: absolute; top: 35px; right: 10px; z-index: 9999999; width: 445px; padding: 5px; background: #303131bd; border: solid #ffffff7a 1px; border-radius: 5px; display: none; user-select: none; } #ballResetPanel .controller { display: flex; flex-direction: column; align-items: stretch; margin-bottom: 2px; } #ballResetPanel .controller button { font-weight: bolder; border:solid black 1px; cursor: pointer; } #ballResetPanel .controller button.green { background: lime; color: black !important; } #ballResetPanel .controller button.red { background: red; color: black !important; } #ballResetPanel .controller button:first-child { border-bottom:none; background: #afd4f5; } #ballResetPanel .controller button:disabled { opacity: 1; background: gray; cursor: not-allowed; } #ballResetPanel .ballCombination { background: #dfdfdc5c; padding: 5px; margin-bottom: 2px; } #ballResetPanel .ballCombination .combinationID { text-align: center; background: black; color: white; font-weight: bolder; font-size: 16px; padding: 1px; margin-bottom: 2px; } #ballResetPanel .ballCombination select { margin-bottom: 2px; background: #ffffff99; border: solid #6f6f6f 1px; border-radius: 5px; color: black; } #ballResetPanel .ballCombination select:last-child { margin-bottom: 0px; } `;
-      this.innerHTML = ` <div id="ballResetPanel"> <div class="controller"> <button class="addCombination">DODAJ NOWĄ KOMBINACJE</button> <button class="startSearching green">SZUKAJ</button> </div> <div class="combinations">${this.bonsCombination(1)}</div> </div> `;
+// Ball reset system: normal ball + angel ball + pet bonus reset.
+// Contains 3 IIFEs: BALL_RESET, BALL_ANGEL_RESET, PET_BONUS_RESET.
 
-      $("body").append(`<style>${this.css}</style>${this.innerHTML}`);
-      $("body").on("click", "#ballResetPanel .addCombination", () => {
-          let lastID = parseInt($(".ballCombination:last").attr("combination"));
-          lastID++;
-          $(".combinations").append(this.bonsCombination(lastID));
-      });
-      $("body").on("click", "#ballResetPanel .startSearching", () => {
-          this.controller();
-      });
-      $("body").on("click", `button[data-option="ss_page"][data-page="reset"]`, () => {
-          GAME.completeProgress = () => {
-              var res = GAME.progress;
-              switch (res.a) {
-                  case 45:
-                      if (res.ball) {
-                          GAME.parseData(55, res);
-                          if (this.hasStarted) {
-                              this.search(res);
-                          }
-                      }
-                      break;
-              }
-              delete GAME.progress;
-          }
-          if (document.querySelector("#ss_name") && document.querySelector("#ss_name").textContent.trim() != "Anielska Kula Energii") {
-              $("#ballResetPanel").show();
-          }
-      });
-      $("body").on("click", `button[data-option="ss_page"][data-page="upgrade"], #soulstone_interface .closeicon`, () => {
-          if (this.hasStarted) {
-              $("#ballResetPanel .startSearching").click();
-          }
-          $('.ss_stats tr').css("background", "transparent");
-          $("#ballResetPanel").hide();
-          $("#ss_page_reset").hide();
-      });
-  }
-  controller() {
-      if (this.hasStarted) {
-          this.hasStarted = false;
-          $(".startSearching").removeClass("red").addClass("green").html("SZUKAJ");
-          $(".ballCombination select").prop("disabled", false);
-          $(".addCombination").prop("disabled", false);
-      } else {
-          this.hasStarted = true;
-          this.search();
-          $(".startSearching").removeClass("green").addClass("red").html("STOP");
-          $(".ballCombination select").prop("disabled", true);
-          $(".addCombination").prop("disabled", true);
+// ============================================================
+// 1. BALL_RESET - Normal ball stat reset
+//    Find desired stat combinations via response-driven loop.
+//    Supports presets: save/load/delete combination configs.
+// ============================================================
+(function () {
+  'use strict';
+
+  const PRESETS_KEY = 'ball_reset_presets';
+
+  // All available bonus IDs and labels for normal ball
+  const ALL_BONUSES = [
+    { id: 13, bonus: '% do obrażeń' },
+    { id: 14, bonus: '% do redukcji obrażeń' },
+    { id: 15, bonus: '% do efektywności treningu' },
+    { id: 16, bonus: '% do doświadczenia' },
+    { id: 17, bonus: '% do szansy na trafienie krytyczne' },
+    { id: 18, bonus: '% do redukcji szansy na otrzymanie trafienia krytycznego' },
+    { id: 51, bonus: '% do obrażeń od technik' },
+    { id: 52, bonus: '% redukcji obrażeń od technik' },
+    { id: 53, bonus: '% do szansy na moc z walk PvM' },
+    { id: 54, bonus: '% do ilości mocy z walk PvM' },
+    { id: 55, bonus: '% do szansy na zdobycie przedmiotu z walk PvM' },
+    { id: 56, bonus: 'minut(a) krótsze wyprawy' },
+    { id: 57, bonus: '% do szansy powodzenia wypraw' },
+    { id: 58, bonus: '% do szansy na ulepszenie przedmiotów' },
+    { id: 59, bonus: '% do szansy na połączenie przedmiotów' },
+    { id: 60, bonus: '% do obrażeń od trafień krytycznych' },
+    { id: 61, bonus: '% redukcji obrażeń od trafień krytycznych' },
+    { id: 62, bonus: '% do mocy za wygrane walki wojenne' },
+    { id: 63, bonus: '% do skuteczności podpaleń' },
+    { id: 64, bonus: '% do skuteczności krwawień' },
+    { id: 65, bonus: '% do odporności na podpalenia' },
+    { id: 66, bonus: '% do odporności na krwawienia' },
+    { id: 67, bonus: '% do szansy na zdobycie PSK' },
+    { id: 68, bonus: '% do punktów PvP za wygrane walki' },
+    { id: 69, bonus: '% do szansy na 3x więcej punktów PvP za wygrane walki' },
+    { id: 70, bonus: '% do szansy na 3x więcej doświadczenia za wygrane walki PvM' },
+    { id: 71, bonus: '% do mocy za skompletowanie SK' },
+    { id: 72, bonus: '% do mocy za skompletowanie PSK' },
+    { id: 73, bonus: 'minut(y) do czasu trwania błogosławieństw' },
+    { id: 74, bonus: '% do szansy na spotkanie legendarnych potworów' },
+    { id: 75, bonus: 'minut(y) krótszy cooldown między walkami PvP' },
+    { id: 76, bonus: '% zwiększenie własnej szybkości' },
+    { id: 77, bonus: '% obniżenie szybkości przeciwnika' },
+    { id: 78, bonus: '% do szansy na zdobycie Niebieskiego Senzu' },
+    { id: 79, bonus: '% mniejsze obrażenia od podpaleń' },
+    { id: 80, bonus: '% mniejsze obrażenia od krwawień' },
+    { id: 81, bonus: '% do szansy na zdobycie Scoutera' },
+    { id: 91, bonus: '% do wtajemniczenia' },
+    { id: 99, bonus: '% większy limit dzienny Niebieskich Senzu' },
+    { id: 139, bonus: '% do ilości zdobywanych kryształów instancji' },
+    { id: 140, bonus: '% do przyrostu Punktów Akcji' },
+    { id: 154, bonus: '% do sławy za walki w wojnach imperiów' },
+    { id: 160, bonus: '% do boskiego atrybutu przewodniego' },
+    { id: 163, bonus: '% więcej Boskiej Ki za CSK' },
+    { id: 171, bonus: '% do max Punktów Akcji' }
+  ];
+
+  const CSS = `
+        #ballResetPanel {
+            position: absolute; top: 35px; right: 10px; z-index: 9999999;
+            width: 445px; max-width: 95vw; padding: 5px;
+            background: #303131bd; border: solid #ffffff7a 1px; border-radius: 5px;
+            display: none; user-select: none;
+            max-height: 80vh; overflow-y: auto;
+        }
+        #ballResetPanel .close-panel {
+            position: absolute; top: 5px; right: 5px; cursor: pointer;
+            font-size: 20px; font-weight: bold; color: #fff;
+            width: 24px; height: 24px; text-align: center; line-height: 22px;
+            background: #8b0000; border-radius: 3px;
+        }
+        #ballResetPanel .close-panel:hover { background: #b00000; }
+        #ballResetPanel .preset-bar {
+            display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap;
+        }
+        #ballResetPanel .preset-bar select {
+            flex: 1; min-width: 120px; background: #040e13; color: #fff;
+            border: 1px solid #6f6f6f; border-radius: 3px; padding: 4px; font-size: 13px;
+        }
+        #ballResetPanel .preset-bar input {
+            flex: 1; min-width: 100px; background: #040e13; color: #fff;
+            border: 1px solid #6f6f6f; border-radius: 3px; padding: 4px; font-size: 13px;
+        }
+        #ballResetPanel .preset-bar button {
+            background: #305779; color: #fff; border: 1px solid #6f6f6f;
+            border-radius: 3px; cursor: pointer; font-size: 12px; padding: 4px 8px;
+            white-space: nowrap;
+        }
+        #ballResetPanel .preset-bar button:hover { background: #4a7aa5; }
+        #ballResetPanel .preset-bar button.delete { background: #8b0000; }
+        #ballResetPanel .preset-bar button.delete:hover { background: #b00000; }
+        #ballResetPanel .controller {
+            display: flex; flex-direction: column; align-items: stretch; margin-bottom: 2px;
+        }
+        #ballResetPanel .controller button {
+            font-weight: bolder; border: solid black 1px; cursor: pointer; min-height: 44px;
+        }
+        #ballResetPanel .controller button.green { background: lime; color: black !important; }
+        #ballResetPanel .controller button.red { background: red; color: black !important; }
+        #ballResetPanel .controller button:first-child { border-bottom: none; background: #afd4f5; color: black !important; }
+        #ballResetPanel .controller button:disabled { opacity: 1; background: gray; cursor: not-allowed; }
+        #ballResetPanel .ballCombination {
+            background: #dfdfdc5c; padding: 5px; margin-bottom: 2px;
+        }
+        #ballResetPanel .ballCombination .combinationID {
+            text-align: center; background: black; color: white;
+            font-weight: bolder; font-size: 16px; padding: 1px; margin-bottom: 2px;
+        }
+        #ballResetPanel .ballCombination select {
+            margin-bottom: 2px; background: #ffffff99; border: solid #6f6f6f 1px;
+            border-radius: 5px; color: black; width: 100%; font-size: 14px; padding: 4px;
+        }
+        @media (max-width: 600px) {
+            #ballResetPanel { width: 95vw; right: 2.5vw; top: 10px; }
+            #ballResetPanel select { font-size: 16px; padding: 8px; }
+            #ballResetPanel button { min-height: 48px; font-size: 16px; }
+        }
+    `;
+
+  const BALL_RESET = {
+    isRunning: false,
+    combinations: [],
+    synergy: 6,
+    presets: {},
+
+    // --- PRESETS ---
+    _loadPresets() {
+      try {
+        const raw = localStorage.getItem(PRESETS_KEY);
+        this.presets = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        this.presets = {};
       }
-  }
-  search(res = false) {
-      if (this.hasStarted) {
-          this.bonsCombinations = this.prepareCombinations();
-          if (res) {
-              this.ballActualBons = this.prepareBallBons(res);
-          } else {
-              this.ballActualBons = [0]
-          }
-          if (!this.compare(this.ballActualBons, this.bonsCombinations)) {
-              GAME.socket.emit('ga', {
-                  a: 45,
-                  type: 1,
-                  bid: GAME.ball_id
-              });
-          } else {
-              $(".startSearching").click();
-          }
+    },
+
+    _savePresets() {
+      localStorage.setItem(PRESETS_KEY, JSON.stringify(this.presets));
+    },
+
+    _populatePresetSelect() {
+      const $select = $('#ballResetPanel .preset-select');
+      if (!$select.length) return;
+      $select.find('option:not(:first)').remove();
+      Object.keys(this.presets).sort().forEach(name => {
+        $select.append(`<option value="${name}">${name}</option>`);
+      });
+    },
+
+    savePreset(name) {
+      if (!name) return;
+      const combinations = this._prepareCombinations();
+      if (combinations.length === 0) {
+        GAME.komunikat('[Kula] Najpierw skonfiguruj kombinacje!');
+        return;
       }
-  }
-  compare(pattern, others) {
-      const patternCounts = this.countOccurrences(pattern);
-      for (let i = 0; i < others.length; i++) {
-          const other = others[i];
-          const otherCounts = this.countOccurrences(other);
-          let isValid = true;
-          for (const [num, count] of Object.entries(otherCounts)) {
-              if (!patternCounts[num] || patternCounts[num] < count) {
-                  isValid = false;
-                  break;
-              }
+      this.presets[name] = combinations;
+      this._savePresets();
+      this._populatePresetSelect();
+      GAME.komunikat(`[Kula] Zapisano preset: ${name}`);
+    },
+
+    loadPreset(name) {
+      if (!name || !this.presets[name]) return;
+      const combinations = this.presets[name];
+
+      // Clear current combinations
+      $('#ballResetPanel .combinations').empty();
+
+      // Rebuild UI with saved combinations
+      combinations.forEach((combo, ci) => {
+        $('#ballResetPanel .combinations').append(this._buildCombinationHTML(ci + 1));
+        const $lastCombo = $('#ballResetPanel .ballCombination').last();
+        const $selects = $lastCombo.find('select');
+        combo.forEach((statId, si) => {
+          if ($selects[si]) {
+            $($selects[si]).val(statId);
           }
-          if (isValid) {
-              return true;
+        });
+      });
+
+      GAME.komunikat(`[Kula] Wczytano preset: ${name}`);
+    },
+
+    deletePreset(name) {
+      if (!name || !this.presets[name]) return;
+      delete this.presets[name];
+      this._savePresets();
+      this._populatePresetSelect();
+      GAME.komunikat(`[Kula] Usunięto preset: ${name}`);
+    },
+
+    // --- MAIN LOGIC ---
+    async run() {
+      if (!BALL_MANAGER.acquire('reset')) return;
+      this.isRunning = true;
+      this._updateUI();
+      this.combinations = this._prepareCombinations();
+
+      if (this.combinations.length === 0) {
+        GAME.komunikat('[Kula] Wybierz przynajmniej jedną kombinację!');
+        this.isRunning = false;
+        BALL_MANAGER.release('reset');
+        this._updateUI();
+        return;
+      }
+
+      try {
+        while (this.isRunning) {
+          GAME.socket.emit('ga', { a: 45, type: 1, bid: GAME.ball_id });
+          const res = await BALL_RESPONSE.waitForResponse(10000);
+          if (!res || !this.isRunning) break;
+
+          const stats = this._extractStats(res);
+          this._highlightMatches(res, stats);
+
+          if (this._matchesCombination(stats)) {
+            GAME.komunikat('[Kula] Znaleziono pasującą kombinację!');
+            break;
           }
+        }
+      } catch (e) {
+        console.warn('[BallReset] Error:', e.message);
+      }
+
+      this.isRunning = false;
+      BALL_MANAGER.release('reset');
+      this._updateUI();
+    },
+
+    stop() {
+      this.isRunning = false;
+      this._updateUI();
+    },
+
+    _extractStats(res) {
+      const ball = res.ball;
+      const stats = [];
+      for (let s = 1; s <= 9; s++) {
+        if (ball['stat' + s]) {
+          stats.push(ball['stat' + s]);
+        }
+      }
+      return stats;
+    },
+
+    _highlightMatches(res, stats) {
+      const ball = res.ball;
+      $('.ss_stats tr').css('background', 'transparent');
+      const allWanted = new Set();
+      this.combinations.forEach(combo => combo.forEach(id => allWanted.add(id)));
+
+      for (let s = 1; s <= 9; s++) {
+        if (ball['stat' + s] && allWanted.has(ball['stat' + s])) {
+          $('#stat' + s + '_bon').parent().css('background', '#80008075');
+        }
+      }
+    },
+
+    _matchesCombination(stats) {
+      const patternCounts = this._countOccurrences(stats);
+      for (const combo of this.combinations) {
+        const comboCounts = this._countOccurrences(combo);
+        let isValid = true;
+        for (const [num, count] of Object.entries(comboCounts)) {
+          if (!patternCounts[num] || patternCounts[num] < count) {
+            isValid = false;
+            break;
+          }
+        }
+        if (isValid) return true;
       }
       return false;
-  }
-  countOccurrences(array) {
+    },
+
+    _countOccurrences(arr) {
       const counts = {};
-      for (const num of array) {
-          counts[num] = (counts[num] || 0) + 1;
+      for (const num of arr) {
+        counts[num] = (counts[num] || 0) + 1;
       }
       return counts;
-  }
-  prepareBallBons(res) {
-      let ball = res.ball;
-      let bons = [];
-      $('.ss_stats tr').css("background", "transparent");
-      for (var s = 1; s <= 9; s++) {
-          if (ball['stat' + s] && this.bonsCombinations.some(array => array.includes(ball['stat' + s]))) {
-              bons.push(ball['stat' + s]);
-              $('#stat' + s + '_bon').parent().css("background", "#80008075");
-          }
-      }
-      return bons;
-  }
-  prepareCombinations() {
-      let combinations = [];
-      $(".ballCombination").each((index, element) => {
-          let combination = [];
-          $(element).find("select").each((idx, sel) => {
-              const value = parseInt($(sel).val());
-              if (value > 0) {
-                  combination.push(value);
-              }
-          });
-          if (combination.length > 0) {
-              combinations.push(combination);
-          }
+    },
+
+    _prepareCombinations() {
+      const combinations = [];
+      $('#ballResetPanel .ballCombination').each((index, element) => {
+        const combo = [];
+        $(element).find('select').each((idx, sel) => {
+          const value = parseInt($(sel).val());
+          if (value > 0) combo.push(value);
+        });
+        if (combo.length > 0) combinations.push(combo);
       });
       return combinations;
-  }
-  bonsCombination(c) {
-      let innerHTML = `<div class="ballCombination" combination="${c}"><div class="combinationID">Kombinacja #${c}</div>`;
+    },
+
+    _updateUI() {
+      if (this.isRunning) {
+        $('.startSearching').removeClass('green').addClass('red').html('STOP');
+        $('#ballResetPanel .ballCombination select').prop('disabled', true);
+        $('#ballResetPanel .addCombination').prop('disabled', true);
+        $('#ballResetPanel .preset-bar').find('select, input, button').prop('disabled', true);
+      } else {
+        $('.startSearching').removeClass('red').addClass('green').html('SZUKAJ');
+        $('#ballResetPanel .ballCombination select').prop('disabled', false);
+        $('#ballResetPanel .addCombination').prop('disabled', false);
+        $('#ballResetPanel .preset-bar').find('select, input, button').prop('disabled', false);
+      }
+    },
+
+    _buildSelectHTML() {
+      let html = '<select><option value="0">Brak</option>';
+      ALL_BONUSES.forEach(b => {
+        html += `<option value="${b.id}">${b.bonus}</option>`;
+      });
+      html += '</select>';
+      return html;
+    },
+
+    _buildCombinationHTML(num) {
+      let html = `<div class="ballCombination" combination="${num}">`;
+      html += `<div class="combinationID">Kombinacja #${num}</div>`;
       for (let i = 0; i < this.synergy; i++) {
-          innerHTML += `${this.listOfBons(c)}`;
+        html += this._buildSelectHTML();
       }
-      innerHTML += "</div>";
-      return innerHTML;
-  }
-  listOfBons() {
-      let innerHTML = ` <select> <option value="0">Brak</option> `;
-      this.allBons().forEach((obiekt) => {
-          innerHTML += `<option value="${obiekt.id}">${obiekt.bonus}</option>`;
+      html += '</div>';
+      return html;
+    }
+  };
+
+  window.BALL_RESET = BALL_RESET;
+
+  // Load presets on init
+  BALL_RESET._loadPresets();
+
+  // Inject panel HTML + CSS
+  const panelHTML = `
+        <div id="ballResetPanel">
+            <div class="close-panel">✕</div>
+            <div class="preset-bar">
+                <select class="preset-select"><option value="">-- Preset --</option></select>
+                <button class="preset-load">Wczytaj</button>
+                <input type="text" class="preset-name" placeholder="Nazwa presetu...">
+                <button class="preset-save">Zapisz</button>
+                <button class="preset-delete delete">Usuń</button>
+            </div>
+            <div class="controller">
+                <button class="addCombination">DODAJ NOWĄ KOMBINACJĘ</button>
+                <button class="startSearching green">SZUKAJ</button>
+            </div>
+            <div class="combinations">${BALL_RESET._buildCombinationHTML(1)}</div>
+        </div>`;
+  $('body').append(`<style>${CSS}</style>${panelHTML}`);
+
+  // Populate preset select after DOM ready
+  BALL_RESET._populatePresetSelect();
+
+  // Preset handlers
+  $('body').on('click', '#ballResetPanel .preset-save', () => {
+    const name = $('#ballResetPanel .preset-name').val().trim();
+    if (!name) {
+      GAME.komunikat('[Kula] Wpisz nazwę presetu!');
+      return;
+    }
+    BALL_RESET.savePreset(name);
+    $('#ballResetPanel .preset-select').val(name);
+  });
+
+  $('body').on('click', '#ballResetPanel .preset-load', () => {
+    const name = $('#ballResetPanel .preset-select').val();
+    if (!name) {
+      GAME.komunikat('[Kula] Wybierz preset z listy!');
+      return;
+    }
+    BALL_RESET.loadPreset(name);
+    $('#ballResetPanel .preset-name').val(name);
+  });
+
+  $('body').on('click', '#ballResetPanel .preset-delete', () => {
+    const name = $('#ballResetPanel .preset-select').val();
+    if (!name) {
+      GAME.komunikat('[Kula] Wybierz preset do usunięcia!');
+      return;
+    }
+    BALL_RESET.deletePreset(name);
+    $('#ballResetPanel .preset-select').val('');
+    $('#ballResetPanel .preset-name').val('');
+  });
+
+  // Add combination
+  $('body').on('click', '#ballResetPanel .addCombination', () => {
+    const lastID = parseInt($('#ballResetPanel .ballCombination:last').attr('combination')) || 0;
+    $('#ballResetPanel .combinations').append(BALL_RESET._buildCombinationHTML(lastID + 1));
+  });
+
+  // Start/Stop
+  $('body').on('click', '#ballResetPanel .startSearching', () => {
+    if (BALL_RESET.isRunning) {
+      BALL_RESET.stop();
+    } else {
+      BALL_RESET.run();
+    }
+  });
+
+  // Show panel on reset tab click (only for normal ball) - reset to clean state
+  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"]', () => {
+    const nameEl = document.querySelector('#ss_name');
+    if (nameEl && nameEl.textContent.trim() !== 'Anielska Kula Energii') {
+      // Clear and reset to single empty combination
+      $('#ballResetPanel .combinations').empty().append(BALL_RESET._buildCombinationHTML(1));
+      $('#ballResetPanel .preset-select').val('');
+      $('#ballResetPanel .preset-name').val('');
+      $('#ballResetPanel').show();
+    }
+  });
+
+  // Close panel X button
+  $('body').on('click', '#ballResetPanel .close-panel', () => {
+    if (BALL_RESET.isRunning) BALL_RESET.stop();
+    $('.ss_stats tr').css('background', 'transparent');
+    $('#ballResetPanel').hide();
+  });
+
+  // Hide panel on upgrade tab or close
+  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"], #soulstone_interface .closeicon', () => {
+    if (BALL_RESET.isRunning) BALL_RESET.stop();
+    $('.ss_stats tr').css('background', 'transparent');
+    $('#ballResetPanel').hide();
+  });
+})();
+
+// ============================================================
+// 2. BALL_ANGEL_RESET - Angel ball reset with variant selection
+//    Multiple combinations, each with 5 slots + variant checkboxes.
+//    Supports presets: save/load/delete combination configs.
+// ============================================================
+(function () {
+  'use strict';
+
+  const PRESETS_KEY = 'ball_angel_reset_presets';
+
+  // Angel ball stat groups - each group has 2 variants (lower/higher %)
+  const ANGEL_STAT_GROUPS = [
+    { group: 'boski_atrybut', label: '% do boskiego atrybutu przewodniego', variants: ['10% do boskiego atrybutu przewodniego', '15% do boskiego atrybutu przewodniego'] },
+    { group: 'doswiadczenie', label: '% do doświadczenia', variants: ['150% do doświadczenia', '200% do doświadczenia'] },
+    { group: 'efektywnosc', label: '% do efektywności treningu', variants: ['150% do efektywności treningu', '200% do efektywności treningu'] },
+    { group: 'moc_pvm', label: '% do ilości mocy z walk PvM', variants: ['75% do ilości mocy z walk PvM', '100% do ilości mocy z walk PvM'] },
+    { group: 'krysztaly', label: '% do ilości zdobywanych kryształów instancji', variants: ['75% do ilości zdobywanych kryształów instancji', '100% do ilości zdobywanych kryształów instancji'] },
+    { group: 'max_pa', label: '% do max Punktów Akcji', variants: ['30% do max Punktów Akcji', '35% do max Punktów Akcji'] },
+    { group: 'obrazenia', label: '% do obrażeń', variants: ['40% do obrażeń', '45% do obrażeń'] },
+    { group: 'obrazenia_tech', label: '% do obrażeń od technik', variants: ['40% do obrażeń od technik', '45% do obrażeń od technik'] },
+    { group: 'przyrost_pa', label: '% do przyrostu Punktów Akcji', variants: ['30% do przyrostu Punktów Akcji', '35% do przyrostu Punktów Akcji'] },
+    { group: 'redukcja', label: '% do redukcji obrażeń', variants: ['40% do redukcji obrażeń', '45% do redukcji obrażeń'] },
+    { group: 'slawa', label: '% do sławy za walki w wojnach', variants: ['40% do sławy za walki w wojnach imperiów', '45% do sławy za walki w wojnach imperiów'] },
+    { group: '3x_exp', label: '% do szansy na 3x więcej EXP za PvM', variants: ['15% do szansy na 3x więcej doświadczenia za wygrane walki PvM', '20% do szansy na 3x więcej doświadczenia za wygrane walki PvM'] },
+    { group: 'polaczenie', label: '% do szansy na połączenie przedmiotów', variants: ['9% do szansy na połączenie przedmiotów', '12% do szansy na połączenie przedmiotów'] },
+    { group: 'legendarne', label: '% do szansy na spotkanie legendarnych potworów', variants: ['9% do szansy na spotkanie legendarnych potworów', '12% do szansy na spotkanie legendarnych potworów'] },
+    { group: 'ulepszenie', label: '% do szansy na ulepszenie przedmiotów', variants: ['9% do szansy na ulepszenie przedmiotów', '12% do szansy na ulepszenie przedmiotów'] },
+    { group: 'przedmiot_pvm', label: '% do szansy na zdobycie przedmiotu z walk PvM', variants: ['9% do szansy na zdobycie przedmiotu z walk PvM', '12% do szansy na zdobycie przedmiotu z walk PvM'] },
+    { group: 'psk', label: '% do szansy na zdobycie PSK', variants: ['9% do szansy na zdobycie PSK', '12% do szansy na zdobycie PSK'] },
+    { group: 'csk', label: '% do szansy na zdobycie CSK', variants: ['3% do szansy na zdobycie CSK', '5% do szansy na zdobycie CSK'] },
+    { group: 'wtajemniczenie', label: '% do wtajemniczenia', variants: ['15% do wtajemniczenia', '20% do wtajemniczenia'] },
+    { group: 'redukcja_tech', label: '% do redukcji obrażeń od technik', variants: ['40% redukcji obrażeń od technik', '45% redukcji obrażeń od technik'] },
+    { group: 'moc_szansa', label: '% do szansy na moc z walk PvM', variants: ['9% do szansy na moc z walk PvM', '12% do szansy na moc z walk PvM'] },
+    { group: 'senzu_limit', label: '% do limitu Niebieskich Senzu', variants: ['10% większy limit dzienny Niebieskich Senzu', '15% większy limit dzienny Niebieskich Senzu'] },
+    { group: 'ssj', label: '% do mnożnika SSJ', variants: ['4% większy mnożnik SSJ', '6% większy mnożnik SSJ'] },
+    { group: 'redukcja_efekty', label: '% do redukcji obrażeń od efektów', variants: ['10% redukcja obrażeń od efektów czasowych', '12% redukcja obrażeń od efektów czasowych'] },
+    { group: 'blogoslawienstwa', label: 'minut(y) do czasu trwania Błogosławieństw', variants: ['75 minut(y) do czasu trwania Błogosławieństw', '100 minut(y) do czasu trwania Błogosławieństw'] },
+    { group: 'pvp_cooldown', label: 'minut(y) krótszy cooldown PvP', variants: ['12 minut(y) krótszy cooldown między walkami PvP', '15 minut(y) krótszy cooldown między walkami PvP'] },
+    { group: 'boski_pvm', label: '% do ilości boskiego atrybutu przewodniego z walk PvM', variants: ['50% większa ilość boskiego atrybutu przewodniego z walk PvM', '60% większa ilość boskiego atrybutu przewodniego z walk PvM'] },
+    { group: 'mborn', label: '% do szansy na ulepszenie przedmiotów M-borna', variants: ['2% do szansy na ulepszenie przedmiotów M-borna', '4% do szansy na ulepszenie przedmiotów M-borna'] },
+    { group: 'rezultat', label: '% do rezultatu treningu', variants: ['5% do rezultatu treningu', '10% do rezultatu treningu'] },
+    { group: 'podwojny_bonus', label: '% do szansy na podwójny bonus treningu', variants: ['2% do szansy na podwójnie efektywny bonus za ulepszenie treningu', '3% do szansy na podwójnie efektywny bonus za ulepszenie treningu'] },
+    { group: 'boski_szansa', label: '% do szansy na boski atrybut PvM', variants: ['3% większa szansa na boski atrybut przewodni podczas walk PvM', '5% większa szansa na boski atrybut przewodni podczas walk PvM'] },
+    { group: 'statystyki', label: '% do wszystkich statystyk', variants: ['5% do wszystkich statystyk', '10% do wszystkich statystyk'] },
+    { group: 'zasoby', label: '% do szansy na pomyślne zebranie zasobu', variants: ['4% większa szansa na pomyślne zebranie zasobu', '6% większa szansa na pomyślne zebranie zasobu'] }
+  ];
+
+  const SLOTS_COUNT = 5;
+
+  const CSS = `
+        #angelResetPanel {
+            position: absolute; top: 35px; right: 10px; z-index: 9999999;
+            width: 460px; max-width: 95vw; padding: 8px;
+            background: #303131e6; border: solid #ffd700 1px; border-radius: 5px;
+            display: none; user-select: none;
+            max-height: 80vh; overflow-y: auto;
+            color: #fff;
+        }
+        #angelResetPanel .close-panel {
+            position: absolute; top: 5px; right: 5px; cursor: pointer;
+            font-size: 20px; font-weight: bold; color: #fff;
+            width: 24px; height: 24px; text-align: center; line-height: 22px;
+            background: #8b0000; border-radius: 3px;
+        }
+        #angelResetPanel .close-panel:hover { background: #b00000; }
+        #angelResetPanel .angel-title {
+            text-align: center; font-weight: bold; font-size: 15px;
+            color: #ffd700; margin-bottom: 6px;
+        }
+        #angelResetPanel .preset-bar {
+            display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap;
+        }
+        #angelResetPanel .preset-bar select {
+            flex: 1; min-width: 100px; background: #040e13; color: #fff;
+            border: 1px solid #ffd700; border-radius: 3px; padding: 4px; font-size: 13px;
+        }
+        #angelResetPanel .preset-bar input {
+            flex: 1; min-width: 80px; background: #040e13; color: #fff;
+            border: 1px solid #ffd700; border-radius: 3px; padding: 4px; font-size: 13px;
+        }
+        #angelResetPanel .preset-bar button {
+            background: #305779; color: #fff; border: 1px solid #6f6f6f;
+            border-radius: 3px; cursor: pointer; font-size: 12px; padding: 4px 8px;
+            white-space: nowrap;
+        }
+        #angelResetPanel .preset-bar button:hover { background: #4a7aa5; }
+        #angelResetPanel .preset-bar button.delete { background: #8b0000; }
+        #angelResetPanel .preset-bar button.delete:hover { background: #b00000; }
+        #angelResetPanel .angel-controls {
+            display: flex; gap: 4px; margin-bottom: 6px;
+        }
+        #angelResetPanel .angel-controls button {
+            flex: 1; font-weight: bold; border: solid black 1px; cursor: pointer;
+            min-height: 44px; font-size: 14px; border-radius: 3px;
+        }
+        #angelResetPanel .angel-btn-add { background: #afd4f5; color: black !important; }
+        #angelResetPanel .angel-btn-start { background: lime; color: black !important; }
+        #angelResetPanel .angel-btn-stop { background: red; color: black !important; display: none; }
+        #angelResetPanel .angel-combination {
+            background: #dfdfdc1a; padding: 6px; margin-bottom: 4px; border-radius: 3px;
+            border: 1px solid #ffffff30;
+        }
+        #angelResetPanel .angel-combo-header {
+            text-align: center; background: black; color: #ffd700;
+            font-weight: bold; font-size: 14px; padding: 2px; margin-bottom: 4px;
+        }
+        #angelResetPanel .angel-slot {
+            margin-bottom: 3px;
+        }
+        #angelResetPanel .angel-slot-label {
+            font-size: 12px; color: #aaa; margin-bottom: 2px;
+        }
+        #angelResetPanel .angel-slot select {
+            width: 100%; background: #ffffff99; border: solid #6f6f6f 1px;
+            border-radius: 5px; color: black; font-size: 13px; padding: 4px;
+            margin-bottom: 3px;
+        }
+        #angelResetPanel .angel-variants {
+            display: none; padding: 3px 8px; background: #ffffff10; border-radius: 3px;
+        }
+        #angelResetPanel .angel-variants label {
+            display: flex; align-items: center; gap: 6px; padding: 2px 0;
+            font-size: 12px; color: #ddd; cursor: pointer;
+        }
+        #angelResetPanel .angel-variants input[type="checkbox"] {
+            width: 18px; height: 18px; cursor: pointer; accent-color: #ffd700;
+        }
+        #angelResetPanel .angel-status {
+            text-align: center; font-size: 13px; color: #aaa; margin-top: 4px;
+        }
+        @media (max-width: 600px) {
+            #angelResetPanel { width: 95vw; right: 2.5vw; top: 10px; }
+            #angelResetPanel select { font-size: 16px; padding: 8px; }
+            #angelResetPanel button { min-height: 48px; font-size: 16px; }
+            #angelResetPanel .angel-variants input[type="checkbox"] { width: 24px; height: 24px; }
+            #angelResetPanel .angel-variants label { font-size: 15px; padding: 5px 0; }
+        }
+    `;
+
+  const BALL_ANGEL_RESET = {
+    isRunning: false,
+    combinations: [],
+    resetCount: 0,
+    presets: {},
+
+    // --- PRESETS ---
+    _loadPresets() {
+      try {
+        const raw = localStorage.getItem(PRESETS_KEY);
+        this.presets = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        this.presets = {};
+      }
+    },
+
+    _savePresets() {
+      localStorage.setItem(PRESETS_KEY, JSON.stringify(this.presets));
+    },
+
+    _populatePresetSelect() {
+      const $select = $('#angelResetPanel .preset-select');
+      if (!$select.length) return;
+      $select.find('option:not(:first)').remove();
+      Object.keys(this.presets).sort().forEach(name => {
+        $select.append(`<option value="${name}">${name}</option>`);
       });
-      innerHTML += `</select>`;
-      return innerHTML;
-  }
-  allBons() {
-      return [{
-          id: 13,
-          bonus: '% do obrażeń'
-      }, {
-          id: 14,
-          bonus: '% do redukcji obrażeń'
-      }, {
-          id: 15,
-          bonus: '% do efektywności treningu'
-      }, {
-          id: 16,
-          bonus: '% do doświadczenia'
-      }, {
-          id: 17,
-          bonus: '% do szansy na trafienie krytyczne'
-      }, {
-          id: 18,
-          bonus: '% do redukcji szansy na otrzymanie trafienia krytycznego'
-      }, {
-          id: 51,
-          bonus: '% do obrażeń od technik'
-      }, {
-          id: 52,
-          bonus: '% redukcji obrażeń od technik'
-      }, {
-          id: 53,
-          bonus: '% do szansy na moc z walk PvM'
-      }, {
-          id: 54,
-          bonus: '% do ilości mocy z walk PvM'
-      }, {
-          id: 55,
-          bonus: '% do szansy na zdobycie przedmiotu z walk PvM'
-      }, {
-          id: 56,
-          bonus: 'minut(a) krótsze wyprawy'
-      }, {
-          id: 57,
-          bonus: '% do szansy powodzenia wypraw'
-      }, {
-          id: 58,
-          bonus: '% do szansy na ulepszenie przedmiotów'
-      }, {
-          id: 59,
-          bonus: '% do szansy na połączenie przedmiotów'
-      }, {
-          id: 60,
-          bonus: '% do obrażeń od trafień krytycznych'
-      }, {
-          id: 61,
-          bonus: '% redukcji obrażeń od trafień krytycznych'
-      }, {
-          id: 62,
-          bonus: '% do mocy za wygrane walki wojenne'
-      }, {
-          id: 63,
-          bonus: '% do skuteczności podpaleń'
-      }, {
-          id: 64,
-          bonus: '% do skuteczności krwawień'
-      }, {
-          id: 65,
-          bonus: '% do odporności na podpalenia'
-      }, {
-          id: 66,
-          bonus: '% do odporności na krwawienia'
-      }, {
-          id: 67,
-          bonus: '% do szansy na zdobycie PSK'
-      }, {
-          id: 68,
-          bonus: '% do punktów PvP za wygrane walki'
-      }, {
-          id: 69,
-          bonus: '% do szansy na 3x więcej punktów PvP za wygrane walki'
-      }, {
-          id: 70,
-          bonus: '% do szansy na 3x więcej doświadczenia za wygrane walki PvM'
-      }, {
-          id: 71,
-          bonus: '% do mocy za skompletowanie SK'
-      }, {
-          id: 72,
-          bonus: '% do mocy za skompletowanie PSK'
-      }, {
-          id: 73,
-          bonus: 'minut(y) do czasu trwania błogosławieństw'
-      }, {
-          id: 74,
-          bonus: '% do szansy na spotkanie legendarnych potworów'
-      }, {
-          id: 75,
-          bonus: 'minut(y) krótszy cooldown między walkami PvP'
-      }, {
-          id: 76,
-          bonus: '% zwiększenie własnej szybkości'
-      }, {
-          id: 77,
-          bonus: '% obniżenie szybkości przeciwnika'
-      }, {
-          id: 78,
-          bonus: '% do szansy na zdobycie Niebieskiego Senzu'
-      }, {
-          id: 79,
-          bonus: '% mniejsze obrażenia od podpaleń'
-      }, {
-          id: 80,
-          bonus: '% mniejsze obrażenia od krwawień'
-      }, {
-          id: 81,
-          bonus: '% do szansy na zdobycie Scoutera'
-      }, {
-          id: 91,
-          bonus: '% do wtajemniczenia'
-      }, {
-          id: 99,
-          bonus: '% większy limit dzienny Niebieskich Senzu'
-      }, {
-          id: 139,
-          bonus: '% do ilości zdobywanych kryształów instancji'
-      }, {
-          id: 140,
-          bonus: '% do przyrostu Punktów Akcji'
-      }, {
-          id: 154,
-          bonus: '% do sławy za walki w wojnach imperiów'
-      }, {
-          id: 160,
-          bonus: '% do boskiego atrybutu przewodniego'
-      }, {
-          id: 163,
-          bonus: '% więcej Boskiej Ki za CSK'
-      }, {
-          id: 171,
-          bonus: '% do max Punktów Akcji'
-      }];
-  }
-}
+    },
 
-class pet_bonch {
-  constructor() {
-      this.petCSS = `
-          #bonusMenu {display: none; position: absolute; top: 80px; right: 5px; padding: 10px; background: rgba(48, 49, 49, 0.8); border: solid #ffffff7a 1px; border-radius: 5px; z-index: 10;}
-          #bonusMenu div {color: #ffffff; font-size: 16px; font-weight: bold; margin-bottom: 10px; text-align: center; }
-          #bonusMenu select {margin: 5px 0; background: #ffffff99; border: solid #6f6f6f 1px; border-radius: 5px; color: black; display: block; width: 100%;}
-          .startButton {display: block; margin: 8px auto;}
-          .stopButton {display: block; margin: 8px auto; margin-bottom: 1ch;}`;
-      this.petHTML = `
-          <div id="bonusMenu">
-              <div><b>Wybierz bonusy:</b></div>
-              ${this.generateBonusSelects(4)}
-              <div><b>Wybierz ID Peta:</b></div>
-              <select id="petIdSelect">${this.generatePetOptions()}</select>
-              <button class="newBtn startButton">Start</button>
-              <button class="newBtn stopButton">CLOSE</button>
-          </div>`;
-      this.isPetBonchActive = false;
-      this.petInterval = null;
-
-      this.initialize();
-  }
-
-  initialize() {
-      this.attachButtonEvent();
-      this.attachStartEvent();
-      this.attachStopEvent();
-  }
-
-  generateBonusSelects(count) {
-      let options = `
-          <option value="0">Brak</option>
-          <option value="1">% do siły</option>
-          <option value="2">% do szybkości</option>
-          <option value="3">% do wytrzymałości</option>
-          <option value="4">% do siły woli</option>
-          <option value="5">% do energii ki</option>
-          <option value="6">% do wszystkich statystyk</option>
-          <option value="7">% do efektywności treningu</option>
-          <option value="8">% do rezultatu treningu</option>
-          <option value="9">% do szansy na podwójnie efektywny bonus za ulepszenie treningu</option>
-          <option value="10">% do max Punktów Akcji</option>
-          <option value="11"> do przyrostu Punktów Akcji</option>
-          <option value="12">% do przyrostu Punktów Akcji</option>
-          <option value="13">% do doświadczenia</option>
-          <option value="14">% do szansy na zdobycie przedmiotu z walk PvM</option>
-          <option value="15">% do ilości mocy z walk PvM</option>
-          <option value="16">% do szansy na moc z walk PvM</option>
-          <option value="17">% do mocy za skompletowanie SK</option>
-          <option value="18">% do mocy za skompletowanie PSK</option>
-          <option value="19">% do mocy za wygrane walki wojenne</option>
-          <option value="20">% do obrażeń</option>
-          <option value="21">% do obrażeń od technik</option>
-          <option value="22">% do obrażeń od trafień krytycznych</option>
-          <option value="23">% do redukcji obrażeń</option>
-          <option value="24">% redukcji obrażeń od technik</option>
-          <option value="25">% do redukcji szansy na otrzymanie trafienia krytycznego</option>
-          <option value="26">% redukcji obrażeń od trafień krytycznych</option>
-          <option value="27">% do szansy na trafienie krytyczne</option>
-          <option value="28">% do odporności na krwawienia</option>
-          <option value="29">% do skuteczności krwawień</option>
-          <option value="30">% do odporności na podpalenia</option>
-          <option value="31">% do skuteczności podpaleń</option>
-      `;
-      let selects = "";
-      for (let i = 0; i < count; i++) {
-          selects += `<select>${options}</select>`;
+    // Save current config: { combinations: [{ slots: [{ groupIdx, variants: [bool, bool] }, ...] }, ...] }
+    savePreset(name) {
+      if (!name) return;
+      const config = this._readConfigForSave();
+      if (config.length === 0) {
+        GAME.komunikat('[Anielska] Najpierw skonfiguruj kombinacje!');
+        return;
       }
-      return selects;
-  }
+      this.presets[name] = config;
+      this._savePresets();
+      this._populatePresetSelect();
+      GAME.komunikat(`[Anielska] Zapisano preset: ${name}`);
+    },
 
-  generatePetOptions() {
-      let options = '';
-      for (let i = 1; i <= 100; i++) {
-          options += `<option value="${i}">Pet ${i}</option>`;
-      }
-      return options;
-  }
-
-  attachButtonEvent() {
-      $("body").on("click", 'button[data-option="pet_bonch"]', () => {
-          if (!$("#bonusMenu").length) {
-              $("body").append(`<style>${this.petCSS}</style>${this.petHTML}`);
+    // Read config in a saveable format
+    _readConfigForSave() {
+      const config = [];
+      $('.angel-combination').each((ci, combEl) => {
+        const combo = { slots: [] };
+        for (let i = 0; i < SLOTS_COUNT; i++) {
+          const select = combEl.querySelector(`.angel-slot-select[data-combo="${ci}"][data-slot="${i}"]`);
+          if (!select || select.value === '') continue;
+          const groupIdx = parseInt(select.value);
+          const variants = [];
+          for (let vi = 0; vi < 2; vi++) {
+            const cb = combEl.querySelector(`.angel-variant-cb[data-combo="${ci}"][data-slot="${i}"][data-var="${vi}"]`);
+            variants.push(cb ? cb.checked : true);
           }
-
-          setTimeout(() => {
-              if ($(".pet-number").length === 0) {
-                  const petItems = document.querySelectorAll('.petItem');
-                  petItems.forEach((petItem, index) => {
-                      const numberLabel = document.createElement('div');
-                      numberLabel.classList.add('pet-number');
-                      numberLabel.textContent = `Pet #${index + 1}`;
-                      numberLabel.style.fontWeight = 'bold';
-                      numberLabel.style.marginBottom = '5px';
-                      petItem.prepend(numberLabel);
-                  });
-              }
-              this.isPetBonchActive = false;
-              $("#bonusMenu").toggle();
-          }, 333);
+          combo.slots.push({ groupIdx, variants });
+        }
+        if (combo.slots.length > 0) {
+          config.push(combo);
+        }
       });
-  }
+      return config;
+    },
 
-  attachStartEvent() {
-      $("body").on("click", '.startButton', () => {
-          this.isPetBonchActive = true;
-          const selectedOptions = Array.from($('#bonusMenu select').not('#petIdSelect'))
-              .map(select => {
-                  const value = select.value;
-                  const optionText = select.options[select.selectedIndex].text;
-                  return value !== "0" ? optionText : null;
-              })
-              .filter(option => option !== null);
+    loadPreset(name) {
+      if (!name || !this.presets[name]) return;
+      const config = this.presets[name];
 
-          const checkAndSendData = () => {
-              const container = document.querySelector("#kom_con > div > div.content > div");
-              const greenTextValues = Array.from(container.querySelectorAll("b.green")).map(el => {
-                  return el.nextSibling ? el.nextSibling.textContent.trim() : "";
+      // Clear current combinations
+      $('.angel-combinations').empty();
+
+      // Rebuild UI
+      config.forEach((combo, ci) => {
+        $('.angel-combinations').append(this._buildCombinationHTML(ci + 1));
+        const $combEl = $('.angel-combination').last();
+
+        combo.slots.forEach((slot, si) => {
+          const $select = $combEl.find(`.angel-slot-select[data-slot="${si}"]`);
+          if ($select.length) {
+            $select.val(slot.groupIdx);
+            // Build variants
+            buildVariants(ci + 1, si, slot.groupIdx);
+            // Set variant checkboxes after small delay
+            setTimeout(() => {
+              slot.variants.forEach((checked, vi) => {
+                const cb = document.querySelector(`.angel-variant-cb[data-combo="${ci + 1}"][data-slot="${si}"][data-var="${vi}"]`);
+                if (cb) cb.checked = checked;
               });
-
-              const allMatch = selectedOptions.every(option => greenTextValues.includes(option));
-              const iloscKarmy = parseInt($("#ilosc_karm").text(), 10);
-
-              if (iloscKarmy === 0) {
-                  this.isPetBonchActive = false;
-                  console.log("Brak Karmy.");
-              }
-
-              if (this.isPetBonchActive) {
-                  if (allMatch) {
-                      console.log("Wszystkie wybrane wartości pasują:", selectedOptions);
-                      clearInterval(this.petInterval);
-                      this.isPetBonchActive = false;
-                  } else {
-                      // console.log("Brak pełnego dopasowania, ponawiam próbę...");
-                      const petId = $('#petIdSelect').val();
-                      const button = document.querySelector(`#pet_list > div:nth-child(${petId}) > div.rightSide > div > button:nth-child(2)`);
-                      const petId2 = button.getAttribute("data-pet");
-                      GAME.socket.emit('ga', { a: 43, type: 7, pet: petId2 });
-                      kom_clear();
-                  }
-              } else {
-                  clearInterval(this.petInterval);
-              }
-          };
-
-          this.petInterval = setInterval(checkAndSendData, 700);
-      });
-  }
-
-  attachStopEvent() {
-      $("body").on("click", '.stopButton', () => {
-          $("#bonusMenu").hide();
-          this.isPetBonchActive = false;
-      });
-  }
-}
-
-class anielskaReset {
-  constructor() {
-      this.anielskaCSS = `
-                  #AnielskaMenu {display: none; position: absolute; top: 80px; right: 5px; padding: 10px; background: rgba(48, 49, 49, 0.8); border: solid #ffffff7a 1px; border-radius: 5px; z-index: 10;}
-                  #AnielskaMenu div {color: #ffffff; font-size: 16px; font-weight: bold; margin-bottom: 10px; text-align: center; }
-                  #AnielskaMenu select {margin: 5px 0; margin-bottom: 2ch; background: #ffffff99; border: solid #6f6f6f 1px; border-radius: 5px; color: black; display: block; width: 100%;}
-                  .startAnielska {display: block; margin: 8px auto;}
-                  .stopAnielska {display: block; margin: 8px auto; margin-bottom: 1ch;}`;
-      this.anielskaHTML = `
-                  <div id="AnielskaMenu">
-                      <div><b>Wybierz ustawienia Anielskiej Kuli:</b></div>
-                      ${this.generateAnielskaSelects(5)}
-                      <button class="newBtn startAnielska">Start</button>
-                      <button class="newBtn stopAnielska">CLOSE</button>
-                  </div>`;
-      this.isAnielskaActive = false;
-      this.anielskaInterval = null;
-
-      this.initialize();
-  }
-
-  initialize() {
-      this.attachResetEvent();
-      this.attachStartEvent();
-      this.attachStopEvent();
-  }
-
-  generateAnielskaSelects(count) {
-      let options = `<option value="0">Brak</option>
-               <option value="1">10% do boskiego atrybutu przewodniego</option>
-               <option value="2">15% do boskiego atrybutu przewodniego</option>
-               <option value="3">150% do doświadczenia</option>
-               <option value="4">200% do doświadczenia</option>
-               <option value="5">150% do efektywności treningu</option>
-               <option value="6">200% do efektywności treningu</option>
-               <option value="7">75% do ilości mocy z walk PvM</option>
-               <option value="8">100% do ilości mocy z walk PvM</option>
-               <option value="9">75% do ilości zdobywanych kryształów instancji</option>
-               <option value="10">100% do ilości zdobywanych kryształów instancji</option>
-               <option value="11">30% do max Punktów Akcji</option>
-               <option value="12">35% do max Punktów Akcji</option>
-               <option value="13">40% do obrażeń</option>
-               <option value="14">45% do obrażeń</option>
-               <option value="15">40% do obrażeń od technik</option>
-               <option value="16">45% do obrażeń od technik</option>
-               <option value="17">30% do przyrostu Punktów Akcji</option>
-               <option value="18">35% do przyrostu Punktów Akcji</option>
-               <option value="19">40% do redukcji obrażeń</option>
-               <option value="20">45% do redukcji obrażeń</option>
-               <option value="21">40% do sławy za walki w wojnach imperiów</option>
-               <option value="22">45% do sławy za walki w wojnach imperiów</option>
-               <option value="23">15% do szansy na 3x więcej doświadczenia za wygrane walki PvM</option>
-               <option value="24">20% do szansy na 3x więcej doświadczenia za wygrane walki PvM</option>
-               <option value="25">9% do szansy na połączenie przedmiotów</option>
-               <option value="26">12% do szansy na połączenie przedmiotów</option>
-               <option value="27">9% do szansy na spotkanie legendarnych potworów</option>
-               <option value="28">12% do szansy na spotkanie legendarnych potworów</option>
-               <option value="29">9% do szansy na ulepszenie przedmiotów</option>
-               <option value="30">12% do szansy na ulepszenie przedmiotów</option>
-               <option value="31">9% do szansy na zdobycie przedmiotu z walk PvM</option>
-               <option value="32">12% do szansy na zdobycie przedmiotu z walk PvM</option>
-               <option value="33">9% do szansy na zdobycie PSK</option>
-               <option value="34">12% do szansy na zdobycie PSK</option>
-               <option value="35">3% do szansy na zdobycie CSK</option>
-               <option value="36">5% do szansy na zdobycie CSK</option>
-               <option value="37">15% do wtajemniczenia</option>
-               <option value="38">20% do wtajemniczenia</option>
-               <option value="39">40% redukcji obrażeń od technik</option>
-               <option value="40">45% redukcji obrażeń od technik</option>
-               <option value="41">9% do szansy na moc z walk PvM</option>
-               <option value="42">12% do szansy na moc z walk PvM</option>
-               <option value="43">10% większy limit dzienny Niebieskich Senzu</option>
-               <option value="44">15% większy limit dzienny Niebieskich Senzu</option>
-               <option value="45">4% większy mnożnik SSJ</option>
-               <option value="46">6% większy mnożnik SSJ</option>
-               <option value="47">10% redukcja obrażeń od efektów czasowych</option>
-               <option value="48">12% redukcja obrażeń od efektów czasowych</option>
-               <option value="49">75 minut(y) do czasu trwania Błogosławieństw</option>
-               <option value="50">100 minut(y) do czasu trwania Błogosławieństw</option>
-               <option value="51">12 minut(y) krótszy cooldown między walkami PvP</option>
-               <option value="52">15 minut(y) krótszy cooldown między walkami PvP</option>
-               <option value="53">50% większa ilość boskiego atrybutu przewodniego z walk PvM</option>
-               <option value="54">60% większa ilość boskiego atrybutu przewodniego z walk PvM</option>
-               <option value="55">2% do szansy na ulepszenie przedmiotów M-borna</option>
-               <option value="56">4% do szansy na ulepszenie przedmiotów M-borna</option>
-               <option value="57">5% do rezultatu treningu</option>
-               <option value="58">10% do rezultatu treningu</option>
-               <option value="59">2% do szansy na podwójnie efektywny bonus za ulepszenie treningu</option>
-               <option value="60">3% do szansy na podwójnie efektywny bonus za ulepszenie treningu</option>
-               <option value="61">3% większa szansa na boski atrybut przewodni podczas walk PvM</option>
-               <option value="62">5% większa szansa na boski atrybut przewodni podczas walk PvM</option>
-               <option value="63">5% do wszystkich statystyk</option>
-               <option value="64">10% % do wszystkich statystyk</option>
-               <option value="65">4% większa szansa na pomyślne zebranie zasobu</option>
-               <option value="66">6% większa szansa na pomyślne zebranie zasobu</option>
-               `;
-      let selects = '';
-      for (let i = 0; i < count; i++) {
-          selects += `<select>${options}</select>`;
-      }
-      return selects;
-  }
-
-  attachResetEvent() {
-      $("body").on("click", 'button[data-option="ss_page"][data-page="reset"]', () => {
-          if (document.querySelector("#ss_name") && document.querySelector("#ss_name").textContent.trim() === "Anielska Kula Energii") {
-              if ($("#ballResetPanel").length) {
-                  setTimeout(() => {
-                      document.querySelector("#ballResetPanel").style.display = "none";
-                  }, 500);
-              }
-              if (!$("#AnielskaMenu").length) {
-                  $("body").append(`<style>${this.anielskaCSS}</style>${this.anielskaHTML}`);
-                  console.log("#AnielskaMenu Wczytano.");
-              }
-              setTimeout(() => {
-                  this.isAnielskaActive = false;
-                  $("#AnielskaMenu").toggle();
-              }, 333);
+            }, 50);
           }
+        });
       });
+
+      GAME.komunikat(`[Anielska] Wczytano preset: ${name}`);
+    },
+
+    deletePreset(name) {
+      if (!name || !this.presets[name]) return;
+      delete this.presets[name];
+      this._savePresets();
+      this._populatePresetSelect();
+      GAME.komunikat(`[Anielska] Usunięto preset: ${name}`);
+    },
+
+    // --- MAIN LOGIC ---
+    async run() {
+      if (!BALL_MANAGER.acquire('angelReset')) return;
+
+      this.combinations = this._readConfig();
+      if (this.combinations.length === 0) {
+        GAME.komunikat('[Anielska] Wybierz przynajmniej jedną kombinację!');
+        BALL_MANAGER.release('angelReset');
+        return;
+      }
+
+      this.isRunning = true;
+      this.resetCount = 0;
+      this._updateUI();
+      this._disableInputs(true);
+
+      try {
+        while (this.isRunning) {
+          GAME.socket.emit('ga', { a: 45, type: 1, bid: GAME.ball_id });
+          const res = await BALL_RESPONSE.waitForResponse(10000);
+          if (!res || !this.isRunning) break;
+
+          this.resetCount++;
+          this._updateStatus();
+
+          const currentStats = this._extractStats();
+          this._highlightMatches(currentStats);
+
+          if (this._anyCombinationMatched(currentStats)) {
+            GAME.komunikat('[Anielska] Znaleziono pasujące staty!');
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('[AngelReset] Error:', e.message);
+      }
+
+      this.isRunning = false;
+      BALL_MANAGER.release('angelReset');
+      this._disableInputs(false);
+      this._updateUI();
+    },
+
+    stop() {
+      this.isRunning = false;
+      this._disableInputs(false);
+      this._updateUI();
+    },
+
+    _extractStats() {
+      const stats = [];
+      const table = document.querySelector('table.ss_stats');
+      if (!table) return stats;
+
+      const vals = table.querySelectorAll("b[id^='stat'][id$='_val']");
+      const bons = table.querySelectorAll("td[id^='stat'][id$='_bon']");
+
+      for (let i = 0; i < vals.length; i++) {
+        const val = vals[i]?.textContent?.trim() || '';
+        const bon = bons[i]?.textContent?.trim() || '';
+        if (val && bon) {
+          stats.push(val + bon);
+        }
+      }
+      return stats;
+    },
+
+    _anyCombinationMatched(currentStats) {
+      return this.combinations.some(combo => {
+        return combo.slots.every(slot => {
+          return slot.acceptedTexts.some(text => currentStats.includes(text));
+        });
+      });
+    },
+
+    _highlightMatches(currentStats) {
+      $('.ss_stats tr').css('background', 'transparent');
+
+      const allAccepted = new Set();
+      this.combinations.forEach(combo => {
+        combo.slots.forEach(slot => {
+          slot.acceptedTexts.forEach(t => allAccepted.add(t));
+        });
+      });
+
+      const table = document.querySelector('table.ss_stats');
+      if (!table) return;
+      const vals = table.querySelectorAll("b[id^='stat'][id$='_val']");
+      const bons = table.querySelectorAll("td[id^='stat'][id$='_bon']");
+
+      for (let i = 0; i < vals.length; i++) {
+        const val = vals[i]?.textContent?.trim() || '';
+        const bon = bons[i]?.textContent?.trim() || '';
+        const combined = val + bon;
+        if (combined && allAccepted.has(combined)) {
+          $(vals[i]).closest('tr').css('background', '#80008075');
+        }
+      }
+    },
+
+    _readConfig() {
+      const combinations = [];
+      $('.angel-combination').each((ci, combEl) => {
+        const combo = { slots: [] };
+        for (let i = 0; i < SLOTS_COUNT; i++) {
+          const select = combEl.querySelector(`.angel-slot-select[data-combo="${ci + 1}"][data-slot="${i}"]`);
+          if (!select || select.value === '') continue;
+          const groupIdx = parseInt(select.value);
+          const group = ANGEL_STAT_GROUPS[groupIdx];
+          if (!group) continue;
+
+          const acceptedTexts = [];
+          group.variants.forEach((variant, vi) => {
+            const cb = combEl.querySelector(`.angel-variant-cb[data-combo="${ci + 1}"][data-slot="${i}"][data-var="${vi}"]`);
+            if (cb && cb.checked) {
+              acceptedTexts.push(variant);
+            }
+          });
+
+          if (acceptedTexts.length > 0) {
+            combo.slots.push({ acceptedTexts });
+          }
+        }
+        if (combo.slots.length > 0) {
+          combinations.push(combo);
+        }
+      });
+      return combinations;
+    },
+
+    _updateUI() {
+      if (this.isRunning) {
+        $('.angel-btn-add').hide();
+        $('.angel-btn-start').hide();
+        $('.angel-btn-stop').show();
+      } else {
+        $('.angel-btn-add').show();
+        $('.angel-btn-start').show();
+        $('.angel-btn-stop').hide();
+      }
+      this._updateStatus();
+    },
+
+    _updateStatus() {
+      const statusEl = document.querySelector('.angel-status');
+      if (!statusEl) return;
+      if (this.isRunning) {
+        statusEl.textContent = `Resetowanie... (${this.resetCount} resetów)`;
+      } else if (this.resetCount > 0) {
+        statusEl.textContent = `Zakończono po ${this.resetCount} resetach`;
+      } else {
+        statusEl.textContent = '';
+      }
+    },
+
+    _disableInputs(disabled) {
+      $('#angelResetPanel select').prop('disabled', disabled);
+      $('#angelResetPanel .angel-variants input').prop('disabled', disabled);
+      $('#angelResetPanel .angel-btn-add').prop('disabled', disabled);
+      $('#angelResetPanel .preset-bar').find('select, input, button').prop('disabled', disabled);
+    },
+
+    _buildCombinationHTML(comboIdx) {
+      let html = `<div class="angel-combination" data-combo="${comboIdx}">`;
+      html += `<div class="angel-combo-header">Kombinacja #${comboIdx}</div>`;
+      for (let i = 0; i < SLOTS_COUNT; i++) {
+        html += `<div class="angel-slot">`;
+        html += `<div class="angel-slot-label">Slot ${i + 1}</div>`;
+        html += `<select class="angel-slot-select" data-combo="${comboIdx}" data-slot="${i}">`;
+        html += `<option value="">-- Wybierz bonus --</option>`;
+        ANGEL_STAT_GROUPS.forEach((g, gi) => {
+          html += `<option value="${gi}">${g.label}</option>`;
+        });
+        html += `</select>`;
+        html += `<div class="angel-variants" data-combo="${comboIdx}" data-slot="${i}"></div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+  };
+
+  window.BALL_ANGEL_RESET = BALL_ANGEL_RESET;
+
+  // Load presets on init
+  BALL_ANGEL_RESET._loadPresets();
+
+  // Build variant checkboxes when group is selected
+  function buildVariants(comboIdx, slotIdx, groupIdx) {
+    const container = document.querySelector(`.angel-variants[data-combo="${comboIdx}"][data-slot="${slotIdx}"]`);
+    if (!container) return;
+
+    if (groupIdx === '' || groupIdx === undefined) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+
+    const group = ANGEL_STAT_GROUPS[parseInt(groupIdx)];
+    if (!group) return;
+
+    let html = '';
+    group.variants.forEach((variant, vi) => {
+      html += `
+                <label>
+                    <input type="checkbox" class="angel-variant-cb"
+                           data-combo="${comboIdx}" data-slot="${slotIdx}" data-var="${vi}" checked>
+                    ${variant}
+                </label>`;
+    });
+
+    container.innerHTML = html;
+    container.style.display = 'block';
   }
 
-  attachStartEvent() {
-      $("body").on("click", '.startAnielska', () => {
-          this.isAnielskaActive = true;
-          const selectedOptions2 = Array.from($('#AnielskaMenu select'))
-              .map(select => {
-                  const value = select.value;
-                  const optionText = select.options[select.selectedIndex].text;
-                  if (value !== "0" && parseInt(value, 10) % 2 !== 0) {
-                      const nextEvenValue = parseInt(value, 10) + 1;
-                      const nextEvenText = select.options[select.selectedIndex + 1]?.text;
-                      return [optionText, nextEvenText].filter(Boolean);
-                  }
-                  return value !== "0" ? [optionText] : null;
-              })
-              .filter(option => option !== null);
+  // Build initial panel with 1 combination
+  const panelHTML = `
+        <div id="angelResetPanel">
+            <div class="close-panel">✕</div>
+            <div class="angel-title">Reset Anielskiej Kuli</div>
+            <div class="preset-bar">
+                <select class="preset-select"><option value="">-- Preset --</option></select>
+                <button class="preset-load">Wczytaj</button>
+                <input type="text" class="preset-name" placeholder="Nazwa...">
+                <button class="preset-save">Zapisz</button>
+                <button class="preset-delete delete">Usuń</button>
+            </div>
+            <div class="angel-controls">
+                <button class="angel-btn-add">DODAJ KOMBINACJĘ</button>
+                <button class="angel-btn-start">START</button>
+                <button class="angel-btn-stop">STOP</button>
+            </div>
+            <div class="angel-combinations">${BALL_ANGEL_RESET._buildCombinationHTML(1)}</div>
+            <div class="angel-status"></div>
+        </div>`;
 
-          const checkAndSendData2 = () => {
-              const table = document.querySelector("table.ss_stats");
-              const statBonValues = Array.from(table.querySelectorAll("td[id^='stat'][id$='_bon']"))
-                  .map(td => td.textContent.trim())
-                  .filter(value => value !== "");
+  $('body').append(`<style>${CSS}</style>${panelHTML}`);
 
-              const statValValues = Array.from(table.querySelectorAll("b[id^='stat'][id$='_val']"))
-                  .map(b => b.textContent.trim())
-                  .filter(value => value !== "");
+  // Populate preset select after DOM ready
+  BALL_ANGEL_RESET._populatePresetSelect();
 
-              const combinedValues = statValValues.map((val, index) => `${val}${statBonValues[index]}`);
-              // console.log(combinedValues);
-              // console.log(selectedOptions2);
+  // Preset handlers
+  $('body').on('click', '#angelResetPanel .preset-save', () => {
+    const name = $('#angelResetPanel .preset-name').val().trim();
+    if (!name) {
+      GAME.komunikat('[Anielska] Wpisz nazwę presetu!');
+      return;
+    }
+    BALL_ANGEL_RESET.savePreset(name);
+    $('#angelResetPanel .preset-select').val(name);
+  });
 
-              const toCheck = selectedOptions2.filter(options => {
-                  return !options.some(option => combinedValues.includes(option));
-              });
+  $('body').on('click', '#angelResetPanel .preset-load', () => {
+    const name = $('#angelResetPanel .preset-select').val();
+    if (!name) {
+      GAME.komunikat('[Anielska] Wybierz preset z listy!');
+      return;
+    }
+    BALL_ANGEL_RESET.loadPreset(name);
+    $('#angelResetPanel .preset-name').val(name);
+  });
 
-              if (toCheck.length === 0) {
-                  if (this.isAnielskaActive) {
-                      console.log("Wszystkie wybrane wartości pasują:", selectedOptions2);
-                      clearInterval(this.anielskaInterval);
-                  } else {
-                      clearInterval(this.anielskaInterval);
-                  }
-              } else {
-                  // console.log("Brak pełnego dopasowania, ponawiam próbę...");
-                  GAME.socket.emit('ga', { a: 45, type: 1, bid: GAME.ball_id });
-              }
-          };
+  $('body').on('click', '#angelResetPanel .preset-delete', () => {
+    const name = $('#angelResetPanel .preset-select').val();
+    if (!name) {
+      GAME.komunikat('[Anielska] Wybierz preset do usunięcia!');
+      return;
+    }
+    BALL_ANGEL_RESET.deletePreset(name);
+    $('#angelResetPanel .preset-select').val('');
+    $('#angelResetPanel .preset-name').val('');
+  });
 
-          this.anielskaInterval = setInterval(checkAndSendData2, 700);
-      });
+  // Group selection change → show variant checkboxes
+  $('body').on('change', '.angel-slot-select', function () {
+    const comboIdx = parseInt($(this).data('combo'));
+    const slotIdx = parseInt($(this).data('slot'));
+    buildVariants(comboIdx, slotIdx, this.value);
+  });
+
+  // Add combination
+  $('body').on('click', '.angel-btn-add', () => {
+    const lastCombo = $('.angel-combination').last();
+    const lastIdx = lastCombo.length ? parseInt(lastCombo.data('combo')) : 0;
+    $('.angel-combinations').append(BALL_ANGEL_RESET._buildCombinationHTML(lastIdx + 1));
+  });
+
+  // Start
+  $('body').on('click', '.angel-btn-start', () => {
+    BALL_ANGEL_RESET.run();
+  });
+
+  // Stop
+  $('body').on('click', '.angel-btn-stop', () => {
+    BALL_ANGEL_RESET.stop();
+  });
+
+  // Close X
+  $('body').on('click', '#angelResetPanel .close-panel', () => {
+    if (BALL_ANGEL_RESET.isRunning) BALL_ANGEL_RESET.stop();
+    $('.ss_stats tr').css('background', 'transparent');
+    $('#angelResetPanel').hide();
+  });
+
+  // Show panel on reset tab (angel ball only) - reset to clean state
+  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"]', () => {
+    const nameEl = document.querySelector('#ss_name');
+    if (nameEl && nameEl.textContent.trim() === 'Anielska Kula Energii') {
+      // Clear and reset to single empty combination
+      $('.angel-combinations').empty().append(BALL_ANGEL_RESET._buildCombinationHTML(1));
+      $('#angelResetPanel .preset-select').val('');
+      $('#angelResetPanel .preset-name').val('');
+      $('#ballResetPanel').hide();
+      $('#angelResetPanel').show();
+    } else {
+      $('#angelResetPanel').hide();
+    }
+  });
+
+  // Hide panel on upgrade tab or close
+  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"], #soulstone_interface .closeicon', () => {
+    if (BALL_ANGEL_RESET.isRunning) BALL_ANGEL_RESET.stop();
+    $('.ss_stats tr').css('background', 'transparent');
+    $('#angelResetPanel').hide();
+  });
+})();
+
+// ============================================================
+// 3. PET_BONUS_RESET - Pet bonus auto-reset
+//    Independent from ball system (uses a:43 socket, not a:45).
+// ============================================================
+(function () {
+  'use strict';
+
+  const PET_CSS = `
+        #bonusMenu {
+            display: none; position: absolute; top: 80px; right: 5px;
+            padding: 10px; background: rgba(48, 49, 49, 0.8);
+            border: solid #ffffff7a 1px; border-radius: 5px; z-index: 10;
+            max-width: 95vw;
+        }
+        #bonusMenu div { color: #ffffff; font-size: 16px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+        #bonusMenu select {
+            margin: 5px 0; background: #ffffff99; border: solid #6f6f6f 1px;
+            border-radius: 5px; color: black; display: block; width: 100%;
+            font-size: 14px; padding: 4px;
+        }
+        #bonusMenu .pet-start-btn { display: block; margin: 8px auto; min-height: 44px; }
+        #bonusMenu .pet-stop-btn { display: block; margin: 8px auto; margin-bottom: 1ch; min-height: 44px; }
+        @media (max-width: 600px) {
+            #bonusMenu select { font-size: 16px; padding: 8px; }
+            #bonusMenu button { font-size: 16px; }
+        }
+    `;
+
+  const BONUS_OPTIONS = `
+        <option value="0">Brak</option>
+        <option value="1">% do siły</option>
+        <option value="2">% do szybkości</option>
+        <option value="3">% do wytrzymałości</option>
+        <option value="4">% do siły woli</option>
+        <option value="5">% do energii ki</option>
+        <option value="6">% do wszystkich statystyk</option>
+        <option value="7">% do efektywności treningu</option>
+        <option value="8">% do rezultatu treningu</option>
+        <option value="9">% do szansy na podwójnie efektywny bonus za ulepszenie treningu</option>
+        <option value="10">% do max Punktów Akcji</option>
+        <option value="11"> do przyrostu Punktów Akcji</option>
+        <option value="12">% do przyrostu Punktów Akcji</option>
+        <option value="13">% do doświadczenia</option>
+        <option value="14">% do szansy na zdobycie przedmiotu z walk PvM</option>
+        <option value="15">% do ilości mocy z walk PvM</option>
+        <option value="16">% do szansy na moc z walk PvM</option>
+        <option value="17">% do mocy za skompletowanie SK</option>
+        <option value="18">% do mocy za skompletowanie PSK</option>
+        <option value="19">% do mocy za wygrane walki wojenne</option>
+        <option value="20">% do obrażeń</option>
+        <option value="21">% do obrażeń od technik</option>
+        <option value="22">% do obrażeń od trafień krytycznych</option>
+        <option value="23">% do redukcji obrażeń</option>
+        <option value="24">% redukcji obrażeń od technik</option>
+        <option value="25">% do redukcji szansy na otrzymanie trafienia krytycznego</option>
+        <option value="26">% redukcji obrażeń od trafień krytycznych</option>
+        <option value="27">% do szansy na trafienie krytyczne</option>
+        <option value="28">% do odporności na krwawienia</option>
+        <option value="29">% do skuteczności krwawień</option>
+        <option value="30">% do odporności na podpalenia</option>
+        <option value="31">% do skuteczności podpaleń</option>
+    `;
+
+  function generateSelects(count) {
+    let html = '';
+    for (let i = 0; i < count; i++) {
+      html += `<select class="pet-bonus-select">${BONUS_OPTIONS}</select>`;
+    }
+    return html;
   }
 
-  attachStopEvent() {
-      $("body").on("click", '.stopAnielska', () => {
-          $("#AnielskaMenu").hide();
-          this.isAnielskaActive = false;
-          clearInterval(this.anielskaInterval);
-      });
+  function generatePetOptions() {
+    let html = '';
+    for (let i = 1; i <= 100; i++) {
+      html += `<option value="${i}">Pet ${i}</option>`;
+    }
+    return html;
   }
-}
+
+  const PET_HTML = `
+        <div id="bonusMenu">
+            <div><b>Wybierz bonusy:</b></div>
+            ${generateSelects(4)}
+            <div><b>Wybierz ID Peta:</b></div>
+            <select id="petIdSelect">${generatePetOptions()}</select>
+            <button class="newBtn pet-start-btn">Start</button>
+            <button class="newBtn pet-stop-btn">CLOSE</button>
+        </div>`;
+
+  let isPetActive = false;
+  let petInterval = null;
+
+  function stopPet() {
+    isPetActive = false;
+    if (petInterval) {
+      clearInterval(petInterval);
+      petInterval = null;
+    }
+  }
+
+  // Toggle menu button
+  $('body').on('click', 'button[data-option="pet_bonch"]', () => {
+    if (!$('#bonusMenu').length) {
+      $('body').append(`<style>${PET_CSS}</style>${PET_HTML}`);
+    }
+
+    setTimeout(() => {
+      if ($('.pet-number').length === 0) {
+        document.querySelectorAll('.petItem').forEach((petItem, index) => {
+          const label = document.createElement('div');
+          label.classList.add('pet-number');
+          label.textContent = `Pet #${index + 1}`;
+          label.style.fontWeight = 'bold';
+          label.style.marginBottom = '5px';
+          petItem.prepend(label);
+        });
+      }
+      stopPet();
+      $('#bonusMenu').toggle();
+    }, 333);
+  });
+
+  // Start
+  $('body').on('click', '.pet-start-btn', () => {
+    isPetActive = true;
+    const selectedOptions = Array.from($('#bonusMenu select.pet-bonus-select'))
+      .map(select => {
+        const value = select.value;
+        const text = select.options[select.selectedIndex].text;
+        return value !== '0' ? text : null;
+      })
+      .filter(Boolean);
+
+    if (selectedOptions.length === 0) {
+      GAME.komunikat('[Pet] Wybierz przynajmniej jeden bonus!');
+      isPetActive = false;
+      return;
+    }
+
+    petInterval = setInterval(() => {
+      const container = document.querySelector('#kom_con > div > div.content > div');
+      if (!container) return;
+
+      const greenTextValues = Array.from(container.querySelectorAll('b.green'))
+        .map(el => el.nextSibling ? el.nextSibling.textContent.trim() : '');
+
+      const allMatch = selectedOptions.every(option => greenTextValues.includes(option));
+      const foodCount = parseInt($('#ilosc_karm').text(), 10) || 0;
+
+      if (foodCount === 0) {
+        GAME.komunikat('[Pet] Brak karmy!');
+        stopPet();
+        return;
+      }
+
+      if (!isPetActive) {
+        stopPet();
+        return;
+      }
+
+      if (allMatch) {
+        GAME.komunikat('[Pet] Znaleziono pasujące bonusy!');
+        stopPet();
+      } else {
+        const petId = $('#petIdSelect').val();
+        const button = document.querySelector(
+          `#pet_list > div:nth-child(${petId}) > div.rightSide > div > button:nth-child(2)`
+        );
+        if (button) {
+          const petId2 = button.getAttribute('data-pet');
+          GAME.socket.emit('ga', { a: 43, type: 7, pet: petId2 });
+          kom_clear();
+        }
+      }
+    }, 700);
+  });
+
+  // Close
+  $('body').on('click', '.pet-stop-btn', () => {
+    $('#bonusMenu').hide();
+    stopPet();
+  });
+})();
+
 
 // ========== remote/features/ball/ballManager.js ==========
-class ballManager {
-  constructor() {
-      const kulkaReset = new ballReset();
-      const kulkaExp = new ballExp();
-      const kulkaUpgrade = new ballUpgrade();
-      const petReset = new pet_bonch();
-      const anielskaKulka = new anielskaReset();
+// Ball system: response handler + naming system + orchestrator.
+// Contains 3 IIFEs: BALL_RESPONSE, BALL_NAMES, BALL_MANAGER.
+// Loaded AFTER all other ball modules (ballExp, ballUpgrade, ballReset).
+
+// ============================================================
+// 1. BALL_RESPONSE - Central ball response handler
+//    Hooks GAME.completeProgress once, provides Promise-based API.
+// ============================================================
+(function () {
+  'use strict';
+
+  const BALL_RESPONSE = {
+    _resolveCallback: null,
+    _initialized: false,
+
+    init() {
+      if (this._initialized) return;
+      this._initialized = true;
+
+      const origComplete = GAME.completeProgress
+        ? GAME.completeProgress.bind(GAME)
+        : null;
+
+      GAME.completeProgress = () => {
+        const res = GAME.progress;
+
+        if (res && res.a === 45 && res.ball) {
+          GAME.parseData(55, res);
+
+          if (this._resolveCallback) {
+            const resolve = this._resolveCallback;
+            this._resolveCallback = null;
+            resolve(res);
+          }
+        } else if (origComplete) {
+          origComplete();
+          return; // original handles cleanup
+        }
+
+        delete GAME.progress;
+      };
+    },
+
+    /**
+     * Wait for next ball response (a:45 with ball data).
+     * Only one consumer at a time - enforced by BALL_MANAGER.acquire().
+     * @param {number} timeout - ms before rejection (default 10s)
+     * @returns {Promise<object>} server response with res.ball, res.bd etc.
+     */
+    waitForResponse(timeout = 10000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          if (this._resolveCallback) {
+            this._resolveCallback = null;
+            reject(new Error('Ball response timeout'));
+          }
+        }, timeout);
+
+        this._resolveCallback = (res) => {
+          clearTimeout(timer);
+          resolve(res);
+        };
+      });
+    },
+
+    /** Cancel pending wait (used by stop/cleanup). */
+    cancel() {
+      if (this._resolveCallback) {
+        const resolve = this._resolveCallback;
+        this._resolveCallback = null;
+        // Resolve with null so await doesn't hang forever
+        resolve(null);
+      }
+    }
+  };
+
+  window.BALL_RESPONSE = BALL_RESPONSE;
+})();
+
+// ============================================================
+// 2. BALL_NAMES - Ball naming system + topbar selector
+//    Save custom names for balls, equip via topbar dropdown.
+// ============================================================
+(function () {
+  'use strict';
+
+  const STORAGE_KEY_PREFIX = 'ball_names_';
+  const CSS = `
+        #ball_select {
+            background: #040e13; color: #fff; font-family: 'Play', sans-serif;
+            font-size: 13px; padding: 3px 8px; border: 1px solid #ffd700;
+            border-radius: 5px; margin: 3px 10px 0 0; cursor: pointer;
+            height: 24px; float: right;
+        }
+        #ball_select:hover { border-color: orange; }
+        #ball_select option { background: #040e13; color: #fff; }
+        #ball_select option.angel-option { color: #ffd700; }
+
+        .ball-name-bar {
+            display: flex; gap: 6px; margin: 8px 0; align-items: center;
+            padding: 6px; background: #f0f0f010; border-radius: 3px;
+        }
+        .ball-name-bar label {
+            font-size: 13px; color: #ffd700; font-weight: bold; white-space: nowrap;
+        }
+        .ball-name-bar input {
+            flex: 1; background: #040e13; color: #fff; border: 1px solid #6f6f6f;
+            border-radius: 3px; padding: 4px 8px; font-size: 13px;
+            font-family: 'Play', sans-serif; min-height: 28px;
+        }
+        .ball-name-bar button {
+            background: #305779; color: #fff; border: 1px solid #6f6f6f;
+            border-radius: 3px; cursor: pointer; font-size: 12px;
+            padding: 4px 12px; min-height: 28px; white-space: nowrap;
+            font-weight: bold;
+        }
+        .ball-name-bar button:hover { background: #4a7aa5; }
+        .ball-name-bar button.delete-ball { background: #8b0000; }
+        .ball-name-bar button.delete-ball:hover { background: #b00000; }
+    `;
+
+  const BALL_NAMES = {
+    balls: {}, // { ballId: { name, isAngel, lastSeen } }
+
+    _storageKey() {
+      const server = GAME.server || 0;
+      const charId = GAME.char_data?.id || 0;
+      return STORAGE_KEY_PREFIX + server + '_' + charId;
+    },
+
+    load() {
+      try {
+        const raw = localStorage.getItem(this._storageKey());
+        this.balls = raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        this.balls = {};
+      }
+    },
+
+    save() {
+      localStorage.setItem(this._storageKey(), JSON.stringify(this.balls));
+    },
+
+    /** Save current ball with custom name. */
+    saveBall(ballId, name, isAngel) {
+      if (!ballId || !name) return;
+      this.balls[ballId] = {
+        name,
+        isAngel: !!isAngel,
+        lastSeen: Date.now()
+      };
+      this.save();
+      this._populateSelect();
+      GAME.komunikat(`[Kula] Zapisano: ${name}`);
+    },
+
+    deleteBall(ballId) {
+      delete this.balls[ballId];
+      this.save();
+      this._populateSelect();
+    },
+
+    /** Equip ball by ID (from topbar selector). */
+    equipBall(ballId) {
+      if (!ballId) return;
+      // a:12 type:5 = wea_item (equip), iid = item ID, page/page2 can be 0
+      GAME.socket.emit('ga', { a: 12, type: 5, iid: parseInt(ballId), page: 0, page2: 0 });
+      GAME.komunikat(`[Kula] Zakładam: ${this.balls[ballId]?.name || 'Kula #' + ballId}`);
+    },
+
+    _populateSelect() {
+      const $select = $('#ball_select');
+      if (!$select.length) return;
+
+      const currentVal = $select.val();
+      $select.find('option:not(:first)').remove();
+
+      // Sort by lastSeen (most recent first)
+      const sortedBalls = Object.entries(this.balls).sort((a, b) => {
+        return (b[1].lastSeen || 0) - (a[1].lastSeen || 0);
+      });
+
+      sortedBalls.forEach(([ballId, data]) => {
+        const displayName = data.isAngel ? `ANIELSKA: ${data.name}` : data.name;
+        const option = $(`<option value="${ballId}">${displayName}</option>`);
+        if (data.isAngel) option.addClass('angel-option');
+        $select.append(option);
+      });
+
+      if (currentVal && this.balls[currentVal]) {
+        $select.val(currentVal);
+      }
+    },
+
+    /** Update lastSeen when ball is opened. */
+    updateLastSeen(ballId) {
+      if (this.balls[ballId]) {
+        this.balls[ballId].lastSeen = Date.now();
+        this.save();
+      }
+    },
+
+    /** Build naming bar HTML for injection into #soulstone_interface. */
+    buildNamingBarHTML() {
+      const currentBallId = GAME.ball_id || '';
+      const currentBall = this.balls[currentBallId];
+      const currentName = currentBall ? currentBall.name : '';
+
+      return `
+                <div class="ball-name-bar">
+                    <label>Nazwa kuli:</label>
+                    <input type="text" id="ball-name-input" placeholder="np. Trening" value="${currentName}">
+                    <button id="ball-name-save">Zapisz</button>
+                    <button id="ball-name-delete" class="delete-ball">Usuń</button>
+                </div>`;
+    },
+
+    /** Inject naming bar below #ss_name if not already present. */
+    injectNamingBar() {
+      if ($('.ball-name-bar').length) {
+        // Update existing
+        const currentBallId = GAME.ball_id || '';
+        const currentBall = this.balls[currentBallId];
+        const currentName = currentBall ? currentBall.name : '';
+        $('#ball-name-input').val(currentName);
+        return;
+      }
+
+      // Inject below #ss_name
+      const $anchor = $('#ss_name');
+      if ($anchor.length) {
+        $anchor.after(this.buildNamingBarHTML());
+      }
+    }
+  };
+
+  window.BALL_NAMES = BALL_NAMES;
+
+  // Inject CSS
+  $('body').append(`<style>${CSS}</style>`);
+
+  // Wait for GAME + topbar, then inject selector
+  const initCheck = setInterval(() => {
+    if (typeof GAME === 'undefined' || !GAME.char_data?.id || !$('#top_bar').length) return;
+    clearInterval(initCheck);
+
+    BALL_NAMES.load();
+
+    // Add topbar selector
+    $('#top_bar').append('<select id="ball_select"><option value="">-- Kukla --</option></select>');
+    BALL_NAMES._populateSelect();
+  }, 500);
+
+  // Topbar select change → equip ball
+  $('body').on('change', '#ball_select', function () {
+    const ballId = $(this).val();
+    if (ballId) {
+      BALL_NAMES.equipBall(ballId);
+    }
+  });
+
+  // Save button
+  $('body').on('click', '#ball-name-save', () => {
+    const ballId = GAME.ball_id;
+    if (!ballId) {
+      GAME.komunikat('[Kula] Najpierw otwórz kuklę!');
+      return;
+    }
+
+    const name = $('#ball-name-input').val().trim();
+    if (!name) {
+      GAME.komunikat('[Kula] Wpisz nazwę!');
+      return;
+    }
+
+    // Detect if angel ball
+    const nameEl = document.querySelector('#ss_name');
+    const isAngel = nameEl && nameEl.textContent.trim() === 'Anielska Kula Energii';
+
+    BALL_NAMES.saveBall(ballId, name, isAngel);
+  });
+
+  // Delete button
+  $('body').on('click', '#ball-name-delete', () => {
+    const ballId = GAME.ball_id;
+    if (ballId && BALL_NAMES.balls[ballId]) {
+      BALL_NAMES.deleteBall(ballId);
+      GAME.komunikat('[Kula] Usunięto z listy');
+      $('#ball-name-input').val('');
+    }
+  });
+
+  // Inject naming bar when ball opens (parseData 55)
+  const origPD = GAME.parseData ? GAME.parseData.bind(GAME) : null;
+  if (origPD) {
+    GAME.parseData = function (type, res) {
+      origPD(type, res);
+      if (type === 55 && res && res.ball) {
+        setTimeout(() => {
+          BALL_NAMES.injectNamingBar();
+          BALL_NAMES.updateLastSeen(GAME.ball_id);
+        }, 100);
+      }
+    };
   }
-}
+})();
+
+// ============================================================
+// 3. BALL_MANAGER - Orchestrator with mutual exclusion
+//    Initializes BALL_RESPONSE, provides acquire/release/stopAll.
+// ============================================================
+(function () {
+  'use strict';
+
+  const BALL_MANAGER = {
+    activeModule: null, // 'upgrade' | 'reset' | 'angelReset' | 'exp' | null
+
+    init() {
+      BALL_RESPONSE.init();
+
+      // Cleanup on soulstone close or page navigation
+      $('body').on('click', '#soulstone_interface .closeicon', () => this.stopAll());
+    },
+
+    /**
+     * Acquire lock for a module. Returns false if another is active.
+     * @param {string} name
+     * @returns {boolean}
+     */
+    acquire(name) {
+      if (this.activeModule && this.activeModule !== name) {
+        GAME.komunikat(`[Kula] Nie można uruchomić - ${this._label(this.activeModule)} jest aktywny!`);
+        return false;
+      }
+      this.activeModule = name;
+      return true;
+    },
+
+    /** Release lock for a module. */
+    release(name) {
+      if (this.activeModule === name) {
+        this.activeModule = null;
+        BALL_RESPONSE.cancel();
+      }
+    },
+
+    /** Force-stop whatever is running. */
+    stopAll() {
+      if (!this.activeModule) return;
+      const mod = this.activeModule;
+      switch (mod) {
+        case 'upgrade': BALL_UPGRADE.stop(); break;
+        case 'reset': BALL_RESET.stop(); break;
+        case 'angelReset': BALL_ANGEL_RESET.stop(); break;
+        case 'exp': BALL_EXP.stop(); break;
+      }
+      this.activeModule = null;
+      BALL_RESPONSE.cancel();
+    },
+
+    _label(name) {
+      const labels = { upgrade: 'Ulepszanie', reset: 'Reset', angelReset: 'Reset anielskiej', exp: 'Exp' };
+      return labels[name] || name;
+    }
+  };
+
+  window.BALL_MANAGER = BALL_MANAGER;
+
+  // Init guard - wait for GAME
+  const check = setInterval(() => {
+    if (typeof GAME !== 'undefined' && GAME.completeProgress && GAME.socket) {
+      clearInterval(check);
+      BALL_MANAGER.init();
+    }
+  }, 500);
+})();
+
 
 // ========== remote/features/equipment/ekwipunek.js ==========
 class ekwipunekMenager {

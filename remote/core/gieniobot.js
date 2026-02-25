@@ -20,7 +20,7 @@
  *   - Click Handlers:       bindClickHandlers (lines 1264-1819)
  * Lines 2343-2355: kws instance creation
  * Lines 2356-2761: GAME.* method overrides
- * Lines 2762-2770: ballManager & ekwipunek initialization
+ * Lines 2762-2770: ekwipunek initialization (ball modules self-initialize)
  * 
  * DEV_MODE:
  * ---------
@@ -1153,7 +1153,7 @@ if (typeof GAME === 'undefined') {
       }
       handleSockets(res) {
         // if (res.a !== 598 && res.a !== 596) {
-        console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
+        //   console.log("KWA_HANDLE_SOCKETS: res.a == %s", res.a);
         // }
         switch (res.a) {
           case 7: //?? PvP fight result?
@@ -1401,17 +1401,14 @@ if (typeof GAME === 'undefined') {
     // setupGameOverrides() is called after kws initialization above
     // ============================================
 
-    // ballManager and ekwipunek initialized after all scripts loaded
-    let kulka = null;
+    // ekwipunek initialized after all scripts loaded (ball modules self-initialize via IIFEs)
     let ekwipunekObj = null;
 
-    // Wait for ballManager to be available
-    let ballWait = setInterval(() => {
-      if (typeof ballManager !== 'undefined' && typeof ekwipunekMenager !== 'undefined') {
-        clearInterval(ballWait);
-        kulka = new ballManager();
+    let ekwWait = setInterval(() => {
+      if (typeof ekwipunekMenager !== 'undefined') {
+        clearInterval(ekwWait);
         ekwipunekObj = new ekwipunekMenager();
-        console.log('[Gieniobot] ballManager and ekwipunek initialized');
+        console.log('[Gieniobot] ekwipunek initialized');
       }
     }, 100);
   }
