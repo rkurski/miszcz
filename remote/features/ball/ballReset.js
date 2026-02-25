@@ -621,12 +621,12 @@
       $('.angel-combination').each((ci, combEl) => {
         const combo = { slots: [] };
         for (let i = 0; i < SLOTS_COUNT; i++) {
-          const select = combEl.querySelector(`.angel-slot-select[data-combo="${ci}"][data-slot="${i}"]`);
+          const select = combEl.querySelector(`.angel-slot-select[data-combo="${ci + 1}"][data-slot="${i}"]`);
           if (!select || select.value === '') continue;
           const groupIdx = parseInt(select.value);
           const variants = [];
           for (let vi = 0; vi < 2; vi++) {
-            const cb = combEl.querySelector(`.angel-variant-cb[data-combo="${ci}"][data-slot="${i}"][data-var="${vi}"]`);
+            const cb = combEl.querySelector(`.angel-variant-cb[data-combo="${ci + 1}"][data-slot="${i}"][data-var="${vi}"]`);
             variants.push(cb ? cb.checked : true);
           }
           combo.slots.push({ groupIdx, variants });
