@@ -1,69 +1,69 @@
 // ========== remote/features/characters/charactersManager.js ==========
 class KwsCharactersManager {
   constructor() {
-      this.characters = [];
-      this.currentCharacterId = 0;
-      this.currentIndex = 0;
-      this.shouldReport = true;
+    this.characters = [];
+    this.currentCharacterId = 0;
+    this.currentIndex = 0;
+    this.shouldReport = true;
   }
   setCurrentCharacterId(charId) {
-      this.currentCharacterId = charId;
-      this.currentIndex = this.characters.findIndex((value, index, array) => {
-          return value == charId;
-      });
+    this.currentCharacterId = charId;
+    this.currentIndex = this.characters.findIndex((value, index, array) => {
+      return value == charId;
+    });
   }
   getNextCharId() {
-      if (this.characters.length == 1) {
-          return this.currentCharacterId;
-      }
+    if (this.characters.length == 1) {
+      return this.currentCharacterId;
+    }
 
-      var returnCharId;
+    var returnCharId;
 
-      if (this.currentIndex == this.characters.length - 1) {
-          returnCharId = this.characters[0];
-      } else {
-          returnCharId = this.characters[this.currentIndex + 1];
-      }
+    if (this.currentIndex == this.characters.length - 1) {
+      returnCharId = this.characters[0];
+    } else {
+      returnCharId = this.characters[this.currentIndex + 1];
+    }
 
-      this.setCurrentCharacterId(returnCharId);
+    this.setCurrentCharacterId(returnCharId);
 
-      return returnCharId;
+    return returnCharId;
   }
   getPreviousCharId() {
-      if (this.characters.length == 1) {
-          return this.currentCharacterId;
-      }
+    if (this.characters.length == 1) {
+      return this.currentCharacterId;
+    }
 
-      var returnCharId;
+    var returnCharId;
 
-      if (this.currentIndex == 0) {
-          returnCharId = this.characters[this.characters.length - 1];
-      } else {
-          returnCharId = this.characters[this.currentIndex - 1];
-      }
+    if (this.currentIndex == 0) {
+      returnCharId = this.characters[this.characters.length - 1];
+    } else {
+      returnCharId = this.characters[this.currentIndex - 1];
+    }
 
-      this.setCurrentCharacterId(returnCharId);
+    this.setCurrentCharacterId(returnCharId);
 
-      return returnCharId;
+    return returnCharId;
   }
 }
 
 function getCharacters() {
   if ($("#server_choose").is(":visible")) {
-      if (this.shouldReport) {
-          $("#logout").eq(0).click();
-          this.shouldReport = false;
-      }
+    if (this.shouldReport) {
+      $("#logout").eq(0).click();
+      this.shouldReport = false;
+    }
   }
   var allCharacters = [...$("li[data-option=select_char]")];
   if (allCharacters.length == 0) {
-      setTimeout(getCharacters, 200);
+    setTimeout(getCharacters, 200);
   } else {
-      var kwsCharactersManager = new KwsCharactersManager();
-      allCharacters.forEach((element, index, array) => {
-          kwsCharactersManager.characters.push(element.getAttribute("data-char_id"));
-      });
-      kwsLocalCharacters = kwsCharactersManager;
+    var kwsCharactersManager = new KwsCharactersManager();
+    allCharacters.forEach((element, index, array) => {
+      kwsCharactersManager.characters.push(element.getAttribute("data-char_id"));
+    });
+    kwsLocalCharacters = kwsCharactersManager;
   }
 }
 
@@ -2407,7 +2407,7 @@ console.log('[GameOverrides] Module loaded');
 // WAR_CONTAINER TOUCH DRAG
 // Self-initializing IIFE - runs immediately on script load
 // ============================================
-(function() {
+(function () {
   'use strict';
 
   function setupWarContainerDrag() {
@@ -2854,7 +2854,7 @@ const AFO_SOUL_CARD_SETS = {
 
     if (!hasSlotClass) {
       console.log('[SoulCardSets] Cards page not loaded, fetching data...');
-      GAME.emitOrder({a: 58, type: 0});
+      GAME.emitOrder({ a: 58, type: 0 });
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },
@@ -4473,95 +4473,95 @@ if (typeof GAME === 'undefined') {
 // Ball EXP grinder - auto-upgrade to fill exp bar.
 // Two modes: "Exp do NEXT" (stop at level) and "Exp non-stop".
 (function () {
-    'use strict';
+  'use strict';
 
-    const BALL_EXP = {
-        isRunning: false,
-        nonStop: false,
+  const BALL_EXP = {
+    isRunning: false,
+    nonStop: false,
 
-        async run() {
-            if (!BALL_MANAGER.acquire('exp')) return;
-            this.isRunning = true;
-            this._updateUI();
+    async run() {
+      if (!BALL_MANAGER.acquire('exp')) return;
+      this.isRunning = true;
+      this._updateUI();
 
-            try {
-                while (this.isRunning) {
-                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-                    const res = await BALL_RESPONSE.waitForResponse(10000);
-                    if (!res || !this.isRunning) break;
+      try {
+        while (this.isRunning) {
+          GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+          const res = await BALL_RESPONSE.waitForResponse(10000);
+          if (!res || !this.isRunning) break;
 
-                    if (!this.nonStop && res.bd) {
-                        const exp = parseInt(res.bd.exp) || 0;
-                        const needed = parseInt(res.bd.next_lvl) || 0;
-                        if (needed > 0 && exp >= needed) break;
-                    }
-                }
-            } catch (e) {
-                console.warn('[BallExp] Error:', e.message);
-            }
-
-            this.isRunning = false;
-            this.nonStop = false;
-            BALL_MANAGER.release('exp');
-            this._updateUI();
-        },
-
-        stop() {
-            this.isRunning = false;
-            this.nonStop = false;
-            this._updateUI();
-        },
-
-        _updateUI() {
-            if (this.isRunning) {
-                $('#ss_lvlup_next').html('STOP');
-                $('#ss_lvlup_nonstop').html('STOP');
-            } else {
-                $('#ss_lvlup_next').html('Exp do NEXT');
-                $('#ss_lvlup_nonstop').html('Exp no stop');
-            }
-        },
-
-        _showButtons() {
-            const anchor = $('#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar');
-            if (!$('#ss_lvlup_next').length) {
-                anchor.after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
-                anchor.after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
-            }
-        },
-
-        _hideButtons() {
-            $('#ss_lvlup_next').remove();
-            $('#ss_lvlup_nonstop').remove();
+          if (!this.nonStop && res.bd) {
+            const exp = parseInt(res.bd.exp) || 0;
+            const needed = parseInt(res.bd.next_lvl) || 0;
+            if (needed > 0 && exp >= needed) break;
+          }
         }
-    };
+      } catch (e) {
+        console.warn('[BallExp] Error:', e.message);
+      }
 
-    window.BALL_EXP = BALL_EXP;
+      this.isRunning = false;
+      this.nonStop = false;
+      BALL_MANAGER.release('exp');
+      this._updateUI();
+    },
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_EXP._showButtons();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_EXP.isRunning) BALL_EXP.stop();
-        BALL_EXP._hideButtons();
-    });
-    $('body').on('click', '#ss_lvlup_next', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = false;
-            BALL_EXP.run();
-        }
-    });
-    $('body').on('click', '#ss_lvlup_nonstop', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = true;
-            BALL_EXP.run();
-        }
-    });
+    stop() {
+      this.isRunning = false;
+      this.nonStop = false;
+      this._updateUI();
+    },
+
+    _updateUI() {
+      if (this.isRunning) {
+        $('#ss_lvlup_next').html('STOP');
+        $('#ss_lvlup_nonstop').html('STOP');
+      } else {
+        $('#ss_lvlup_next').html('Exp do NEXT');
+        $('#ss_lvlup_nonstop').html('Exp no stop');
+      }
+    },
+
+    _showButtons() {
+      const anchor = $('#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar');
+      if (!$('#ss_lvlup_next').length) {
+        anchor.after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
+        anchor.after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
+      }
+    },
+
+    _hideButtons() {
+      $('#ss_lvlup_next').remove();
+      $('#ss_lvlup_nonstop').remove();
+    }
+  };
+
+  window.BALL_EXP = BALL_EXP;
+
+  // UI event handlers
+  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+    BALL_EXP._showButtons();
+  });
+  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+    if (BALL_EXP.isRunning) BALL_EXP.stop();
+    BALL_EXP._hideButtons();
+  });
+  $('body').on('click', '#ss_lvlup_next', () => {
+    if (BALL_EXP.isRunning) {
+      BALL_EXP.stop();
+    } else {
+      BALL_EXP.nonStop = false;
+      BALL_EXP.run();
+    }
+  });
+  $('body').on('click', '#ss_lvlup_nonstop', () => {
+    if (BALL_EXP.isRunning) {
+      BALL_EXP.stop();
+    } else {
+      BALL_EXP.nonStop = true;
+      BALL_EXP.run();
+    }
+  });
 })();
 
 
@@ -4569,132 +4569,132 @@ if (typeof GAME === 'undefined') {
 // Ball stat upgrader - auto-upgrade with checkbox-based stat selection.
 // Accepts upgrades when sum of selected stat changes >= 0.
 (function () {
-    'use strict';
+  'use strict';
 
-    const BALL_UPGRADE = {
-        isRunning: false,
-        bonuses: [],
+  const BALL_UPGRADE = {
+    isRunning: false,
+    bonuses: [],
 
-        async run() {
-            if (!BALL_MANAGER.acquire('upgrade')) return;
-            this.isRunning = true;
-            this._updateUI();
-            this._disableCheckboxes(true);
+    async run() {
+      if (!BALL_MANAGER.acquire('upgrade')) return;
+      this.isRunning = true;
+      this._updateUI();
+      this._disableCheckboxes(true);
 
-            try {
-                while (this.isRunning) {
-                    // Read which stats user wants to track
-                    this._markBonuses();
-                    if (this.bonuses.length === 0 || this.bonuses.every(v => v === false)) {
-                        GAME.komunikat('[Kula] Zaznacz przynajmniej jeden stat!');
-                        break;
-                    }
+      try {
+        while (this.isRunning) {
+          // Read which stats user wants to track
+          this._markBonuses();
+          if (this.bonuses.length === 0 || this.bonuses.every(v => v === false)) {
+            GAME.komunikat('[Kula] Zaznacz przynajmniej jeden stat!');
+            break;
+          }
 
-                    // Evaluate current upgrade offer
-                    const shouldAccept = this._evaluateBonuses();
-                    if (shouldAccept) {
-                        GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
-                        await this._delay(300);
-                    }
+          // Evaluate current upgrade offer
+          const shouldAccept = this._evaluateBonuses();
+          if (shouldAccept) {
+            GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
+            await this._delay(300);
+          }
 
-                    // Request next upgrade
-                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-                    const res = await BALL_RESPONSE.waitForResponse(10000);
-                    if (!res || !this.isRunning) break;
-                }
-            } catch (e) {
-                console.warn('[BallUpgrade] Error:', e.message);
-            }
-
-            this.isRunning = false;
-            BALL_MANAGER.release('upgrade');
-            this._disableCheckboxes(false);
-            this._updateUI();
-        },
-
-        stop() {
-            this.isRunning = false;
-            this._disableCheckboxes(false);
-            this._updateUI();
-        },
-
-        _markBonuses() {
-            this.bonuses = [];
-            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((index) => {
-                const cb = $(`#bon${index + 1}_upgrade`)[0];
-                this.bonuses.push(cb ? cb.checked : false);
-            });
-        },
-
-        _evaluateBonuses() {
-            let sum = 0;
-            this.bonuses.forEach((shouldInclude, index) => {
-                if (shouldInclude) {
-                    sum += parseFloat($(`#ss_change_${index + 1}`).text()) || 0;
-                }
-            });
-            return sum >= 0;
-        },
-
-        _disableCheckboxes(disabled) {
-            $('.ball_stats.stat_page input[type=checkbox]').prop('disabled', disabled);
-        },
-
-        _updateUI() {
-            const btn = $('button[data-option="ss_upgrade_all"]');
-            btn.html(this.isRunning ? 'STOP' : 'Ulepszaj wszystkie');
-        },
-
-        _showCheckboxes() {
-            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
-                if (!$(`#bon${index + 1}_upgrade`).length) {
-                    $(`#stat${index + 1}_bon`).after(
-                        `<input type="checkbox" id="bon${index + 1}_upgrade" value="${index + 1}">`
-                    );
-                }
-            });
-        },
-
-        _hideCheckboxes() {
-            $('.ball_stats.stat_page input[type=checkbox]').remove();
-        },
-
-        _showButton() {
-            if (!$('button[data-option="ss_upgrade_all"]').length) {
-                $('#ss_page_upgrade > button').after(
-                    '<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>'
-                );
-            }
-        },
-
-        _hideButton() {
-            $('button[data-option="ss_upgrade_all"]').remove();
-        },
-
-        _delay(ms) {
-            return new Promise(r => setTimeout(r, ms));
+          // Request next upgrade
+          GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+          const res = await BALL_RESPONSE.waitForResponse(10000);
+          if (!res || !this.isRunning) break;
         }
-    };
+      } catch (e) {
+        console.warn('[BallUpgrade] Error:', e.message);
+      }
 
-    window.BALL_UPGRADE = BALL_UPGRADE;
+      this.isRunning = false;
+      BALL_MANAGER.release('upgrade');
+      this._disableCheckboxes(false);
+      this._updateUI();
+    },
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_UPGRADE._showCheckboxes();
-        BALL_UPGRADE._showButton();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
-        BALL_UPGRADE._hideCheckboxes();
-        BALL_UPGRADE._hideButton();
-    });
-    $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
-        if (BALL_UPGRADE.isRunning) {
-            BALL_UPGRADE.stop();
-        } else {
-            BALL_UPGRADE.run();
+    stop() {
+      this.isRunning = false;
+      this._disableCheckboxes(false);
+      this._updateUI();
+    },
+
+    _markBonuses() {
+      this.bonuses = [];
+      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((index) => {
+        const cb = $(`#bon${index + 1}_upgrade`)[0];
+        this.bonuses.push(cb ? cb.checked : false);
+      });
+    },
+
+    _evaluateBonuses() {
+      let sum = 0;
+      this.bonuses.forEach((shouldInclude, index) => {
+        if (shouldInclude) {
+          sum += parseFloat($(`#ss_change_${index + 1}`).text()) || 0;
         }
-    });
+      });
+      return sum >= 0;
+    },
+
+    _disableCheckboxes(disabled) {
+      $('.ball_stats.stat_page input[type=checkbox]').prop('disabled', disabled);
+    },
+
+    _updateUI() {
+      const btn = $('button[data-option="ss_upgrade_all"]');
+      btn.html(this.isRunning ? 'STOP' : 'Ulepszaj wszystkie');
+    },
+
+    _showCheckboxes() {
+      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
+        if (!$(`#bon${index + 1}_upgrade`).length) {
+          $(`#stat${index + 1}_bon`).after(
+            `<input type="checkbox" id="bon${index + 1}_upgrade" value="${index + 1}">`
+          );
+        }
+      });
+    },
+
+    _hideCheckboxes() {
+      $('.ball_stats.stat_page input[type=checkbox]').remove();
+    },
+
+    _showButton() {
+      if (!$('button[data-option="ss_upgrade_all"]').length) {
+        $('#ss_page_upgrade > button').after(
+          '<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>'
+        );
+      }
+    },
+
+    _hideButton() {
+      $('button[data-option="ss_upgrade_all"]').remove();
+    },
+
+    _delay(ms) {
+      return new Promise(r => setTimeout(r, ms));
+    }
+  };
+
+  window.BALL_UPGRADE = BALL_UPGRADE;
+
+  // UI event handlers
+  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+    BALL_UPGRADE._showCheckboxes();
+    BALL_UPGRADE._showButton();
+  });
+  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+    if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
+    BALL_UPGRADE._hideCheckboxes();
+    BALL_UPGRADE._hideButton();
+  });
+  $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
+    if (BALL_UPGRADE.isRunning) {
+      BALL_UPGRADE.stop();
+    } else {
+      BALL_UPGRADE.run();
+    }
+  });
 })();
 
 
@@ -5156,29 +5156,29 @@ if (typeof GAME === 'undefined') {
     { group: 'obrazenia_tech', label: '% do obrażeń od technik', variants: ['40% do obrażeń od technik', '45% do obrażeń od technik'] },
     { group: 'przyrost_pa', label: '% do przyrostu Punktów Akcji', variants: ['30% do przyrostu Punktów Akcji', '35% do przyrostu Punktów Akcji'] },
     { group: 'redukcja', label: '% do redukcji obrażeń', variants: ['40% do redukcji obrażeń', '45% do redukcji obrażeń'] },
-    { group: 'slawa', label: '% do sławy za walki w wojnach', variants: ['40% do sławy za walki w wojnach imperiów', '45% do sławy za walki w wojnach imperiów'] },
-    { group: '3x_exp', label: '% do szansy na 3x więcej EXP za PvM', variants: ['15% do szansy na 3x więcej doświadczenia za wygrane walki PvM', '20% do szansy na 3x więcej doświadczenia za wygrane walki PvM'] },
+    { group: 'slawa', label: '% do sławy za walki w wojnach imperiów', variants: ['40% do sławy za walki w wojnach imperiów', '45% do sławy za walki w wojnach imperiów'] },
+    { group: '3x_exp', label: '% do szansy na 3x więcej doświadczenia za wygrane walki PvM', variants: ['15% do szansy na 3x więcej doświadczenia za wygrane walki PvM', '20% do szansy na 3x więcej doświadczenia za wygrane walki PvM'] },
     { group: 'polaczenie', label: '% do szansy na połączenie przedmiotów', variants: ['9% do szansy na połączenie przedmiotów', '12% do szansy na połączenie przedmiotów'] },
     { group: 'legendarne', label: '% do szansy na spotkanie legendarnych potworów', variants: ['9% do szansy na spotkanie legendarnych potworów', '12% do szansy na spotkanie legendarnych potworów'] },
     { group: 'ulepszenie', label: '% do szansy na ulepszenie przedmiotów', variants: ['9% do szansy na ulepszenie przedmiotów', '12% do szansy na ulepszenie przedmiotów'] },
     { group: 'przedmiot_pvm', label: '% do szansy na zdobycie przedmiotu z walk PvM', variants: ['9% do szansy na zdobycie przedmiotu z walk PvM', '12% do szansy na zdobycie przedmiotu z walk PvM'] },
     { group: 'psk', label: '% do szansy na zdobycie PSK', variants: ['9% do szansy na zdobycie PSK', '12% do szansy na zdobycie PSK'] },
-    { group: 'csk', label: '% do szansy na zdobycie CSK', variants: ['3% do szansy na zdobycie CSK', '5% do szansy na zdobycie CSK'] },
+    { group: 'csk', label: '% do szansy na zdobycie CSK z potworów legendarnych', variants: ['3% do szansy na zdobycie CSK z potworów legendarnych', '5% do szansy na zdobycie CSK z potworów legendarnych'] },
     { group: 'wtajemniczenie', label: '% do wtajemniczenia', variants: ['15% do wtajemniczenia', '20% do wtajemniczenia'] },
-    { group: 'redukcja_tech', label: '% do redukcji obrażeń od technik', variants: ['40% redukcji obrażeń od technik', '45% redukcji obrażeń od technik'] },
+    { group: 'redukcja_tech', label: '% redukcji obrażeń od technik', variants: ['40% redukcji obrażeń od technik', '45% redukcji obrażeń od technik'] },
     { group: 'moc_szansa', label: '% do szansy na moc z walk PvM', variants: ['9% do szansy na moc z walk PvM', '12% do szansy na moc z walk PvM'] },
-    { group: 'senzu_limit', label: '% do limitu Niebieskich Senzu', variants: ['10% większy limit dzienny Niebieskich Senzu', '15% większy limit dzienny Niebieskich Senzu'] },
-    { group: 'ssj', label: '% do mnożnika SSJ', variants: ['4% większy mnożnik SSJ', '6% większy mnożnik SSJ'] },
-    { group: 'redukcja_efekty', label: '% do redukcji obrażeń od efektów', variants: ['10% redukcja obrażeń od efektów czasowych', '12% redukcja obrażeń od efektów czasowych'] },
-    { group: 'blogoslawienstwa', label: 'minut(y) do czasu trwania Błogosławieństw', variants: ['75 minut(y) do czasu trwania Błogosławieństw', '100 minut(y) do czasu trwania Błogosławieństw'] },
-    { group: 'pvp_cooldown', label: 'minut(y) krótszy cooldown PvP', variants: ['12 minut(y) krótszy cooldown między walkami PvP', '15 minut(y) krótszy cooldown między walkami PvP'] },
-    { group: 'boski_pvm', label: '% do ilości boskiego atrybutu przewodniego z walk PvM', variants: ['50% większa ilość boskiego atrybutu przewodniego z walk PvM', '60% większa ilość boskiego atrybutu przewodniego z walk PvM'] },
-    { group: 'mborn', label: '% do szansy na ulepszenie przedmiotów M-borna', variants: ['2% do szansy na ulepszenie przedmiotów M-borna', '4% do szansy na ulepszenie przedmiotów M-borna'] },
+    { group: 'senzu_limit', label: '% większy limit dzienny Niebieskich Senzu', variants: ['10% większy limit dzienny Niebieskich Senzu', '15% większy limit dzienny Niebieskich Senzu'] },
+    { group: 'ssj', label: '% większy mnożnik SSJ', variants: ['4% większy mnożnik SSJ', '6% większy mnożnik SSJ'] },
+    { group: 'redukcja_efekty', label: '% redukcja obrażeń od efektów czasowych', variants: ['10% redukcja obrażeń od efektów czasowych', '12% redukcja obrażeń od efektów czasowych'] },
+    { group: 'blogoslawienstwa', label: 'minut(y) do czasu trwania błogosławieństw', variants: ['75 minut(y) do czasu trwania błogosławieństw', '100 minut(y) do czasu trwania błogosławieństw'] },
+    { group: 'pvp_cooldown', label: 'minut(y) krótszy cooldown między walkami PvP', variants: ['12 minut(y) krótszy cooldown między walkami PvP', '15 minut(y) krótszy cooldown między walkami PvP'] },
+    { group: 'boski_pvm', label: '% większa ilość boskiego atrybutu przewodniego z walk PvM', variants: ['50% większa ilość boskiego atrybutu przewodniego z walk PvM', '60% większa ilość boskiego atrybutu przewodniego z walk PvM'] },
+    { group: 'mborn', label: '% do szansy na ulepszenie przedmiotów klasy Mega', variants: ['2% do szansy na ulepszenie przedmiotów klasy Mega', '4% do szansy na ulepszenie przedmiotów klasy Mega'] },
     { group: 'rezultat', label: '% do rezultatu treningu', variants: ['5% do rezultatu treningu', '10% do rezultatu treningu'] },
-    { group: 'podwojny_bonus', label: '% do szansy na podwójny bonus treningu', variants: ['2% do szansy na podwójnie efektywny bonus za ulepszenie treningu', '3% do szansy na podwójnie efektywny bonus za ulepszenie treningu'] },
-    { group: 'boski_szansa', label: '% do szansy na boski atrybut PvM', variants: ['3% większa szansa na boski atrybut przewodni podczas walk PvM', '5% większa szansa na boski atrybut przewodni podczas walk PvM'] },
+    { group: 'podwojny_bonus', label: '% do szansy na podwójnie efektywny bonus za ulepszenie treningu', variants: ['2% do szansy na podwójnie efektywny bonus za ulepszenie treningu', '3% do szansy na podwójnie efektywny bonus za ulepszenie treningu'] },
+    { group: 'boski_szansa', label: '% większa szansa na boski atrybut przewodni podczas walk PvM', variants: ['3% większa szansa na boski atrybut przewodni podczas walk PvM', '5% większa szansa na boski atrybut przewodni podczas walk PvM'] },
     { group: 'statystyki', label: '% do wszystkich statystyk', variants: ['5% do wszystkich statystyk', '10% do wszystkich statystyk'] },
-    { group: 'zasoby', label: '% do szansy na pomyślne zebranie zasobu', variants: ['4% większa szansa na pomyślne zebranie zasobu', '6% większa szansa na pomyślne zebranie zasobu'] }
+    { group: 'zasoby', label: '% większa szansa na pomyślne zebranie zasobu', variants: ['4% większa szansa na pomyślne zebranie zasobu', '6% większa szansa na pomyślne zebranie zasobu'] }
   ];
 
   const SLOTS_COUNT = 5;
@@ -14517,7 +14517,7 @@ console.log('[AFO] Reconnect index module loaded');
 
     try {
       console.log('[KuklaGuardian] Loading balls data (no page switch)');
-      GAME.emitOrder({a: 33, type: 0});
+      GAME.emitOrder({ a: 33, type: 0 });
 
       await delay(KUKLA_GUARDIAN.pageLoadDelay);
 
