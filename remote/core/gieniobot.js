@@ -878,7 +878,7 @@ if (typeof GAME === 'undefined') {
       buildSidebarHTML() {
         // Generate spawn checkboxes (grid 2x3)
         // Layout: left column (Normal, Champion, Elita), right column (Legend, Epicki, Mist.)
-        const ranks = ['Normal', 'Champion', 'Elita', 'Legend', 'Epicki', 'Mist.'];
+        const ranks = ['Normal', 'Champion', 'Elita', 'Legenda', 'Epicki', 'Mistyk'];
         const order = [0, 3, 1, 4, 2, 5]; // Normal/Legend, Champion/Epicki, Elita/Mist.
         let spawnCheckboxes = '';
         for (const i of order) {
@@ -1101,9 +1101,14 @@ if (typeof GAME === 'undefined') {
 
         // Spawn checkboxes
         $('.kws_spawner_check').on('change', () => {
-          GAME.spawner[1] = $('.kws_spawner_check').map((i, el) => {
-            return el.checked ? 1 : 0;
-          }).get();
+          // Initialize array with 0s
+          const newSpawner = [0, 0, 0, 0, 0, 0];
+          // Set values based on checkbox value attribute (rank index)
+          $('.kws_spawner_check').each((_, el) => {
+            const rankIndex = parseInt(el.value, 10);
+            newSpawner[rankIndex] = el.checked ? 1 : 0;
+          });
+          GAME.spawner[1] = newSpawner;
         });
 
         // PA input
