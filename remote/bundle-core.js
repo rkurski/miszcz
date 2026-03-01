@@ -1,69 +1,69 @@
 // ========== remote/features/characters/charactersManager.js ==========
 class KwsCharactersManager {
   constructor() {
-    this.characters = [];
-    this.currentCharacterId = 0;
-    this.currentIndex = 0;
-    this.shouldReport = true;
+      this.characters = [];
+      this.currentCharacterId = 0;
+      this.currentIndex = 0;
+      this.shouldReport = true;
   }
   setCurrentCharacterId(charId) {
-    this.currentCharacterId = charId;
-    this.currentIndex = this.characters.findIndex((value, index, array) => {
-      return value == charId;
-    });
+      this.currentCharacterId = charId;
+      this.currentIndex = this.characters.findIndex((value, index, array) => {
+          return value == charId;
+      });
   }
   getNextCharId() {
-    if (this.characters.length == 1) {
-      return this.currentCharacterId;
-    }
+      if (this.characters.length == 1) {
+          return this.currentCharacterId;
+      }
 
-    var returnCharId;
+      var returnCharId;
 
-    if (this.currentIndex == this.characters.length - 1) {
-      returnCharId = this.characters[0];
-    } else {
-      returnCharId = this.characters[this.currentIndex + 1];
-    }
+      if (this.currentIndex == this.characters.length - 1) {
+          returnCharId = this.characters[0];
+      } else {
+          returnCharId = this.characters[this.currentIndex + 1];
+      }
 
-    this.setCurrentCharacterId(returnCharId);
+      this.setCurrentCharacterId(returnCharId);
 
-    return returnCharId;
+      return returnCharId;
   }
   getPreviousCharId() {
-    if (this.characters.length == 1) {
-      return this.currentCharacterId;
-    }
+      if (this.characters.length == 1) {
+          return this.currentCharacterId;
+      }
 
-    var returnCharId;
+      var returnCharId;
 
-    if (this.currentIndex == 0) {
-      returnCharId = this.characters[this.characters.length - 1];
-    } else {
-      returnCharId = this.characters[this.currentIndex - 1];
-    }
+      if (this.currentIndex == 0) {
+          returnCharId = this.characters[this.characters.length - 1];
+      } else {
+          returnCharId = this.characters[this.currentIndex - 1];
+      }
 
-    this.setCurrentCharacterId(returnCharId);
+      this.setCurrentCharacterId(returnCharId);
 
-    return returnCharId;
+      return returnCharId;
   }
 }
 
 function getCharacters() {
   if ($("#server_choose").is(":visible")) {
-    if (this.shouldReport) {
-      $("#logout").eq(0).click();
-      this.shouldReport = false;
-    }
+      if (this.shouldReport) {
+          $("#logout").eq(0).click();
+          this.shouldReport = false;
+      }
   }
   var allCharacters = [...$("li[data-option=select_char]")];
   if (allCharacters.length == 0) {
-    setTimeout(getCharacters, 200);
+      setTimeout(getCharacters, 200);
   } else {
-    var kwsCharactersManager = new KwsCharactersManager();
-    allCharacters.forEach((element, index, array) => {
-      kwsCharactersManager.characters.push(element.getAttribute("data-char_id"));
-    });
-    kwsLocalCharacters = kwsCharactersManager;
+      var kwsCharactersManager = new KwsCharactersManager();
+      allCharacters.forEach((element, index, array) => {
+          kwsCharactersManager.characters.push(element.getAttribute("data-char_id"));
+      });
+      kwsLocalCharacters = kwsCharactersManager;
   }
 }
 
@@ -2407,7 +2407,7 @@ console.log('[GameOverrides] Module loaded');
 // WAR_CONTAINER TOUCH DRAG
 // Self-initializing IIFE - runs immediately on script load
 // ============================================
-(function () {
+(function() {
   'use strict';
 
   function setupWarContainerDrag() {
@@ -2854,7 +2854,7 @@ const AFO_SOUL_CARD_SETS = {
 
     if (!hasSlotClass) {
       console.log('[SoulCardSets] Cards page not loaded, fetching data...');
-      GAME.emitOrder({ a: 58, type: 0 });
+      GAME.emitOrder({a: 58, type: 0});
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },
@@ -4171,15 +4171,6 @@ if (typeof GAME === 'undefined') {
         });
       }
 
-      // Legacy method - kept for backward compatibility but no longer used in UI
-      spawnList() {
-        let mob = "";
-        for (var i = 0; i < 6; i++) {
-          mob += `<div class="spawn_row"><div class="newCheckbox"><input id="kws_spawner_ignore_${i}" type="checkbox" class="kws_spawner_check" name="ignoreMobs" value="${i}" ${(GAME.spawner && GAME.spawner[1][i] ? 'checked' : '')} /><label for="kws_spawner_ignore_${i}"></label></div>${LNG.lab457}&nbsp;<b>${LNG['mob_rank' + i]}</b></div>`;
-        }
-        mob += `<div class="spawn_row" style="flex-direction: column;align-items: center;"><div>Użyte PA na spawn</div><div class="game_input small"><input id="kws_pa_max" name="usePaToSpawn" type="text" value="1000"></div></div>`;
-        return mob;
-      }
 
       updatePaToSpawn(pats) {
         let pa = parseInt(pats);
@@ -4478,95 +4469,95 @@ if (typeof GAME === 'undefined') {
 // Ball EXP grinder - auto-upgrade to fill exp bar.
 // Two modes: "Exp do NEXT" (stop at level) and "Exp non-stop".
 (function () {
-  'use strict';
+    'use strict';
 
-  const BALL_EXP = {
-    isRunning: false,
-    nonStop: false,
+    const BALL_EXP = {
+        isRunning: false,
+        nonStop: false,
 
-    async run() {
-      if (!BALL_MANAGER.acquire('exp')) return;
-      this.isRunning = true;
-      this._updateUI();
+        async run() {
+            if (!BALL_MANAGER.acquire('exp')) return;
+            this.isRunning = true;
+            this._updateUI();
 
-      try {
-        while (this.isRunning) {
-          GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-          const res = await BALL_RESPONSE.waitForResponse(10000);
-          if (!res || !this.isRunning) break;
+            try {
+                while (this.isRunning) {
+                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+                    const res = await BALL_RESPONSE.waitForResponse(10000);
+                    if (!res || !this.isRunning) break;
 
-          if (!this.nonStop && res.bd) {
-            const exp = parseInt(res.bd.exp) || 0;
-            const needed = parseInt(res.bd.next_lvl) || 0;
-            if (needed > 0 && exp >= needed) break;
-          }
+                    if (!this.nonStop && res.bd) {
+                        const exp = parseInt(res.bd.exp) || 0;
+                        const needed = parseInt(res.bd.next_lvl) || 0;
+                        if (needed > 0 && exp >= needed) break;
+                    }
+                }
+            } catch (e) {
+                console.warn('[BallExp] Error:', e.message);
+            }
+
+            this.isRunning = false;
+            this.nonStop = false;
+            BALL_MANAGER.release('exp');
+            this._updateUI();
+        },
+
+        stop() {
+            this.isRunning = false;
+            this.nonStop = false;
+            this._updateUI();
+        },
+
+        _updateUI() {
+            if (this.isRunning) {
+                $('#ss_lvlup_next').html('STOP');
+                $('#ss_lvlup_nonstop').html('STOP');
+            } else {
+                $('#ss_lvlup_next').html('Exp do NEXT');
+                $('#ss_lvlup_nonstop').html('Exp no stop');
+            }
+        },
+
+        _showButtons() {
+            const anchor = $('#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar');
+            if (!$('#ss_lvlup_next').length) {
+                anchor.after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
+                anchor.after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
+            }
+        },
+
+        _hideButtons() {
+            $('#ss_lvlup_next').remove();
+            $('#ss_lvlup_nonstop').remove();
         }
-      } catch (e) {
-        console.warn('[BallExp] Error:', e.message);
-      }
+    };
 
-      this.isRunning = false;
-      this.nonStop = false;
-      BALL_MANAGER.release('exp');
-      this._updateUI();
-    },
+    window.BALL_EXP = BALL_EXP;
 
-    stop() {
-      this.isRunning = false;
-      this.nonStop = false;
-      this._updateUI();
-    },
-
-    _updateUI() {
-      if (this.isRunning) {
-        $('#ss_lvlup_next').html('STOP');
-        $('#ss_lvlup_nonstop').html('STOP');
-      } else {
-        $('#ss_lvlup_next').html('Exp do NEXT');
-        $('#ss_lvlup_nonstop').html('Exp no stop');
-      }
-    },
-
-    _showButtons() {
-      const anchor = $('#soulstone_interface > div.pull-left.ball_stats > div > div.main_bar');
-      if (!$('#ss_lvlup_next').length) {
-        anchor.after('<button id="ss_lvlup_nonstop" class="btn_small_gold option" data-option="ss_lvlup_nonstop">Exp no stop</button>');
-        anchor.after('<button id="ss_lvlup_next" class="btn_small_gold option" data-option="ss_lvlup_next">Exp do NEXT</button>');
-      }
-    },
-
-    _hideButtons() {
-      $('#ss_lvlup_next').remove();
-      $('#ss_lvlup_nonstop').remove();
-    }
-  };
-
-  window.BALL_EXP = BALL_EXP;
-
-  // UI event handlers
-  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-    BALL_EXP._showButtons();
-  });
-  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-    if (BALL_EXP.isRunning) BALL_EXP.stop();
-    BALL_EXP._hideButtons();
-  });
-  $('body').on('click', '#ss_lvlup_next', () => {
-    if (BALL_EXP.isRunning) {
-      BALL_EXP.stop();
-    } else {
-      BALL_EXP.nonStop = false;
-      BALL_EXP.run();
-    }
-  });
-  $('body').on('click', '#ss_lvlup_nonstop', () => {
-    if (BALL_EXP.isRunning) {
-      BALL_EXP.stop();
-    } else {
-      BALL_EXP.nonStop = true;
-      BALL_EXP.run();
-    }
-  });
+    // UI event handlers
+    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+        BALL_EXP._showButtons();
+    });
+    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+        if (BALL_EXP.isRunning) BALL_EXP.stop();
+        BALL_EXP._hideButtons();
+    });
+    $('body').on('click', '#ss_lvlup_next', () => {
+        if (BALL_EXP.isRunning) {
+            BALL_EXP.stop();
+        } else {
+            BALL_EXP.nonStop = false;
+            BALL_EXP.run();
+        }
+    });
+    $('body').on('click', '#ss_lvlup_nonstop', () => {
+        if (BALL_EXP.isRunning) {
+            BALL_EXP.stop();
+        } else {
+            BALL_EXP.nonStop = true;
+            BALL_EXP.run();
+        }
+    });
 })();
 
 
@@ -4574,132 +4565,132 @@ if (typeof GAME === 'undefined') {
 // Ball stat upgrader - auto-upgrade with checkbox-based stat selection.
 // Accepts upgrades when sum of selected stat changes >= 0.
 (function () {
-  'use strict';
+    'use strict';
 
-  const BALL_UPGRADE = {
-    isRunning: false,
-    bonuses: [],
+    const BALL_UPGRADE = {
+        isRunning: false,
+        bonuses: [],
 
-    async run() {
-      if (!BALL_MANAGER.acquire('upgrade')) return;
-      this.isRunning = true;
-      this._updateUI();
-      this._disableCheckboxes(true);
+        async run() {
+            if (!BALL_MANAGER.acquire('upgrade')) return;
+            this.isRunning = true;
+            this._updateUI();
+            this._disableCheckboxes(true);
 
-      try {
-        while (this.isRunning) {
-          // Read which stats user wants to track
-          this._markBonuses();
-          if (this.bonuses.length === 0 || this.bonuses.every(v => v === false)) {
-            GAME.komunikat('[Kula] Zaznacz przynajmniej jeden stat!');
-            break;
-          }
+            try {
+                while (this.isRunning) {
+                    // Read which stats user wants to track
+                    this._markBonuses();
+                    if (this.bonuses.length === 0 || this.bonuses.every(v => v === false)) {
+                        GAME.komunikat('[Kula] Zaznacz przynajmniej jeden stat!');
+                        break;
+                    }
 
-          // Evaluate current upgrade offer
-          const shouldAccept = this._evaluateBonuses();
-          if (shouldAccept) {
-            GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
-            await this._delay(300);
-          }
+                    // Evaluate current upgrade offer
+                    const shouldAccept = this._evaluateBonuses();
+                    if (shouldAccept) {
+                        GAME.emitOrder({ a: 45, type: 5, bid: GAME.ball_id });
+                        await this._delay(300);
+                    }
 
-          // Request next upgrade
-          GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
-          const res = await BALL_RESPONSE.waitForResponse(10000);
-          if (!res || !this.isRunning) break;
+                    // Request next upgrade
+                    GAME.emitOrder({ a: 45, type: 3, bid: GAME.ball_id });
+                    const res = await BALL_RESPONSE.waitForResponse(10000);
+                    if (!res || !this.isRunning) break;
+                }
+            } catch (e) {
+                console.warn('[BallUpgrade] Error:', e.message);
+            }
+
+            this.isRunning = false;
+            BALL_MANAGER.release('upgrade');
+            this._disableCheckboxes(false);
+            this._updateUI();
+        },
+
+        stop() {
+            this.isRunning = false;
+            this._disableCheckboxes(false);
+            this._updateUI();
+        },
+
+        _markBonuses() {
+            this.bonuses = [];
+            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((index) => {
+                const cb = $(`#bon${index + 1}_upgrade`)[0];
+                this.bonuses.push(cb ? cb.checked : false);
+            });
+        },
+
+        _evaluateBonuses() {
+            let sum = 0;
+            this.bonuses.forEach((shouldInclude, index) => {
+                if (shouldInclude) {
+                    sum += parseFloat($(`#ss_change_${index + 1}`).text()) || 0;
+                }
+            });
+            return sum >= 0;
+        },
+
+        _disableCheckboxes(disabled) {
+            $('.ball_stats.stat_page input[type=checkbox]').prop('disabled', disabled);
+        },
+
+        _updateUI() {
+            const btn = $('button[data-option="ss_upgrade_all"]');
+            btn.html(this.isRunning ? 'STOP' : 'Ulepszaj wszystkie');
+        },
+
+        _showCheckboxes() {
+            $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
+                if (!$(`#bon${index + 1}_upgrade`).length) {
+                    $(`#stat${index + 1}_bon`).after(
+                        `<input type="checkbox" id="bon${index + 1}_upgrade" value="${index + 1}">`
+                    );
+                }
+            });
+        },
+
+        _hideCheckboxes() {
+            $('.ball_stats.stat_page input[type=checkbox]').remove();
+        },
+
+        _showButton() {
+            if (!$('button[data-option="ss_upgrade_all"]').length) {
+                $('#ss_page_upgrade > button').after(
+                    '<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>'
+                );
+            }
+        },
+
+        _hideButton() {
+            $('button[data-option="ss_upgrade_all"]').remove();
+        },
+
+        _delay(ms) {
+            return new Promise(r => setTimeout(r, ms));
         }
-      } catch (e) {
-        console.warn('[BallUpgrade] Error:', e.message);
-      }
+    };
 
-      this.isRunning = false;
-      BALL_MANAGER.release('upgrade');
-      this._disableCheckboxes(false);
-      this._updateUI();
-    },
+    window.BALL_UPGRADE = BALL_UPGRADE;
 
-    stop() {
-      this.isRunning = false;
-      this._disableCheckboxes(false);
-      this._updateUI();
-    },
-
-    _markBonuses() {
-      this.bonuses = [];
-      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each((index) => {
-        const cb = $(`#bon${index + 1}_upgrade`)[0];
-        this.bonuses.push(cb ? cb.checked : false);
-      });
-    },
-
-    _evaluateBonuses() {
-      let sum = 0;
-      this.bonuses.forEach((shouldInclude, index) => {
-        if (shouldInclude) {
-          sum += parseFloat($(`#ss_change_${index + 1}`).text()) || 0;
+    // UI event handlers
+    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+        BALL_UPGRADE._showCheckboxes();
+        BALL_UPGRADE._showButton();
+    });
+    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+        if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
+        BALL_UPGRADE._hideCheckboxes();
+        BALL_UPGRADE._hideButton();
+    });
+    $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
+        if (BALL_UPGRADE.isRunning) {
+            BALL_UPGRADE.stop();
+        } else {
+            BALL_UPGRADE.run();
         }
-      });
-      return sum >= 0;
-    },
-
-    _disableCheckboxes(disabled) {
-      $('.ball_stats.stat_page input[type=checkbox]').prop('disabled', disabled);
-    },
-
-    _updateUI() {
-      const btn = $('button[data-option="ss_upgrade_all"]');
-      btn.html(this.isRunning ? 'STOP' : 'Ulepszaj wszystkie');
-    },
-
-    _showCheckboxes() {
-      $('.ball_stats.stat_page tr[id]:not([style*="display: none"])').each(function (index) {
-        if (!$(`#bon${index + 1}_upgrade`).length) {
-          $(`#stat${index + 1}_bon`).after(
-            `<input type="checkbox" id="bon${index + 1}_upgrade" value="${index + 1}">`
-          );
-        }
-      });
-    },
-
-    _hideCheckboxes() {
-      $('.ball_stats.stat_page input[type=checkbox]').remove();
-    },
-
-    _showButton() {
-      if (!$('button[data-option="ss_upgrade_all"]').length) {
-        $('#ss_page_upgrade > button').after(
-          '<button class="newBtn option" data-option="ss_upgrade_all">Ulepszaj wszystkie</button>'
-        );
-      }
-    },
-
-    _hideButton() {
-      $('button[data-option="ss_upgrade_all"]').remove();
-    },
-
-    _delay(ms) {
-      return new Promise(r => setTimeout(r, ms));
-    }
-  };
-
-  window.BALL_UPGRADE = BALL_UPGRADE;
-
-  // UI event handlers
-  $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-    BALL_UPGRADE._showCheckboxes();
-    BALL_UPGRADE._showButton();
-  });
-  $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-    if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
-    BALL_UPGRADE._hideCheckboxes();
-    BALL_UPGRADE._hideButton();
-  });
-  $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
-    if (BALL_UPGRADE.isRunning) {
-      BALL_UPGRADE.stop();
-    } else {
-      BALL_UPGRADE.run();
-    }
-  });
+    });
 })();
 
 
@@ -11485,11 +11476,19 @@ const AFO_STATE_MANAGER = {
     // ========================
     // Spawner checkboxes (GAME.spawner[1])
     // ========================
-    if (state.extra && state.extra.spawnerIgnore) {
+    if (state.extra && state.extra.spawnerIgnore && Array.isArray(state.extra.spawnerIgnore) && state.extra.spawnerIgnore.length === 6) {
       const ignore = state.extra.spawnerIgnore;
-      $('#kws_spawn input[name="ignoreMobs"]').each((index, el) => {
-        $(el).prop('checked', ignore[index] === 1);
+      // Use rank index from value attribute, not DOM position
+      $('.kws_spawner_check').each((_, el) => {
+        const rankIndex = parseInt(el.value, 10);
+        if (rankIndex >= 0 && rankIndex < 6) {
+          $(el).prop('checked', ignore[rankIndex] === 1);
+        }
       });
+      // Sync GAME.spawner[1] for consistency
+      if (GAME.spawner) {
+        GAME.spawner[1] = [...ignore];
+      }
     }
 
     console.log('[AFO_STATE_MANAGER] UI sync complete');
@@ -14522,7 +14521,7 @@ console.log('[AFO] Reconnect index module loaded');
 
     try {
       console.log('[KuklaGuardian] Loading balls data (no page switch)');
-      GAME.emitOrder({ a: 33, type: 0 });
+      GAME.emitOrder({a: 33, type: 0});
 
       await delay(KUKLA_GUARDIAN.pageLoadDelay);
 

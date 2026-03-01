@@ -491,11 +491,19 @@ const AFO_STATE_MANAGER = {
     // ========================
     // Spawner checkboxes (GAME.spawner[1])
     // ========================
-    if (state.extra && state.extra.spawnerIgnore) {
+    if (state.extra && state.extra.spawnerIgnore && Array.isArray(state.extra.spawnerIgnore) && state.extra.spawnerIgnore.length === 6) {
       const ignore = state.extra.spawnerIgnore;
-      $('#kws_spawn input[name="ignoreMobs"]').each((index, el) => {
-        $(el).prop('checked', ignore[index] === 1);
+      // Use rank index from value attribute, not DOM position
+      $('.kws_spawner_check').each((_, el) => {
+        const rankIndex = parseInt(el.value, 10);
+        if (rankIndex >= 0 && rankIndex < 6) {
+          $(el).prop('checked', ignore[rankIndex] === 1);
+        }
       });
+      // Sync GAME.spawner[1] for consistency
+      if (GAME.spawner) {
+        GAME.spawner[1] = [...ignore];
+      }
     }
 
     console.log('[AFO_STATE_MANAGER] UI sync complete');
