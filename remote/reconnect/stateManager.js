@@ -345,7 +345,7 @@ const AFO_STATE_MANAGER = {
 
       // Senzu: CONF_SENZU = false (off) or string like 'SENZU_RED'
       // See respawn.js:496-511
-      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic'];
+      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic', 'dark'];
       if (resp.CONF_SENZU && resp.CONF_SENZU !== false) {
         const activeType = resp.CONF_SENZU.replace('SENZU_', '').toLowerCase();
         senzuTypes.forEach(t => {

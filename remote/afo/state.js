@@ -78,6 +78,7 @@ var RESP = {
   SENZU_RED: 'SENZU_RED',
   SENZU_MAGIC: 'SENZU_MAGIC',
   SENZU_PURPLE: 'SENZU_PURPLE',
+  SENZU_DARK: 'SENZU_DARK',
 
   // Dynamic amounts
   CONF_BLUE_AMOUNT: function () {
