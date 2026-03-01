@@ -541,6 +541,10 @@ const AFO_Templates = {
             <span>🔴 RED</span>
             <b class="resp_status red">Off</b>
           </div>
+          <div class="afo-button resp_button resp_dark">
+            <span>⚫ DARK</span>
+            <b class="resp_status red">Off</b>
+          </div>
           <div class="afo-button resp_button resp_magic">
             <span>✨ Wyciąg</span>
             <b class="resp_status red">Off</b>

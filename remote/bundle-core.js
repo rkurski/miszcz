@@ -4171,15 +4171,6 @@ if (typeof GAME === 'undefined') {
         });
       }
 
-      // Legacy method - kept for backward compatibility but no longer used in UI
-      spawnList() {
-        let mob = "";
-        for (var i = 0; i < 6; i++) {
-          mob += `<div class="spawn_row"><div class="newCheckbox"><input id="kws_spawner_ignore_${i}" type="checkbox" class="kws_spawner_check" name="ignoreMobs" value="${i}" ${(GAME.spawner && GAME.spawner[1][i] ? 'checked' : '')} /><label for="kws_spawner_ignore_${i}"></label></div>${LNG.lab457}&nbsp;<b>${LNG['mob_rank' + i]}</b></div>`;
-        }
-        mob += `<div class="spawn_row" style="flex-direction: column;align-items: center;"><div>Użyte PA na spawn</div><div class="game_input small"><input id="kws_pa_max" name="usePaToSpawn" type="text" value="1000"></div></div>`;
-        return mob;
-      }
 
       updatePaToSpawn(pats) {
         let pa = parseInt(pats);
@@ -11339,7 +11330,7 @@ const AFO_STATE_MANAGER = {
 
       // Senzu: CONF_SENZU = false (off) or string like 'SENZU_RED'
       // See respawn.js:496-511
-      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic'];
+      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic', 'dark'];
       if (resp.CONF_SENZU && resp.CONF_SENZU !== false) {
         const activeType = resp.CONF_SENZU.replace('SENZU_', '').toLowerCase();
         senzuTypes.forEach(t => {
@@ -11485,11 +11476,19 @@ const AFO_STATE_MANAGER = {
     // ========================
     // Spawner checkboxes (GAME.spawner[1])
     // ========================
-    if (state.extra && state.extra.spawnerIgnore) {
+    if (state.extra && state.extra.spawnerIgnore && Array.isArray(state.extra.spawnerIgnore) && state.extra.spawnerIgnore.length === 6) {
       const ignore = state.extra.spawnerIgnore;
-      $('#kws_spawn input[name="ignoreMobs"]').each((index, el) => {
-        $(el).prop('checked', ignore[index] === 1);
+      // Use rank index from value attribute, not DOM position
+      $('.kws_spawner_check').each((_, el) => {
+        const rankIndex = parseInt(el.value, 10);
+        if (rankIndex >= 0 && rankIndex < 6) {
+          $(el).prop('checked', ignore[rankIndex] === 1);
+        }
       });
+      // Sync GAME.spawner[1] for consistency
+      if (GAME.spawner) {
+        GAME.spawner[1] = [...ignore];
+      }
     }
 
     console.log('[AFO_STATE_MANAGER] UI sync complete');

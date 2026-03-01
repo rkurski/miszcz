@@ -79,6 +79,7 @@ var RESP = {
   SENZU_RED: 'SENZU_RED',
   SENZU_MAGIC: 'SENZU_MAGIC',
   SENZU_PURPLE: 'SENZU_PURPLE',
+  SENZU_DARK: 'SENZU_DARK',
 
   // Dynamic amounts
   CONF_BLUE_AMOUNT: function () {
@@ -815,6 +816,10 @@ const AFO_Templates = {
           </div>
           <div class="afo-button resp_button resp_red">
             <span>🔴 RED</span>
+            <b class="resp_status red">Off</b>
+          </div>
+          <div class="afo-button resp_button resp_dark">
+            <span>⚫ DARK</span>
             <b class="resp_status red">Off</b>
           </div>
           <div class="afo-button resp_button resp_magic">
@@ -2154,7 +2159,8 @@ const AFO_RESP = {
       SENZU_MAGIC: 1309,
       SENZU_GREEN: 1242,
       SENZU_YELLOW: 1260,
-      SENZU_RED: 1243
+      SENZU_RED: 1243,
+      SENZU_DARK: 2229,
     };
     // Map type constant to key (e.g., RESP.SENZU_BLUE = 'SENZU_BLUE')
     const senzuId = senzuIdData[type];
@@ -2170,6 +2176,7 @@ const AFO_RESP = {
     const green = this.getSenzu(RESP.SENZU_GREEN);
     const yellow = this.getSenzu(RESP.SENZU_YELLOW);
     const red = this.getSenzu(RESP.SENZU_RED);
+    const dark = this.getSenzu(RESP.SENZU_DARK);
 
     switch (RESP.CONF_SENZU) {
       case RESP.SENZU_BLUE:
@@ -2189,6 +2196,9 @@ const AFO_RESP = {
         break;
       case RESP.SENZU_RED:
         this.useRed();
+        break;
+      case RESP.SENZU_DARK:
+        this.useDark();
         break;
       default:
         if (blue && blue.stack > RESP.CONF_BLUE_AMOUNT() * 20) {
@@ -2224,6 +2234,11 @@ const AFO_RESP = {
   useRed() {
     const red = this.getSenzu(RESP.SENZU_RED);
     if (red) GAME.socket.emit('ga', { a: 12, type: 14, iid: red.id, page: GAME.ekw_page, am: 1 });
+  },
+
+  useDark() {
+    const dark = this.getSenzu(RESP.SENZU_DARK);
+    if (dark) GAME.socket.emit('ga', { a: 12, type: 14, iid: dark.id, page: GAME.ekw_page, am: 1 });
   },
 
   useMagic() {
@@ -2348,7 +2363,7 @@ const AFO_RESP = {
     });
 
     // Senzu toggles
-    const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic'];
+    const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic', 'dark'];
     senzuTypes.forEach(type => {
       $(`#resp_Panel .resp_${type}`).click(() => {
         const senzuKey = `SENZU_${type.toUpperCase()}`;

@@ -1117,15 +1117,6 @@ if (typeof GAME === 'undefined') {
         });
       }
 
-      // Legacy method - kept for backward compatibility but no longer used in UI
-      spawnList() {
-        let mob = "";
-        for (var i = 0; i < 6; i++) {
-          mob += `<div class="spawn_row"><div class="newCheckbox"><input id="kws_spawner_ignore_${i}" type="checkbox" class="kws_spawner_check" name="ignoreMobs" value="${i}" ${(GAME.spawner && GAME.spawner[1][i] ? 'checked' : '')} /><label for="kws_spawner_ignore_${i}"></label></div>${LNG.lab457}&nbsp;<b>${LNG['mob_rank' + i]}</b></div>`;
-        }
-        mob += `<div class="spawn_row" style="flex-direction: column;align-items: center;"><div>Użyte PA na spawn</div><div class="game_input small"><input id="kws_pa_max" name="usePaToSpawn" type="text" value="1000"></div></div>`;
-        return mob;
-      }
 
       updatePaToSpawn(pats) {
         let pa = parseInt(pats);
