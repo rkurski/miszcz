@@ -6181,8 +6181,9 @@ if (typeof GAME === 'undefined') {
   });
 
   // Inject naming bar when ball opens (parseData 55)
-  const origPD = GAME.parseData ? GAME.parseData.bind(GAME) : null;
-  if (origPD) {
+  // Guard: GAME may not exist on main page (login screen)
+  if (typeof GAME !== 'undefined' && GAME.parseData) {
+    const origPD = GAME.parseData.bind(GAME);
     GAME.parseData = function (type, res) {
       origPD(type, res);
       if (type === 55 && res && res.ball) {
