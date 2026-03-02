@@ -89,43 +89,52 @@ const AFO_RECONNECT = {
   async start() {
     console.log('[AFO_RECONNECT] Starting...');
 
-    // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
-    await this.loadReconnectTarget();
+    try {
+      // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
+      await this.loadReconnectTarget();
 
-    // Load credentials
-    const creds = await this.getCredentials();
-    if (!creds) {
-      console.log('[AFO_RECONNECT] No credentials saved, passive mode');
-      // Still monitor for disconnect on server page
+      // Load credentials
+      const creds = await this.getCredentials();
+      if (!creds) {
+        console.log('[AFO_RECONNECT] No credentials saved, passive mode');
+        // Still monitor for disconnect on server page
+        if (this.isServerPage) {
+          this.startDisconnectMonitor();
+        }
+        return;
+      }
+
+      // On server page: set targetServer from URL if not already set
+      if (this.isServerPage && this.currentServer && !this.targetServer) {
+        this.targetServer = this.currentServer;
+      }
+
+      // Load saved state (on server page always, on main page only when reconnecting)
+      if (this.isServerPage || this.isReconnecting) {
+        await this.loadSavedState();
+      }
+
+      // MAIN PAGE: Auto-login ONLY when reconnecting after disconnect
+      if (this.isMainPage) {
+        if (this.isReconnecting) {
+          console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
+          await this.handleMainPage(creds);
+        } else {
+          console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
+        }
+      }
+
+      // SERVER PAGE: Always handle (monitor + auto-select if saved state exists)
       if (this.isServerPage) {
-        this.startDisconnectMonitor();
+        await this.handleServerPage(creds);
       }
-      return;
-    }
-
-    // On server page: set targetServer from URL if not already set
-    if (this.isServerPage && this.currentServer && !this.targetServer) {
-      this.targetServer = this.currentServer;
-    }
-
-    // Load saved state (on server page always, on main page only when reconnecting)
-    if (this.isServerPage || this.isReconnecting) {
-      await this.loadSavedState();
-    }
-
-    // MAIN PAGE: Auto-login ONLY when reconnecting after disconnect
-    if (this.isMainPage) {
-      if (this.isReconnecting) {
-        console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
-        await this.handleMainPage(creds);
-      } else {
-        console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
-      }
-    }
-
-    // SERVER PAGE: Always handle (monitor + auto-select if saved state exists)
-    if (this.isServerPage) {
-      await this.handleServerPage(creds);
+    } catch (error) {
+      console.error('[AFO_RECONNECT] start() failed:', error, '- retrying in 5s...');
+      this.isInitialized = false;
+      this.isProcessing = false;
+      setTimeout(() => {
+        this.init();
+      }, 5000);
     }
   },
 
@@ -166,23 +175,54 @@ const AFO_RECONNECT = {
       console.log('[AFO_RECONNECT] Waiting before auto-login (giving user time to react)...');
       await this.sleep(this.TIMING.LOGIN_PAGE_DELAY);
 
-      // Check if we need to login (show credentials form)
-      if (this.needsCredentialsLogin()) {
-        console.log('[AFO_RECONNECT] Filling credentials...');
-        await this.fillCredentials(creds);
-        await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
+      // Retry login form detection (DOM may not be ready on mobile)
+      const MAX_LOGIN_ATTEMPTS = 8;
+      let loginDone = false;
+
+      for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
+        if (this.needsCredentialsLogin()) {
+          console.log('[AFO_RECONNECT] Filling credentials (attempt ' + (i + 1) + ')...');
+          await this.fillCredentials(creds);
+          await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
+          loginDone = true;
+          break;
+        }
+
+        // Already past login (server select visible or redirected)?
+        if (this.needsServerSelect()) {
+          loginDone = true;
+          break;
+        }
+
+        console.log('[AFO_RECONNECT] Main page: waiting for login form (attempt ' + (i + 1) + '/' + MAX_LOGIN_ATTEMPTS + ')...');
+        await this.sleep(2000);
       }
 
-      // Check if we need to select server
-      if (this.needsServerSelect() && this.targetServer) {
-        console.log('[AFO_RECONNECT] Selecting server', this.targetServer);
-        await this.selectServer(this.targetServer);
-        // After server select, page will redirect to server page
-        return;
+      if (!loginDone) {
+        console.warn('[AFO_RECONNECT] Login form not found after ' + MAX_LOGIN_ATTEMPTS + ' attempts');
       }
 
-      // If neither form is visible, we might already be on the way
-      console.log('[AFO_RECONNECT] Waiting for redirect...');
+      // Retry server select detection
+      const MAX_SERVER_ATTEMPTS = 8;
+      for (let i = 0; i < MAX_SERVER_ATTEMPTS; i++) {
+        if (this.needsServerSelect() && this.targetServer) {
+          console.log('[AFO_RECONNECT] Selecting server', this.targetServer);
+          await this.selectServer(this.targetServer);
+          // After server select, page will redirect to server page
+          return;
+        }
+
+        // Check if we've already been redirected (no longer on main page)
+        if (window.location.hostname !== 'kosmiczni.pl' && window.location.hostname !== 'www.kosmiczni.pl') {
+          console.log('[AFO_RECONNECT] Already redirected to', window.location.hostname);
+          return;
+        }
+
+        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ')...');
+        await this.sleep(2000);
+      }
+
+      console.warn('[AFO_RECONNECT] Server select not found after ' + MAX_SERVER_ATTEMPTS + ' attempts - giving up');
 
     } catch (error) {
       console.error('[AFO_RECONNECT] Main page error:', error);
@@ -195,16 +235,36 @@ const AFO_RECONNECT = {
   // SERVER PAGE HANDLER  
   // ============================================
 
-  async handleServerPage(creds) {
-    console.log('[AFO_RECONNECT] Handling server page... (reconnecting:', this.isReconnecting, ')');
+  async handleServerPage(creds, _attempt) {
+    // Track attempts to prevent infinite loop
+    if (_attempt === undefined) _attempt = 0;
+    const MAX_ATTEMPTS = 60; // max ~3 minutes of retrying (60 * 3s)
+
+    console.log('[AFO_RECONNECT] handleServerPage attempt ' + (_attempt + 1) + '/' + MAX_ATTEMPTS + ' (reconnecting:', this.isReconnecting, ')');
+
+    if (_attempt >= MAX_ATTEMPTS) {
+      console.error('[AFO_RECONNECT] handleServerPage: max attempts reached (' + MAX_ATTEMPTS + '), giving up. GAME state:',
+        typeof GAME !== 'undefined' ? { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected } : 'GAME undefined');
+      return;
+    }
 
     // Start disconnect monitor immediately (always, regardless of reconnect mode)
     this.startDisconnectMonitor();
 
-    // Wait for GAME to be available
-    await this.waitForGame(10000);
+    // Wait for GAME to be available (longer timeout for mobile)
+    const waitStart = Date.now();
+    const gameReady = await this.waitForGame(30000);
 
-    // Check if disconnected
+    if (!gameReady) {
+      // GAME not available - this is NOT a disconnect, the page/game just hasn't loaded yet
+      console.warn('[AFO_RECONNECT] GAME not available after 30s (not a disconnect - game still loading). Retrying...');
+      await this.sleep(3000);
+      return this.handleServerPage(creds, _attempt + 1);
+    }
+
+    console.log('[AFO_RECONNECT] GAME ready after ' + (Date.now() - waitStart) + 'ms');
+
+    // Check if disconnected (GAME exists but connection lost)
     if (this.isDisconnected()) {
       if (this.savedStateToRestore) {
         // We have saved state - initiate reconnect regardless of isReconnecting flag
@@ -292,10 +352,11 @@ const AFO_RECONNECT = {
       return;
     }
 
-    // Otherwise wait and check again
-    console.log('[AFO_RECONNECT] Waiting for game state...');
-    await this.sleep(2000);
-    await this.handleServerPage(creds);
+    // Otherwise wait and check again (GAME exists but not fully logged in yet)
+    console.log('[AFO_RECONNECT] GAME exists but not fully logged in yet, retrying in 3s...',
+      { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected });
+    await this.sleep(3000);
+    return this.handleServerPage(creds, _attempt + 1);
   },
 
   // ============================================
@@ -484,7 +545,9 @@ const AFO_RECONNECT = {
   // ============================================
 
   isDisconnected() {
-    if (typeof GAME === 'undefined') return true;
+    // GAME not loaded yet ≠ disconnected (critical for mobile where GAME loads slowly)
+    if (typeof GAME === 'undefined') return false;
+
     if (GAME.is_disconnected > 0) return true;
     if (GAME.pid === 0 && !this.isCharacterSelectScreen()) return true;
 
@@ -513,16 +576,19 @@ const AFO_RECONNECT = {
   // ============================================
 
   async waitForGame(timeout = 60000) {
+    console.log('[AFO_RECONNECT] Waiting for GAME (timeout: ' + (timeout / 1000) + 's)...');
     const startTime = Date.now();
 
     return new Promise((resolve) => {
       const check = () => {
         if (typeof GAME !== 'undefined') {
+          console.log('[AFO_RECONNECT] GAME found after ' + (Date.now() - startTime) + 'ms');
           resolve(true);
           return;
         }
 
         if (Date.now() - startTime > timeout) {
+          console.warn('[AFO_RECONNECT] GAME not found after ' + timeout + 'ms timeout');
           resolve(false);
           return;
         }

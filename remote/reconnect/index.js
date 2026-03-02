@@ -40,6 +40,9 @@ const AFO_RECONNECT_INIT = {
    * Initialize UI when GAME becomes available
    */
   initUIWhenReady() {
+    let elapsed = 0;
+    const MAX_WAIT = 120000; // 2 minutes
+
     const checkGame = () => {
       if (typeof GAME !== 'undefined' && GAME.char_id && GAME.char_data) {
         // GAME is ready, init UI
@@ -48,17 +51,15 @@ const AFO_RECONNECT_INIT = {
             AFO_RECONNECT_UI.init();
           }, 1000);
         }
-      } else {
-        // Keep checking
+      } else if (elapsed < MAX_WAIT) {
+        elapsed += 1000;
         setTimeout(checkGame, 1000);
+      } else {
+        console.warn('[AFO_RECONNECT_INIT] UI init timeout after 2 minutes (GAME not ready)');
       }
     };
 
-    // Start checking
     checkGame();
-
-    // Stop after 2 minutes
-    setTimeout(() => { }, 120000);
   }
 };
 
@@ -69,7 +70,19 @@ const AFO_RECONNECT_INIT = {
 
   // Small delay to ensure other reconnect scripts are loaded
   setTimeout(() => {
-    AFO_RECONNECT_INIT.init();
+    try {
+      AFO_RECONNECT_INIT.init();
+    } catch (e) {
+      console.error('[AFO_RECONNECT_INIT] Init failed:', e, '- retrying in 5s...');
+      setTimeout(() => {
+        try {
+          AFO_RECONNECT_INIT.initialized = false;
+          AFO_RECONNECT_INIT.init();
+        } catch (e2) {
+          console.error('[AFO_RECONNECT_INIT] Retry also failed:', e2);
+        }
+      }, 5000);
+    }
   }, 1000);
 })();
 
