@@ -53,7 +53,7 @@ const AFO_STORAGE = {
   /**
    * Send request and wait for response
    */
-  _request(eventName, detail, timeout = 5000) {
+  _request(eventName, detail, timeout = 10000) {
     this.init(); // Ensure initialized
 
     const requestId = this._nextRequestId();
