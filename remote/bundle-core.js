@@ -11783,7 +11783,23 @@ const AFO_STATE_MANAGER = {
         }
       }
 
+      // ============================================
+      // REINIT MODULES (reconnect-safe: restart dependency checks)
+      // ============================================
+      if (typeof CAMP_STATS !== 'undefined' && CAMP_STATS.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CAMP_STATS.reinit()');
+        CAMP_STATS.reinit();
+      }
+      if (typeof TRADER_AUTO !== 'undefined' && TRADER_AUTO.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling TRADER_AUTO.reinit()');
+        TRADER_AUTO.reinit();
+      }
+
       // Kukla Guardian (Strażnik Kukli)
+      if (typeof KUKLA_GUARDIAN !== 'undefined' && KUKLA_GUARDIAN.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling KUKLA_GUARDIAN.reinit()');
+        KUKLA_GUARDIAN.reinit();
+      }
       if (state.kuklaGuardian && state.kuklaGuardian.enabled && typeof KUKLA_GUARDIAN !== 'undefined') {
         console.log('[AFO_STATE_MANAGER] Starting Kukla Guardian...');
         // Set enabled immediately so parseQuickOpts renders with active class
@@ -11799,6 +11815,10 @@ const AFO_STATE_MANAGER = {
       }
 
       // Clan Assist (Automatyczne Asysty)
+      if (typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CLAN_ASSIST.reinit()');
+        CLAN_ASSIST.reinit();
+      }
       if (state.clanAssist && state.clanAssist.enabled && typeof CLAN_ASSIST !== 'undefined') {
         console.log('[AFO_STATE_MANAGER] Starting Clan Assist...');
         // Set enabled immediately so parseQuickOpts renders with active class
@@ -14440,9 +14460,28 @@ console.log('[AFO] Reconnect index module loaded');
 
   // Wait for game to be fully loaded (char_data available)
   let initAttempts = 0;
-  const maxInitAttempts = 60; // 30 seconds max wait (60 * 500ms)
+  const maxInitAttempts = 360; // 180 seconds max wait (mobile-friendly)
 
-  const initCheck = setInterval(() => {
+  function doInitCheck() {
+    if (typeof GAME === 'undefined' || !GAME.char_data) return false;
+
+    // Check requirements AND enabled flag
+    if (canRun() && CLAN_ASSIST.enabled !== false) {
+      console.log('[ClanAssist] Requirements met and enabled, starting auto-assist');
+      console.log('[ClanAssist] - Clan ID:', GAME.char_data.klan_id);
+      console.log('[ClanAssist] - Reborn:', GAME.char_data.reborn);
+      startAutoAssist();
+    } else if (!canRun()) {
+      console.log('[ClanAssist] Requirements not met:');
+      console.log('[ClanAssist] - Clan ID:', GAME.char_data?.klan_id || 'none');
+      console.log('[ClanAssist] - Reborn:', GAME.char_data?.reborn ?? 'unknown');
+    } else {
+      console.log('[ClanAssist] Disabled by toggle, auto-assist not started');
+    }
+    return true;
+  }
+
+  let initCheck = setInterval(() => {
     initAttempts++;
 
     if (initAttempts > maxInitAttempts) {
@@ -14451,25 +14490,28 @@ console.log('[AFO] Reconnect index module loaded');
       return;
     }
 
-    // Check if char_data is available
-    if (GAME.char_data) {
+    if (doInitCheck()) {
       clearInterval(initCheck);
-
-      // Check requirements AND enabled flag
-      if (canRun() && CLAN_ASSIST.enabled !== false) {
-        console.log('[ClanAssist] Requirements met and enabled, starting auto-assist');
-        console.log('[ClanAssist] - Clan ID:', GAME.char_data.klan_id);
-        console.log('[ClanAssist] - Reborn:', GAME.char_data.reborn);
-        startAutoAssist();
-      } else if (!canRun()) {
-        console.log('[ClanAssist] Requirements not met:');
-        console.log('[ClanAssist] - Clan ID:', GAME.char_data?.klan_id || 'none');
-        console.log('[ClanAssist] - Reborn:', GAME.char_data?.reborn ?? 'unknown');
-      } else {
-        console.log('[ClanAssist] Disabled by toggle, auto-assist not started');
-      }
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  CLAN_ASSIST.reinit = function () {
+    console.log('[ClanAssist] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxInitAttempts) {
+        clearInterval(initCheck);
+        console.log('[ClanAssist] Timeout waiting for game data (reinit)');
+        return;
+      }
+      if (doInitCheck()) {
+        clearInterval(initCheck);
+      }
+    }, 500);
+  };
 
   console.log('[ClanAssist] Module loaded, waiting for game data...');
 
@@ -14732,18 +14774,18 @@ console.log('[AFO] Reconnect index module loaded');
    * Initialize - wait for char_data and auto-start if enabled
    */
   async function init() {
-    // Wait up to 30 seconds for char_data
-    const maxWait = 30000;
+    // Wait up to 180 seconds for char_data (mobile-friendly)
+    const maxWait = 180000;
     const checkInterval = 500;
     let waited = 0;
 
-    while (!GAME.char_data && waited < maxWait) {
+    while ((typeof GAME === 'undefined' || !GAME.char_data) && waited < maxWait) {
       await delay(checkInterval);
       waited += checkInterval;
     }
 
-    if (!GAME.char_data) {
-      console.log('[KuklaGuardian] char_data not available after 30s, skipping init');
+    if (typeof GAME === 'undefined' || !GAME.char_data) {
+      console.log('[KuklaGuardian] char_data not available after 180s, skipping init');
       return;
     }
 
@@ -14770,6 +14812,12 @@ console.log('[AFO] Reconnect index module loaded');
 
     console.log(`[KuklaGuardian] Initialized - enabled=${KUKLA_GUARDIAN.enabled}, isSpecialUser=${isSpecialUser()}`);
   }
+
+  // Expose reinit for reconnect — re-runs init from scratch
+  KUKLA_GUARDIAN.reinit = function () {
+    console.log('[KuklaGuardian] reinit() called');
+    init();
+  };
 
   // Start initialization
   init();
@@ -14991,12 +15039,18 @@ console.log('[AFO] Reconnect index module loaded');
     console.log('[TraderAuto] ' + msg);
   }
 
+  let _logUpdateScheduled = false;
   function updateLogUI() {
-    const logEl = document.getElementById('afo-trader-log');
-    if (!logEl) return;
-    const last5 = TRADER_AUTO.log.slice(-5);
-    logEl.innerHTML = last5.map(l => '<div><span class="grey">' + l.time + '</span> ' + l.msg + '</div>').join('');
-    logEl.scrollTop = logEl.scrollHeight;
+    if (_logUpdateScheduled) return;
+    _logUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      _logUpdateScheduled = false;
+      const logEl = document.getElementById('afo-trader-log');
+      if (!logEl) return;
+      const last5 = TRADER_AUTO.log.slice(-5);
+      logEl.innerHTML = last5.map(l => '<div><span class="grey">' + l.time + '</span> ' + l.msg + '</div>').join('');
+      logEl.scrollTop = logEl.scrollHeight;
+    });
   }
 
   // ============================================
@@ -15289,21 +15343,20 @@ console.log('[AFO] Reconnect index module loaded');
     if (TRADER_AUTO.active) return;
     TRADER_AUTO.active = true;
     TRADER_AUTO.buying = false;
+    TRADER_AUTO.pollPending = false;
     TRADER_AUTO.lastBuyItemId = null;
     TRADER_AUTO.lastBuyShop = null;
+    TRADER_AUTO.adaptiveInterval = TRADER_AUTO.pollInterval;
     updateToggleButton();
-    addLog('Uruchomiono - polling co ' + TRADER_AUTO.pollInterval + 'ms');
+    addLog('Uruchomiono - adaptive polling (start: ' + TRADER_AUTO.pollInterval + 'ms)');
     poll();
-    TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+    schedulePoll();
   }
 
   function stopAutoBuy() {
     TRADER_AUTO.active = false;
     TRADER_AUTO.buying = false;
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
     if (TRADER_AUTO.cooldownTimer) {
       clearTimeout(TRADER_AUTO.cooldownTimer);
       TRADER_AUTO.cooldownTimer = null;
@@ -15321,7 +15374,32 @@ console.log('[AFO] Reconnect index module loaded');
   function poll() {
     if (!TRADER_AUTO.active) return;
     if (TRADER_AUTO.buying) return;
+    if (TRADER_AUTO.pollPending) return; // Wait for previous response
+    TRADER_AUTO.pollPending = true;
+    TRADER_AUTO.pollSentAt = performance.now();
     GAME.socket.emit('ga', { a: 51, type: 0 });
+  }
+
+  /**
+   * Schedule next poll using recursive setTimeout (adaptive interval)
+   */
+  function schedulePoll() {
+    if (!TRADER_AUTO.active || TRADER_AUTO.buying) return;
+    if (TRADER_AUTO.pollTimer) {
+      clearTimeout(TRADER_AUTO.pollTimer);
+    }
+    TRADER_AUTO.pollTimer = setTimeout(() => {
+      poll();
+      schedulePoll();
+    }, TRADER_AUTO.adaptiveInterval || TRADER_AUTO.pollInterval);
+  }
+
+  function stopPolling() {
+    if (TRADER_AUTO.pollTimer) {
+      clearTimeout(TRADER_AUTO.pollTimer);
+      TRADER_AUTO.pollTimer = null;
+    }
+    TRADER_AUTO.pollPending = false;
   }
 
   // ============================================
@@ -15330,6 +15408,13 @@ console.log('[AFO] Reconnect index module loaded');
 
   function onTraderData(res) {
     if (!TRADER_AUTO.active) return;
+
+    // Measure RTT and adapt polling interval
+    TRADER_AUTO.pollPending = false;
+    if (TRADER_AUTO.pollSentAt) {
+      const rtt = performance.now() - TRADER_AUTO.pollSentAt;
+      TRADER_AUTO.adaptiveInterval = Math.max(200, Math.min(Math.round(rtt + 100), 1000));
+    }
 
     // Update currencies
     if (res.hasOwnProperty('tokens')) TRADER_AUTO.currentTokens = res.tokens;
@@ -15410,10 +15495,7 @@ console.log('[AFO] Reconnect index module loaded');
   function startCooldown() {
     TRADER_AUTO.buying = true;
     // Pause polling during cooldown
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
 
     let remaining = Math.ceil(TRADER_AUTO.buyCooldown / 1000);
     addLog('Cooldown ' + remaining + 's...');
@@ -15424,7 +15506,7 @@ console.log('[AFO] Reconnect index module loaded');
       if (TRADER_AUTO.active) {
         addLog('Cooldown zakończony, wznawiam');
         poll();
-        TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+        schedulePoll();
       }
     }, TRADER_AUTO.buyCooldown);
   }
@@ -15503,10 +15585,7 @@ console.log('[AFO] Reconnect index module loaded');
 
   function buyItem(item) {
     // Pause polling while waiting for buy response
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
 
     TRADER_AUTO.lastBuyItemId = item.id;
     TRADER_AUTO.lastBuyShop = item.shop;
@@ -15529,7 +15608,7 @@ console.log('[AFO] Reconnect index module loaded');
         TRADER_AUTO.lastBuyShop = null;
         if (TRADER_AUTO.active && !TRADER_AUTO.buying) {
           poll();
-          TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+          schedulePoll();
         }
       }
     }, 5000);
@@ -15545,6 +15624,12 @@ console.log('[AFO] Reconnect index module loaded');
       return false;
     }
 
+    // Prevent double-hooking after reinit
+    if (TRADER_AUTO._parseDataHooked) {
+      console.log('[TraderAuto] parseData already hooked, skipping');
+      return true;
+    }
+
     const originalParseData = GAME.parseData.bind(GAME);
     GAME.parseData = function (type, res) {
       originalParseData(type, res);
@@ -15553,6 +15638,7 @@ console.log('[AFO] Reconnect index module loaded');
       }
     };
 
+    TRADER_AUTO._parseDataHooked = true;
     console.log('[TraderAuto] Hooked into GAME.parseData');
     return true;
   }
@@ -15561,6 +15647,12 @@ console.log('[AFO] Reconnect index module loaded');
     if (!GAME.page_switch) {
       console.log('[TraderAuto] GAME.page_switch not found');
       return false;
+    }
+
+    // Prevent double-hooking after reinit
+    if (TRADER_AUTO._pageSwitchHooked) {
+      console.log('[TraderAuto] page_switch already hooked, skipping');
+      return true;
     }
 
     const origPageSwitch = GAME.page_switch.bind(GAME);
@@ -15572,6 +15664,7 @@ console.log('[AFO] Reconnect index module loaded');
       }
     };
 
+    TRADER_AUTO._pageSwitchHooked = true;
     console.log('[TraderAuto] Hooked into GAME.page_switch');
     return true;
   }
@@ -15596,20 +15689,40 @@ console.log('[AFO] Reconnect index module loaded');
 
   // Wait for GAME.char_data
   let initAttempts = 0;
-  const maxAttempts = 120; // 60 seconds
+  const maxAttempts = 360; // 180 seconds (mobile-friendly)
 
-  const initCheck = setInterval(() => {
+  let initCheck = setInterval(() => {
     initAttempts++;
     if (initAttempts > maxAttempts) {
       clearInterval(initCheck);
       console.log('[TraderAuto] Timeout waiting for GAME.char_data');
       return;
     }
-    if (GAME.char_data && GAME.socket) {
+    if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket) {
       clearInterval(initCheck);
       init();
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  TRADER_AUTO.reinit = function () {
+    console.log('[TraderAuto] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    TRADER_AUTO.pollPending = false;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxAttempts) {
+        clearInterval(initCheck);
+        console.log('[TraderAuto] Timeout waiting for GAME.char_data (reinit)');
+        return;
+      }
+      if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket) {
+        clearInterval(initCheck);
+        init();
+      }
+    }, 500);
+  };
 })();
 
 
@@ -16688,20 +16801,44 @@ console.log('[AFO] Reconnect index module loaded');
 
   // Wait for GAME.char_data and AFO_STORAGE
   let initAttempts = 0;
-  const maxAttempts = 120; // 60 seconds
+  const maxAttempts = 360; // 180 seconds (mobile-friendly)
+  let initDone = false;
 
-  const initCheck = setInterval(() => {
+  let initCheck = setInterval(() => {
     initAttempts++;
     if (initAttempts > maxAttempts) {
       clearInterval(initCheck);
       console.log('[CampStats] Timeout waiting for dependencies');
       return;
     }
-    if (GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
+    if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
       clearInterval(initCheck);
+      initDone = true;
       init();
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  window.CAMP_STATS = window.CAMP_STATS || {};
+  window.CAMP_STATS.reinit = function () {
+    console.log('[CampStats] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    initDone = false;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxAttempts) {
+        clearInterval(initCheck);
+        console.log('[CampStats] Timeout waiting for dependencies (reinit)');
+        return;
+      }
+      if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
+        clearInterval(initCheck);
+        initDone = true;
+        init();
+      }
+    }, 500);
+  };
 
 })();
 

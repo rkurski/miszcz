@@ -101,12 +101,18 @@
     console.log('[TraderAuto] ' + msg);
   }
 
+  let _logUpdateScheduled = false;
   function updateLogUI() {
-    const logEl = document.getElementById('afo-trader-log');
-    if (!logEl) return;
-    const last5 = TRADER_AUTO.log.slice(-5);
-    logEl.innerHTML = last5.map(l => '<div><span class="grey">' + l.time + '</span> ' + l.msg + '</div>').join('');
-    logEl.scrollTop = logEl.scrollHeight;
+    if (_logUpdateScheduled) return;
+    _logUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      _logUpdateScheduled = false;
+      const logEl = document.getElementById('afo-trader-log');
+      if (!logEl) return;
+      const last5 = TRADER_AUTO.log.slice(-5);
+      logEl.innerHTML = last5.map(l => '<div><span class="grey">' + l.time + '</span> ' + l.msg + '</div>').join('');
+      logEl.scrollTop = logEl.scrollHeight;
+    });
   }
 
   // ============================================
@@ -399,21 +405,20 @@
     if (TRADER_AUTO.active) return;
     TRADER_AUTO.active = true;
     TRADER_AUTO.buying = false;
+    TRADER_AUTO.pollPending = false;
     TRADER_AUTO.lastBuyItemId = null;
     TRADER_AUTO.lastBuyShop = null;
+    TRADER_AUTO.adaptiveInterval = TRADER_AUTO.pollInterval;
     updateToggleButton();
-    addLog('Uruchomiono - polling co ' + TRADER_AUTO.pollInterval + 'ms');
+    addLog('Uruchomiono - adaptive polling (start: ' + TRADER_AUTO.pollInterval + 'ms)');
     poll();
-    TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+    schedulePoll();
   }
 
   function stopAutoBuy() {
     TRADER_AUTO.active = false;
     TRADER_AUTO.buying = false;
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
     if (TRADER_AUTO.cooldownTimer) {
       clearTimeout(TRADER_AUTO.cooldownTimer);
       TRADER_AUTO.cooldownTimer = null;
@@ -431,7 +436,32 @@
   function poll() {
     if (!TRADER_AUTO.active) return;
     if (TRADER_AUTO.buying) return;
+    if (TRADER_AUTO.pollPending) return; // Wait for previous response
+    TRADER_AUTO.pollPending = true;
+    TRADER_AUTO.pollSentAt = performance.now();
     GAME.socket.emit('ga', { a: 51, type: 0 });
+  }
+
+  /**
+   * Schedule next poll using recursive setTimeout (adaptive interval)
+   */
+  function schedulePoll() {
+    if (!TRADER_AUTO.active || TRADER_AUTO.buying) return;
+    if (TRADER_AUTO.pollTimer) {
+      clearTimeout(TRADER_AUTO.pollTimer);
+    }
+    TRADER_AUTO.pollTimer = setTimeout(() => {
+      poll();
+      schedulePoll();
+    }, TRADER_AUTO.adaptiveInterval || TRADER_AUTO.pollInterval);
+  }
+
+  function stopPolling() {
+    if (TRADER_AUTO.pollTimer) {
+      clearTimeout(TRADER_AUTO.pollTimer);
+      TRADER_AUTO.pollTimer = null;
+    }
+    TRADER_AUTO.pollPending = false;
   }
 
   // ============================================
@@ -440,6 +470,13 @@
 
   function onTraderData(res) {
     if (!TRADER_AUTO.active) return;
+
+    // Measure RTT and adapt polling interval
+    TRADER_AUTO.pollPending = false;
+    if (TRADER_AUTO.pollSentAt) {
+      const rtt = performance.now() - TRADER_AUTO.pollSentAt;
+      TRADER_AUTO.adaptiveInterval = Math.max(200, Math.min(Math.round(rtt + 100), 1000));
+    }
 
     // Update currencies
     if (res.hasOwnProperty('tokens')) TRADER_AUTO.currentTokens = res.tokens;
@@ -520,10 +557,7 @@
   function startCooldown() {
     TRADER_AUTO.buying = true;
     // Pause polling during cooldown
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
 
     let remaining = Math.ceil(TRADER_AUTO.buyCooldown / 1000);
     addLog('Cooldown ' + remaining + 's...');
@@ -534,7 +568,7 @@
       if (TRADER_AUTO.active) {
         addLog('Cooldown zakończony, wznawiam');
         poll();
-        TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+        schedulePoll();
       }
     }, TRADER_AUTO.buyCooldown);
   }
@@ -613,10 +647,7 @@
 
   function buyItem(item) {
     // Pause polling while waiting for buy response
-    if (TRADER_AUTO.pollTimer) {
-      clearInterval(TRADER_AUTO.pollTimer);
-      TRADER_AUTO.pollTimer = null;
-    }
+    stopPolling();
 
     TRADER_AUTO.lastBuyItemId = item.id;
     TRADER_AUTO.lastBuyShop = item.shop;
@@ -639,7 +670,7 @@
         TRADER_AUTO.lastBuyShop = null;
         if (TRADER_AUTO.active && !TRADER_AUTO.buying) {
           poll();
-          TRADER_AUTO.pollTimer = setInterval(poll, TRADER_AUTO.pollInterval);
+          schedulePoll();
         }
       }
     }, 5000);
@@ -655,6 +686,12 @@
       return false;
     }
 
+    // Prevent double-hooking after reinit
+    if (TRADER_AUTO._parseDataHooked) {
+      console.log('[TraderAuto] parseData already hooked, skipping');
+      return true;
+    }
+
     const originalParseData = GAME.parseData.bind(GAME);
     GAME.parseData = function (type, res) {
       originalParseData(type, res);
@@ -663,6 +700,7 @@
       }
     };
 
+    TRADER_AUTO._parseDataHooked = true;
     console.log('[TraderAuto] Hooked into GAME.parseData');
     return true;
   }
@@ -671,6 +709,12 @@
     if (!GAME.page_switch) {
       console.log('[TraderAuto] GAME.page_switch not found');
       return false;
+    }
+
+    // Prevent double-hooking after reinit
+    if (TRADER_AUTO._pageSwitchHooked) {
+      console.log('[TraderAuto] page_switch already hooked, skipping');
+      return true;
     }
 
     const origPageSwitch = GAME.page_switch.bind(GAME);
@@ -682,6 +726,7 @@
       }
     };
 
+    TRADER_AUTO._pageSwitchHooked = true;
     console.log('[TraderAuto] Hooked into GAME.page_switch');
     return true;
   }
@@ -706,18 +751,38 @@
 
   // Wait for GAME.char_data
   let initAttempts = 0;
-  const maxAttempts = 120; // 60 seconds
+  const maxAttempts = 360; // 180 seconds (mobile-friendly)
 
-  const initCheck = setInterval(() => {
+  let initCheck = setInterval(() => {
     initAttempts++;
     if (initAttempts > maxAttempts) {
       clearInterval(initCheck);
       console.log('[TraderAuto] Timeout waiting for GAME.char_data');
       return;
     }
-    if (GAME.char_data && GAME.socket) {
+    if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket) {
       clearInterval(initCheck);
       init();
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  TRADER_AUTO.reinit = function () {
+    console.log('[TraderAuto] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    TRADER_AUTO.pollPending = false;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxAttempts) {
+        clearInterval(initCheck);
+        console.log('[TraderAuto] Timeout waiting for GAME.char_data (reinit)');
+        return;
+      }
+      if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket) {
+        clearInterval(initCheck);
+        init();
+      }
+    }, 500);
+  };
 })();

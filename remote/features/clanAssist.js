@@ -214,9 +214,28 @@
 
   // Wait for game to be fully loaded (char_data available)
   let initAttempts = 0;
-  const maxInitAttempts = 60; // 30 seconds max wait (60 * 500ms)
+  const maxInitAttempts = 360; // 180 seconds max wait (mobile-friendly)
 
-  const initCheck = setInterval(() => {
+  function doInitCheck() {
+    if (typeof GAME === 'undefined' || !GAME.char_data) return false;
+
+    // Check requirements AND enabled flag
+    if (canRun() && CLAN_ASSIST.enabled !== false) {
+      console.log('[ClanAssist] Requirements met and enabled, starting auto-assist');
+      console.log('[ClanAssist] - Clan ID:', GAME.char_data.klan_id);
+      console.log('[ClanAssist] - Reborn:', GAME.char_data.reborn);
+      startAutoAssist();
+    } else if (!canRun()) {
+      console.log('[ClanAssist] Requirements not met:');
+      console.log('[ClanAssist] - Clan ID:', GAME.char_data?.klan_id || 'none');
+      console.log('[ClanAssist] - Reborn:', GAME.char_data?.reborn ?? 'unknown');
+    } else {
+      console.log('[ClanAssist] Disabled by toggle, auto-assist not started');
+    }
+    return true;
+  }
+
+  let initCheck = setInterval(() => {
     initAttempts++;
 
     if (initAttempts > maxInitAttempts) {
@@ -225,25 +244,28 @@
       return;
     }
 
-    // Check if char_data is available
-    if (GAME.char_data) {
+    if (doInitCheck()) {
       clearInterval(initCheck);
-
-      // Check requirements AND enabled flag
-      if (canRun() && CLAN_ASSIST.enabled !== false) {
-        console.log('[ClanAssist] Requirements met and enabled, starting auto-assist');
-        console.log('[ClanAssist] - Clan ID:', GAME.char_data.klan_id);
-        console.log('[ClanAssist] - Reborn:', GAME.char_data.reborn);
-        startAutoAssist();
-      } else if (!canRun()) {
-        console.log('[ClanAssist] Requirements not met:');
-        console.log('[ClanAssist] - Clan ID:', GAME.char_data?.klan_id || 'none');
-        console.log('[ClanAssist] - Reborn:', GAME.char_data?.reborn ?? 'unknown');
-      } else {
-        console.log('[ClanAssist] Disabled by toggle, auto-assist not started');
-      }
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  CLAN_ASSIST.reinit = function () {
+    console.log('[ClanAssist] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxInitAttempts) {
+        clearInterval(initCheck);
+        console.log('[ClanAssist] Timeout waiting for game data (reinit)');
+        return;
+      }
+      if (doInitCheck()) {
+        clearInterval(initCheck);
+      }
+    }, 500);
+  };
 
   console.log('[ClanAssist] Module loaded, waiting for game data...');
 

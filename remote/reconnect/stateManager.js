@@ -797,7 +797,23 @@ const AFO_STATE_MANAGER = {
         }
       }
 
+      // ============================================
+      // REINIT MODULES (reconnect-safe: restart dependency checks)
+      // ============================================
+      if (typeof CAMP_STATS !== 'undefined' && CAMP_STATS.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CAMP_STATS.reinit()');
+        CAMP_STATS.reinit();
+      }
+      if (typeof TRADER_AUTO !== 'undefined' && TRADER_AUTO.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling TRADER_AUTO.reinit()');
+        TRADER_AUTO.reinit();
+      }
+
       // Kukla Guardian (Strażnik Kukli)
+      if (typeof KUKLA_GUARDIAN !== 'undefined' && KUKLA_GUARDIAN.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling KUKLA_GUARDIAN.reinit()');
+        KUKLA_GUARDIAN.reinit();
+      }
       if (state.kuklaGuardian && state.kuklaGuardian.enabled && typeof KUKLA_GUARDIAN !== 'undefined') {
         console.log('[AFO_STATE_MANAGER] Starting Kukla Guardian...');
         // Set enabled immediately so parseQuickOpts renders with active class
@@ -813,6 +829,10 @@ const AFO_STATE_MANAGER = {
       }
 
       // Clan Assist (Automatyczne Asysty)
+      if (typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CLAN_ASSIST.reinit()');
+        CLAN_ASSIST.reinit();
+      }
       if (state.clanAssist && state.clanAssist.enabled && typeof CLAN_ASSIST !== 'undefined') {
         console.log('[AFO_STATE_MANAGER] Starting Clan Assist...');
         // Set enabled immediately so parseQuickOpts renders with active class

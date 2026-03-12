@@ -236,7 +236,7 @@ var ASSIST = {
   assistStop: true,
   selectedPlayer: '',
   selectedPlayerId: 0,
-  wait: 400,
+  wait: 600, // Increased for mobile RTT tolerance
 
   // Training state machine
   trainState: 0,
@@ -4833,16 +4833,19 @@ const AFO_ASSIST = {
   // ============================================
 
   /**
-   * TRENUJ Loop:
+   * TRENUJ Loop (lag-resistant):
    * 1. Start training (1h strength)
-   * 2. Wait for selected player to assist
-   * 3. Cancel training
-   * 4. Cooldown and repeat
+   * 2. Wait for server confirmation (GAME.is_training)
+   * 3. Wait for assist OR 5s watchdog
+   * 4. Cancel training
+   * 5. Wait for server confirmation (!GAME.is_training)
+   * 6. Cooldown and repeat
    */
   startTraining() {
-    if (ASSIST.trainStop || GAME.is_training) return;
+    if (ASSIST.trainStop) return;
 
     ASSIST.trainState = 1;
+    ASSIST.assistReceived = false;
 
     // Start 1h strength training
     GAME.socket.emit('ga', {
@@ -4852,26 +4855,63 @@ const AFO_ASSIST = {
       duration: 1   // 1 godzina
     });
 
-    console.log('[AFO_ASSIST] Training started');
-    ASSIST.trainState = 2; // Wait for assist
+    console.log('[AFO_ASSIST] Training request sent');
 
-    setTimeout(() => this.checkTrainProgress(), ASSIST.wait);
+    // Wait for server to confirm training started
+    this._waitForTrainingStart();
   },
 
+  /**
+   * Wait for GAME.is_training to become true (server confirmation).
+   * Safety valve: proceed after 3s even if not confirmed.
+   */
+  _waitForTrainingStart() {
+    const startTime = Date.now();
+    const check = () => {
+      if (ASSIST.trainStop) { ASSIST.trainState = 0; return; }
+      if (GAME.is_training) {
+        console.log('[AFO_ASSIST] Training confirmed by server (' + (Date.now() - startTime) + 'ms)');
+        ASSIST.trainState = 2;
+        this.checkTrainProgress();
+        return;
+      }
+      if (Date.now() - startTime > 3000) {
+        console.log('[AFO_ASSIST] Training start safety valve (3s), proceeding anyway');
+        ASSIST.trainState = 2;
+        this.checkTrainProgress();
+        return;
+      }
+      setTimeout(check, 200);
+    };
+    setTimeout(check, ASSIST.wait);
+  },
+
+  /**
+   * Wait for assist with 5s watchdog.
+   * If assist not received within 5s, force-cancel.
+   */
   checkTrainProgress() {
     if (ASSIST.trainStop) {
       ASSIST.trainState = 0;
       return;
     }
 
-    // Check if assist received
-    if (ASSIST.assistReceived && GAME.is_training) {
-      console.log('[AFO_ASSIST] Assist received, canceling training');
-      this.cancelTraining();
-    } else {
-      // Keep checking
-      setTimeout(() => this.checkTrainProgress(), 1000);
-    }
+    const startTime = Date.now();
+    const check = () => {
+      if (ASSIST.trainStop) { ASSIST.trainState = 0; return; }
+      if (ASSIST.assistReceived) {
+        console.log('[AFO_ASSIST] Assist received, canceling training');
+        this.cancelTraining();
+        return;
+      }
+      if (Date.now() - startTime > 5000) {
+        console.log('[AFO_ASSIST] Watchdog: 5s no assist, force cancel');
+        this.cancelTraining();
+        return;
+      }
+      setTimeout(check, 500);
+    };
+    check();
   },
 
   cancelTraining() {
@@ -4880,14 +4920,37 @@ const AFO_ASSIST = {
     // Cancel current training
     GAME.socket.emit('ga', {a: 8, type: 3});
 
-    console.log('[AFO_ASSIST] Training canceled');
+    console.log('[AFO_ASSIST] Cancel request sent');
 
-    // Reset and restart after cooldown
-    setTimeout(() => {
-      ASSIST.trainState = 0;
-      ASSIST.assistReceived = false;
-      this.startTraining(); // Loop
-    }, ASSIST.wait);
+    // Wait for server to confirm training ended
+    this._waitForTrainingEnd();
+  },
+
+  /**
+   * Wait for GAME.is_training to become false (server confirmed cancel).
+   * Safety valve: proceed after 3s even if not confirmed.
+   */
+  _waitForTrainingEnd() {
+    const startTime = Date.now();
+    const check = () => {
+      if (ASSIST.trainStop) { ASSIST.trainState = 0; return; }
+      if (!GAME.is_training) {
+        console.log('[AFO_ASSIST] Cancel confirmed by server (' + (Date.now() - startTime) + 'ms)');
+        ASSIST.trainState = 0;
+        ASSIST.assistReceived = false;
+        this.startTraining(); // Loop
+        return;
+      }
+      if (Date.now() - startTime > 3000) {
+        console.log('[AFO_ASSIST] Cancel safety valve (3s), restarting anyway');
+        ASSIST.trainState = 0;
+        ASSIST.assistReceived = false;
+        this.startTraining(); // Loop
+        return;
+      }
+      setTimeout(check, 200);
+    };
+    setTimeout(check, ASSIST.wait);
   },
 
   /**
