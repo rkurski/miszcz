@@ -235,7 +235,7 @@ var ASSIST = {
   assistStop: true,
   selectedPlayer: '',
   selectedPlayerId: 0,
-  wait: 400,
+  wait: 600, // Increased for mobile RTT tolerance
 
   // Training state machine
   trainState: 0,

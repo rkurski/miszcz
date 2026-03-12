@@ -812,20 +812,44 @@
 
   // Wait for GAME.char_data and AFO_STORAGE
   let initAttempts = 0;
-  const maxAttempts = 120; // 60 seconds
+  const maxAttempts = 360; // 180 seconds (mobile-friendly)
+  let initDone = false;
 
-  const initCheck = setInterval(() => {
+  let initCheck = setInterval(() => {
     initAttempts++;
     if (initAttempts > maxAttempts) {
       clearInterval(initCheck);
       console.log('[CampStats] Timeout waiting for dependencies');
       return;
     }
-    if (GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
+    if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
       clearInterval(initCheck);
+      initDone = true;
       init();
     }
   }, 500);
+
+  // Expose reinit for reconnect — restarts dependency check from scratch
+  window.CAMP_STATS = window.CAMP_STATS || {};
+  window.CAMP_STATS.reinit = function () {
+    console.log('[CampStats] reinit() called');
+    clearInterval(initCheck);
+    initAttempts = 0;
+    initDone = false;
+    initCheck = setInterval(() => {
+      initAttempts++;
+      if (initAttempts > maxAttempts) {
+        clearInterval(initCheck);
+        console.log('[CampStats] Timeout waiting for dependencies (reinit)');
+        return;
+      }
+      if (typeof GAME !== 'undefined' && GAME.char_data && GAME.socket && typeof AFO_STORAGE !== 'undefined') {
+        clearInterval(initCheck);
+        initDone = true;
+        init();
+      }
+    }, 500);
+  };
 
 })();
 

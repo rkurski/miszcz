@@ -253,18 +253,18 @@
    * Initialize - wait for char_data and auto-start if enabled
    */
   async function init() {
-    // Wait up to 30 seconds for char_data
-    const maxWait = 30000;
+    // Wait up to 180 seconds for char_data (mobile-friendly)
+    const maxWait = 180000;
     const checkInterval = 500;
     let waited = 0;
 
-    while (!GAME.char_data && waited < maxWait) {
+    while ((typeof GAME === 'undefined' || !GAME.char_data) && waited < maxWait) {
       await delay(checkInterval);
       waited += checkInterval;
     }
 
-    if (!GAME.char_data) {
-      console.log('[KuklaGuardian] char_data not available after 30s, skipping init');
+    if (typeof GAME === 'undefined' || !GAME.char_data) {
+      console.log('[KuklaGuardian] char_data not available after 180s, skipping init');
       return;
     }
 
@@ -291,6 +291,12 @@
 
     console.log(`[KuklaGuardian] Initialized - enabled=${KUKLA_GUARDIAN.enabled}, isSpecialUser=${isSpecialUser()}`);
   }
+
+  // Expose reinit for reconnect — re-runs init from scratch
+  KUKLA_GUARDIAN.reinit = function () {
+    console.log('[KuklaGuardian] reinit() called');
+    init();
+  };
 
   // Start initialization
   init();
