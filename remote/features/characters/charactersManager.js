@@ -1,3 +1,17 @@
+// Prepend local timestamp [HH:MM:SS] to all console output
+(function() {
+  const methods = ['log', 'warn', 'error'];
+  methods.forEach(method => {
+    const orig = console[method].bind(console);
+    console[method] = function(...args) {
+      const t = new Date().toLocaleTimeString('pl-PL', { hour12: false });
+      if (typeof args[0] === 'string') args[0] = `[${t}] ` + args[0];
+      else args.unshift(`[${t}]`);
+      orig(...args);
+    };
+  });
+})();
+
 class KwsCharactersManager {
   constructor() {
       this.characters = [];
