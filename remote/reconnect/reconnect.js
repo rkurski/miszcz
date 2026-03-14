@@ -256,8 +256,22 @@ const AFO_RECONNECT = {
     const gameReady = await this.waitForGame(30000);
 
     if (!gameReady) {
-      // GAME not available - this is NOT a disconnect, the page/game just hasn't loaded yet
-      console.warn('[AFO_RECONNECT] GAME not available after 30s (not a disconnect - game still loading). Retrying...');
+      // Check if this is actually the game page or a server-rendered error/auth page
+      // #game_win is in the static HTML of the game client (bigcode.html line 31), always present
+      // On auth error pages (e.g. session expired after server restart) it does NOT exist
+      const hasGameStructure = document.getElementById('game_win');
+
+      if (!hasGameStructure) {
+        // Not the game page - likely auth error or session expired page
+        // Redirect to main page to trigger auto-login flow
+        console.log('[AFO_RECONNECT] Auth/error page detected (no #game_win). Redirecting to main page for re-login...');
+        await this.saveReconnectTarget();
+        window.location.href = 'https://kosmiczni.pl/';
+        return;
+      }
+
+      // Game page structure exists but GAME JS not loaded yet - keep retrying
+      console.warn('[AFO_RECONNECT] GAME not available after 30s (game structure present, JS still loading). Retrying...');
       await this.sleep(3000);
       return this.handleServerPage(creds, _attempt + 1);
     }
