@@ -83,5 +83,52 @@ window.addEventListener('__GIENIOBOT_STORAGE_REMOVE__', async function (event) {
   }
 });
 
-// Inject the main loader
-injectCode(chrome.runtime.getURL('/content_script1.js'));
+// ============================================
+// AUTH ERROR PAGE DETECTION
+// ============================================
+// On server restart, browser may land on sX.kosmiczni.pl/auth?sid=...
+// Page-context scripts don't execute on this page (likely CSP).
+// Handle reconnect directly from extension context (bypasses CSP).
+
+const _hostname = window.location.hostname;
+const _serverMatch = _hostname.match(/^s(\d+)\.kosmiczni\.pl$/);
+
+if (_serverMatch && window.location.pathname.startsWith('/auth')) {
+  const server = parseInt(_serverMatch[1]);
+  console.log('[Gieniobot] Auth error page detected on server', server);
+
+  chrome.storage.local.get(
+    ['afo_reconnect_target', 'gieniobot_state_s' + server],
+    (result) => {
+      let charId = null;
+
+      // From existing target (if disconnect monitor saved it before redirect)
+      const existingTarget = result['afo_reconnect_target'];
+      if (existingTarget && existingTarget.charId) {
+        charId = existingTarget.charId;
+      }
+
+      // From saved state (fallback - state key is per-server, contains charId inside)
+      if (!charId) {
+        const state = result['gieniobot_state_s' + server];
+        if (state && state.charId) {
+          charId = state.charId;
+        }
+      }
+
+      chrome.storage.local.set({
+        'afo_reconnect_target': {
+          server: server,
+          charId: charId,
+          savedAt: Date.now()
+        }
+      }, () => {
+        console.log('[Gieniobot] Reconnect target saved (server:', server, 'char:', charId, '), redirecting to main page...');
+        window.location.href = 'https://kosmiczni.pl/';
+      });
+    }
+  );
+} else {
+  // Normal flow: inject the main loader
+  injectCode(chrome.runtime.getURL('/content_script1.js'));
+}

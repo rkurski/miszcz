@@ -3071,7 +3071,7 @@ console.log('[SoulCardSets] Module loaded');
  * GIENIOBOT MASTER - Main Bot Logic
  * ============================================================================
  * 
- * Version: 2.3.2
+ * Version: 2.4.0
  * Repository: https://github.com/rkurski/miszcz
  * 
  * STRUCTURE:
@@ -3138,7 +3138,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.3.2';
+  var version = '2.4.0';
 
   // ============================================
   // SOCKET DETECTION
