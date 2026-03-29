@@ -62,6 +62,8 @@ class KwsCharactersManager {
 }
 
 function getCharacters() {
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
   if ($("#server_choose").is(":visible")) {
       if (this.shouldReport) {
           $("#logout").eq(0).click();
