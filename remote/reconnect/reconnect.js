@@ -90,6 +90,18 @@ const AFO_RECONNECT = {
     console.log('[AFO_RECONNECT] Starting...');
 
     try {
+      // Any non-root path on server domain = error page (auth, expired session, etc.)
+      // Always redirect to main page to restart login flow
+      if (this.isServerPage && window.location.pathname !== '/') {
+        console.log('[AFO_RECONNECT] Non-game page detected on server:', window.location.pathname, '- redirecting to main page...');
+        if (!this.targetServer) this.targetServer = this.currentServer;
+        // Brief delay to avoid rapid-fire redirects if server is still restarting
+        await this.sleep(3000);
+        await this.saveReconnectTarget();
+        window.location.href = 'https://kosmiczni.pl/';
+        return;
+      }
+
       // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
       await this.loadReconnectTarget();
 
@@ -114,13 +126,22 @@ const AFO_RECONNECT = {
         await this.loadSavedState();
       }
 
-      // MAIN PAGE: Auto-login ONLY when reconnecting after disconnect
+      // MAIN PAGE: Auto-login when reconnecting or when recent state exists
       if (this.isMainPage) {
         if (this.isReconnecting) {
           console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
           await this.handleMainPage(creds);
         } else {
-          console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
+          // Infer reconnect from recent saved state (catches server restart redirects
+          // where disconnect monitor didn't have time to save reconnect target)
+          const inferred = await this.inferReconnectFromState();
+          if (inferred) {
+            console.log('[AFO_RECONNECT] On main page, inferred reconnect from recent state - initiating login...');
+            this.isReconnecting = true;
+            await this.handleMainPage(creds);
+          } else {
+            console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
+          }
         }
       }
 
@@ -145,9 +166,9 @@ const AFO_RECONNECT = {
       const result = await AFO_STORAGE.get('afo_reconnect_target');
       const target = result['afo_reconnect_target'];
 
-      if (target && target.server && target.charId) {
+      if (target && target.server) {
         this.targetServer = parseInt(target.server);
-        this.targetCharId = parseInt(target.charId);
+        this.targetCharId = target.charId ? parseInt(target.charId) : null;
         this.isReconnecting = true;
         console.log('[AFO_RECONNECT] Loaded reconnect target (reconnect mode):', this.targetServer, this.targetCharId);
 
@@ -222,13 +243,19 @@ const AFO_RECONNECT = {
         await this.sleep(2000);
       }
 
-      console.warn('[AFO_RECONNECT] Server select not found after ' + MAX_SERVER_ATTEMPTS + ' attempts - giving up');
+      // Not found - fall through to retry below
+      console.warn('[AFO_RECONNECT] Server select not found after ' + MAX_SERVER_ATTEMPTS + ' attempts');
 
     } catch (error) {
       console.error('[AFO_RECONNECT] Main page error:', error);
     } finally {
       this.isProcessing = false;
     }
+
+    // Never give up - retry after delay (both "not found" and error paths end up here)
+    console.log('[AFO_RECONNECT] Retrying main page login in 15s...');
+    await this.sleep(15000);
+    return this.handleMainPage(creds);
   },
 
   // ============================================
@@ -326,11 +353,20 @@ const AFO_RECONNECT = {
         return;
       }
 
-      // Still on char select - auto-select the target character
+      // Still on char select - auto-select the target character (or wait for manual selection)
       if (this.isCharacterSelectScreen()) {
-        console.log('[AFO_RECONNECT] Auto-selecting character', this.targetCharId);
+        if (this.targetCharId) {
+          console.log('[AFO_RECONNECT] Auto-selecting character', this.targetCharId);
+        } else {
+          console.log('[AFO_RECONNECT] No target charId, waiting for manual character selection...');
+        }
         await this.selectCharacter(this.targetCharId);
-        await this.waitForFullyLoggedIn();
+
+        // Wait for login (manual or auto)
+        if (!this.isFullyLoggedIn()) {
+          console.log('[AFO_RECONNECT] Waiting for full login...');
+          await this.waitForFullyLoggedIn(60000);
+        }
 
         // Go to map first to avoid GAME.mapCharMove errors
         console.log('[AFO_RECONNECT] Waiting 2s then going to map...');
@@ -424,6 +460,31 @@ const AFO_RECONNECT = {
         }
       }
     }, this.TIMING.CHECK_INTERVAL);
+
+    // Proactive save on page unload (catches server restart redirects
+    // where disconnect monitor doesn't fire in time)
+    if (!this._beforeUnloadBound) {
+      this._beforeUnloadBound = true;
+      window.addEventListener('beforeunload', () => {
+        if (!this.isServerPage) return;
+        if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+
+        try {
+          if (typeof AFO_STATE_MANAGER !== 'undefined') {
+            AFO_STATE_MANAGER.save();
+          }
+          if (typeof AFO_STORAGE !== 'undefined') {
+            AFO_STORAGE.set({
+              'afo_reconnect_target': {
+                server: GAME.server,
+                charId: GAME.char_id,
+                savedAt: Date.now()
+              }
+            });
+          }
+        } catch (e) { /* swallow errors during unload */ }
+      });
+    }
   },
 
   stopDisconnectMonitor() {
@@ -527,6 +588,10 @@ const AFO_RECONNECT = {
   },
 
   async selectCharacter(charId) {
+    if (!charId) {
+      console.log('[AFO_RECONNECT] No target charId, waiting for manual selection');
+      return;
+    }
     if (this.isProcessing) return;
     this.isProcessing = true;
 
@@ -639,6 +704,38 @@ const AFO_RECONNECT = {
   // ============================================
   // CREDENTIALS & STATE
   // ============================================
+
+  /**
+   * Check if there's a recently saved state (< 10 min) that implies we should reconnect.
+   * Catches server restart redirects where disconnect monitor didn't save target in time.
+   */
+  async inferReconnectFromState() {
+    if (typeof AFO_STORAGE === 'undefined') return false;
+
+    try {
+      const result = await AFO_STORAGE.get(null);
+      const now = Date.now();
+      const MAX_AGE = 10 * 60 * 1000; // 10 minutes
+
+      for (const key in result) {
+        if (!key.startsWith('gieniobot_state_s') || !result[key]?.savedAt) continue;
+        if (now - result[key].savedAt < MAX_AGE) {
+          const match = key.match(/gieniobot_state_s(\d+)/);
+          if (match) {
+            this.targetServer = parseInt(match[1]);
+            this.targetCharId = result[key].charId || null;
+            this.savedStateToRestore = result[key];
+            console.log('[AFO_RECONNECT] Inferred reconnect from recent state (age:', Math.round((now - result[key].savedAt) / 1000), 's, server:', this.targetServer, ')');
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT] inferReconnectFromState error:', e);
+    }
+
+    return false;
+  },
 
   async getCredentials() {
     if (typeof AFO_CREDENTIALS === 'undefined') return null;
