@@ -2155,7 +2155,7 @@ function setupGameOverrides() {
         var isLocal = !!localQuestIds[track[i].qb_id];
         let attroqq = track[i].d == 1 || $(`#page_game_qb #qb_list #quest_log_tr${track[i].qb_id}`).find(`.qb_right:contains("[ Codzienne ]")`).length;
         if (track[i].m == 1) {
-          main_quest += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep3"></div><b style="color:${isLocal ? 'yellow' : 'orange'};">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
+          main_quest += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep3"></div><b style="color:orange;">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
         } else if (attroqq) {
           codzienne_html_dsa += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep2"></div><b style="color:${isLocal ? 'yellow' : '#63aaff'};">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
         } else {
