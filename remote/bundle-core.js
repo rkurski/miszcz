@@ -2121,8 +2121,14 @@ function setupGameOverrides() {
 
   // ============================================
   // PARSE TRACKER - Quest tracker
+  // Full override with bot features: sorting (main/daily/normal),
+  // custom colors, markDaily, hide_tracker setting.
+  // Also maintains _trackedQuests cache for parseSingleTracker.
   // ============================================
-  GAME.parseTracker = function (track) {
+  GAME._trackedQuests = [];
+
+  GAME._renderTracker = function () {
+    var track = this._trackedQuests;
     GAME.socket.emit('ga', { a: 22, type: 3 });
     track.sort((a, b) => a.want.type - b.want.type);
     var con = '';
@@ -2130,19 +2136,30 @@ function setupGameOverrides() {
     let codzienne_html_dsa = '';
     let main_quest = ``;
     var any = false;
+    // Build set of local quest IDs from map_quests (quests on current map)
+    var localQuestIds = {};
+    if (this.map_quests) {
+      for (var key in this.map_quests) {
+        var mq = this.map_quests[key];
+        if (mq) for (var j = 0; j < mq.length; j++) {
+          if (mq[j] && mq[j].qb_id) localQuestIds[mq[j].qb_id] = true;
+        }
+      }
+    }
     if (track && track.length) {
       var len = track.length;
       for (var i = 0; i < len; i++) {
         any = true;
         var qn = track[i].header;
         if (qn.length > 15) qn = qn.slice(0, 15) + '...';
-        let attroqq = $(`#page_game_qb #qb_list #quest_log_tr${track[i].qb_id}`).find(`.qb_right:contains("[ Codzienne ]")`).length;
+        var isLocal = !!localQuestIds[track[i].qb_id];
+        let attroqq = track[i].d == 1 || $(`#page_game_qb #qb_list #quest_log_tr${track[i].qb_id}`).find(`.qb_right:contains("[ Codzienne ]")`).length;
         if (track[i].m == 1) {
-          main_quest += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep3"></div><b style="color:orange;">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
-        } else if (attroqq == 1) {
-          codzienne_html_dsa += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep2"></div><b style="color:#63aaff;" >${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
+          main_quest += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep3"></div><b style="color:${isLocal ? 'yellow' : 'orange'};">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
+        } else if (attroqq) {
+          codzienne_html_dsa += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep2"></div><b style="color:${isLocal ? 'yellow' : '#63aaff'};">${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
         } else {
-          zwykle_html_dsa += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep2"></div><b>${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
+          zwykle_html_dsa += `<div id="track_quest_${track[i].qb_id}" class="qtrack option" data-option="go_teleport" data-loc="${track[i].loc}"><div class="sep2"></div><b${isLocal ? ' style="color:yellow;"' : ''}>${qn}</b> ${this.quest_want(track[i].want, track[i].qb_id)}</div>`;
         }
       }
     }
@@ -2161,6 +2178,35 @@ function setupGameOverrides() {
       $('#quest_track_con').hide();
     }
     kws.markDaily();
+  };
+
+  GAME.parseTracker = function (track) {
+    GAME._trackedQuests = track.slice();
+    GAME._renderTracker();
+  };
+
+  // ============================================
+  // PARSE SINGLE TRACKER - Incremental update (new in 2.8.85a)
+  // Updates cache and re-renders with all bot features intact.
+  // ============================================
+  GAME.parseSingleTracker = function (track) {
+    if (!track || !track.qb_id) return;
+    var quests = GAME._trackedQuests;
+    var idx = quests.findIndex(q => q.qb_id == track.qb_id);
+    if (track.remove) {
+      if (idx !== -1) quests.splice(idx, 1);
+    } else {
+      if (idx !== -1) quests[idx] = track;
+      else quests.push(track);
+    }
+    GAME._renderTracker();
+  };
+
+  // Hook loadMap to re-render tracker with updated map_quests (local highlight)
+  const _origLoadMap = GAME.loadMap.bind(GAME);
+  GAME.loadMap = function () {
+    _origLoadMap.apply(this, arguments);
+    if (GAME._trackedQuests.length) GAME._renderTracker();
   };
 
   // ============================================
@@ -2199,6 +2245,46 @@ function setupGameOverrides() {
       }
     }
     return number;
+  };
+
+  // ============================================
+  // EXECUTE IX - X key handler override
+  // If quest dialog is open, click finish_quest or do quest action.
+  // Otherwise, use default behavior (teleport / quest accept).
+  // ============================================
+  GAME.executeIx = function () {
+    // Quest dialog open - handle finish/action buttons
+    if ($('#quest_con').is(':visible')) {
+      const finishBtn = $('button[data-option=finish_quest]').first();
+      if (finishBtn.length) {
+        const qb_id = finishBtn.attr('data-qb_id');
+        const button = parseInt(finishBtn.attr('data-button')) || 1;
+        GAME.emitOrder({ a: 22, type: 2, button: button, id: qb_id });
+        return;
+      }
+      if ($('.quest_action').is(':visible')) {
+        GAME.questAction();
+        return;
+      }
+      return;
+    }
+    // Quest accept: find first visible quest on the field (cycles after completion)
+    if (this.spacebind && this.spacebind[0] === 2) {
+      const visibleQuest = $('.field_quest:visible').first();
+      if (visibleQuest.length) {
+        const qb_id = visibleQuest.data('qb');
+        GAME.emitOrder({ a: 22, type: 1, id: qb_id });
+      }
+      return;
+    }
+    // Default: teleport etc.
+    if (this.spacebind && this.spacebind[0]) {
+      switch (this.spacebind[0]) {
+        case 1:
+          GAME.emitOrder({ a: 6, tpid: this.spacebind[1] });
+          break;
+      }
+    }
   };
 
   // ============================================
