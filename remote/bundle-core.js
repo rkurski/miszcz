@@ -2127,9 +2127,27 @@ function setupGameOverrides() {
   // ============================================
   GAME._trackedQuests = [];
 
+  // Sync cache when game sends incremental count update (res.track + res.amount).
+  // Native handler updates DOM .quest_warunek{id} but not our cache; without this,
+  // any later re-render (parseSingleTracker, loadMap) would overwrite fresh DOM
+  // with stale cache values.
+  GAME.socket.on('gr', (res) => {
+    if (!res || res.a !== 22 || !res.track) return;
+    var idx = GAME._trackedQuests.findIndex(q => q.qb_id == res.track);
+    if (idx === -1) return;
+    var w = GAME._trackedQuests[idx].want;
+    if (!w) return;
+    var cnt = (parseInt(w.count) || 0) + (parseInt(res.amount) || 0);
+    var max = parseInt(w.maxv);
+    if (!isNaN(max) && cnt >= max) {
+      cnt = max;
+      w.is_met = 1;
+    }
+    w.count = cnt;
+  });
+
   GAME._renderTracker = function () {
     var track = this._trackedQuests;
-    GAME.socket.emit('ga', { a: 22, type: 3 });
     track.sort((a, b) => a.want.type - b.want.type);
     var con = '';
     let zwykle_html_dsa = '';
@@ -2147,6 +2165,18 @@ function setupGameOverrides() {
       }
     }
     if (track && track.length) {
+      // Defensive: pull fresh data-count from DOM if it's higher than cache
+      // (in case socket hook missed an early res.track before this module loaded).
+      for (var di = 0; di < track.length; di++) {
+        if (!track[di].want) continue;
+        var $sp = $('.quest_warunek' + track[di].qb_id);
+        if (!$sp.length) continue;
+        var domCnt = parseInt($sp.attr('data-count'));
+        var cacheCnt = parseInt(track[di].want.count) || 0;
+        if (!isNaN(domCnt) && domCnt > cacheCnt) {
+          track[di].want.count = domCnt;
+        }
+      }
       var len = track.length;
       for (var i = 0; i < len; i++) {
         any = true;
@@ -2509,7 +2539,7 @@ console.log('[GameOverrides] Module loaded');
 // WAR_CONTAINER TOUCH DRAG
 // Self-initializing IIFE - runs immediately on script load
 // ============================================
-(function() {
+(function () {
   'use strict';
 
   function setupWarContainerDrag() {
