@@ -78,13 +78,43 @@ const AFO_PVP = {
   },
 
   start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (PVP._startCallCount === undefined) PVP._startCallCount = 0;
+    PVP._startCallCount++;
+    if (PVP._startCallCount <= 5) {
+      console.log('[AFO_PVP:start]', {
+        call: PVP._startCallCount,
+        stop: PVP.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: PVP.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+
     if (!PVP.stop && !GAME.is_loading) {
+      PVP._isLoadingRetries = 0;
       if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
         $("#player_list_con").find("[data-option=load_more_players]").click();
       }
       this.action();
     } else if (GAME.is_loading) {
-      window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway
+      // (game optimization changed timing — is_loading sometimes never clears).
+      PVP._isLoadingRetries = (PVP._isLoadingRetries || 0) + 1;
+      if (PVP._startCallCount <= 5) {
+        console.log('[AFO_PVP:start] retry — is_loading=true, attempt', PVP._isLoadingRetries);
+      }
+      if (PVP._isLoadingRetries > 50) {
+        console.warn('[AFO_PVP:start] is_loading stuck for >5s, forcing action() anyway');
+        PVP._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      window.setTimeout(() => this.start(), 100);
+    } else if (PVP._startCallCount <= 5) {
+      // Silent exit — PVP.stop became true. Log it so we see the path.
+      console.warn('[AFO_PVP:start] silent exit — stop=' + PVP.stop + ', is_loading=' + GAME.is_loading);
     }
   },
 
@@ -527,6 +557,8 @@ const AFO_PVP = {
       if (PVP.stop) {
         $(".pvp_pvp .pvp_status").removeClass("red").addClass("green").html("On");
         PVP.stop = false;
+        PVP._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        PVP._isLoadingRetries = 0;
         this.start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; LPVM.Stop = true; CODE.stop = true;

@@ -16,7 +16,22 @@ const AFO_CODE = {
   // ============================================
 
   start() {
-    if (CODE.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (CODE._startCallCount === undefined) CODE._startCallCount = 0;
+    CODE._startCallCount++;
+    if (CODE._startCallCount <= 5) {
+      console.log('[AFO_CODE:start]', {
+        call: CODE._startCallCount,
+        stop: CODE.stop,
+        whatNow: CODE.whatNow,
+        is_loading: GAME.is_loading,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+    if (CODE.stop) {
+      if (CODE._startCallCount <= 5) console.warn('[AFO_CODE:start] silent exit — CODE.stop=true');
+      return;
+    }
 
     switch (CODE.whatNow) {
       case 0:
@@ -165,10 +180,12 @@ const AFO_CODE = {
   bindHandlers() {
     // Main CODE toggle
     $('#code_Panel .code_code').click(() => {
+      console.log('[AFO_CODE:click]', { stop: CODE.stop });
       if (CODE.stop) {
         $(".code_code .code_status").removeClass("red").addClass("green").html("On");
         CODE.stop = false;
         CODE.whatNow = 0;
+        CODE._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; RES.stop = true;

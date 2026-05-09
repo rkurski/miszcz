@@ -85,6 +85,18 @@ const AFO_LPVM = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (LPVM._startCallCount === undefined) LPVM._startCallCount = 0;
+    LPVM._startCallCount++;
+    if (LPVM._startCallCount <= 5) {
+      console.log('[AFO_LPVM:Start]', {
+        call: LPVM._startCallCount,
+        Stop: LPVM.Stop,
+        is_loading: GAME.is_loading,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
     this.LoadPVM();
   },
 
@@ -266,9 +278,11 @@ const AFO_LPVM = {
   bindHandlers() {
     // Main LPVM toggle
     $('#lpvm_Panel .lpvm_lpvm').click(() => {
+      console.log('[AFO_LPVM:click]', { Stop: LPVM.Stop });
       if (LPVM.Stop) {
         $(".lpvm_lpvm .lpvm_status").removeClass("red").addClass("green").html("On");
         LPVM.Stop = false;
+        LPVM._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; PVP.stop = true; CODE.stop = true;

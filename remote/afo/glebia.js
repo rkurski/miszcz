@@ -60,6 +60,7 @@ const AFO_GLEBIA = {
   bindHandlers() {
     // Start/Stop toggle
     $('#glebia_Panel .glebia_toggle').click(() => {
+      console.log('[AFO_GLEBIA:click]', { stop: GLEBIA.stop });
       if (GLEBIA.stop) {
         $(".glebia_toggle .glebia_status").removeClass("red").addClass("green").html("On");
         GLEBIA.stop = false;
@@ -70,6 +71,8 @@ const AFO_GLEBIA = {
         GLEBIA.tileRetries = 0;
         GLEBIA.lastEnemyCount = -1;
         GLEBIA.caseNumber = 0;
+        GLEBIA._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        GLEBIA._isLoadingRetries = 0;
 
         this.start();
 
@@ -176,12 +179,41 @@ const AFO_GLEBIA = {
   // ============================================
 
   start() {
-    if (GLEBIA.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (GLEBIA._startCallCount === undefined) GLEBIA._startCallCount = 0;
+    GLEBIA._startCallCount++;
+    if (GLEBIA._startCallCount <= 5) {
+      console.log('[AFO_GLEBIA:start]', {
+        call: GLEBIA._startCallCount,
+        stop: GLEBIA.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: GLEBIA.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+
+    if (GLEBIA.stop) {
+      if (GLEBIA._startCallCount <= 5) console.warn('[AFO_GLEBIA:start] silent exit — GLEBIA.stop=true');
+      return;
+    }
 
     if (!GAME.is_loading) {
+      GLEBIA._isLoadingRetries = 0;
       this.action();
     } else {
-      setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway.
+      GLEBIA._isLoadingRetries = (GLEBIA._isLoadingRetries || 0) + 1;
+      if (GLEBIA._startCallCount <= 5) {
+        console.log('[AFO_GLEBIA:start] retry — is_loading=true, attempt', GLEBIA._isLoadingRetries);
+      }
+      if (GLEBIA._isLoadingRetries > 50) {
+        console.warn('[AFO_GLEBIA:start] is_loading stuck for >5s, forcing action() anyway');
+        GLEBIA._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      setTimeout(() => this.start(), 100);
     }
   },
 

@@ -55,6 +55,19 @@ const AFO_RES = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RES._startCallCount === undefined) RES._startCallCount = 0;
+    RES._startCallCount++;
+    if (RES._startCallCount <= 5) {
+      console.log('[AFO_RES:Start]', {
+        call: RES._startCallCount,
+        stop: RES.stop,
+        loc: GAME.char_data?.loc,
+        is_loading: GAME.is_loading,
+        has_mines: !!(GAME.map_mines && GAME.map_mines.mine_data),
+        socket_connected: GAME.socket?.connected
+      });
+    }
     if (RES.last_loc != GAME.char_data.loc) {
       this.CreateMatrix();
       RES.last_loc = GAME.char_data.loc;
@@ -284,10 +297,13 @@ const AFO_RES = {
   bindHandlers() {
     // Main RES toggle
     $('#res_Panel .res_res').click(() => {
-      if (RES.stop && Object.entries(GAME.map_mines.mine_data).length > 0) {
+      const hasMines = !!(GAME.map_mines && GAME.map_mines.mine_data && Object.entries(GAME.map_mines.mine_data).length > 0);
+      console.log('[AFO_RES:click]', { stop: RES.stop, hasMines });
+      if (RES.stop && hasMines) {
         $(".res_res .res_status").removeClass("red").addClass("green").html("On");
         RES.stop = false;
         RES.loc = GAME.char_data.loc;
+        RES._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; CODE.stop = true;

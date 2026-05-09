@@ -659,94 +659,22 @@ const AFO_STATE_MANAGER = {
     console.log('[AFO_STATE_MANAGER] Calling syncUI...');
     this.syncUI(state);
 
-    // Use setTimeout to ensure UI is ready
+    // Kick off safe start for each AFO module. These are async and wait
+    // (without timeout) for game-ready + handler-bound + module-specific
+    // prerequisites. Healthchecks self-heal if a module fails to start.
     console.log('[AFO_STATE_MANAGER] Scheduling module starts in 500ms...');
     setTimeout(() => {
-      console.log('[AFO_STATE_MANAGER] Starting module activation...');
+      console.log('[AFO_STATE_MANAGER] Starting module activation (safe-start, polled wait)...');
 
-      // PVM/RESP - need to set stop=true BEFORE click so handler can turn it ON
-      if (state.modules.RESP && !state.modules.RESP.stop) {
-        console.log('[AFO_STATE_MANAGER] Starting RESP...');
-        if (typeof RESP !== 'undefined') {
-          RESP.stop = true; // Handler checks if(stop) to turn ON
-        }
-        $('#resp_Panel .resp_resp').click();
-        // Show the panel and update the main panel button
-        $('#resp_Panel').show();
-        $('.gh_resp .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] RESP started and panel shown');
-      } else {
-        console.log('[AFO_STATE_MANAGER] RESP not started (stop:', state.modules.RESP?.stop, ')');
-      }
-
-      // PVP - need to set stop=true BEFORE click so handler can turn it ON
-      if (state.modules.PVP && !state.modules.PVP.stop) {
-        console.log('[AFO_STATE_MANAGER] Starting PVP...');
-        if (typeof PVP !== 'undefined') {
-          console.log('[AFO_STATE_MANAGER] Setting PVP.stop = true before click');
-          PVP.stop = true; // Handler checks if(stop) to turn ON
-        }
-        $('#pvp_Panel .pvp_pvp').click();
-        // Show the panel and update the main panel button
-        $('#pvp_Panel').show();
-        $('.gh_pvp .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] PVP started and panel shown');
-      } else {
-        console.log('[AFO_STATE_MANAGER] PVP not started (stop:', state.modules.PVP?.stop, ')');
-      }
-
-      // LPVM - need to set Stop=true BEFORE click
-      if (state.modules.LPVM && !state.modules.LPVM.Stop) {
-        console.log('[AFO_STATE_MANAGER] Starting LPVM...');
-        if (typeof LPVM !== 'undefined') {
-          LPVM.Stop = true;
-        }
-        $('#lpvm_Panel .lpvm_lpvm').click();
-        // Show the panel and update the main panel button
-        $('#lpvm_Panel').show();
-        $('.gh_lpvm .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] LPVM started and panel shown');
-      } else {
-        console.log('[AFO_STATE_MANAGER] LPVM not started (Stop:', state.modules.LPVM?.Stop, ')');
-      }
-
-      // GLEBIA - need to set stop=true BEFORE click
-      if (state.modules.GLEBIA && !state.modules.GLEBIA.stop) {
-        console.log('[AFO_STATE_MANAGER] Starting GLEBIA...');
-        if (typeof GLEBIA !== 'undefined') {
-          GLEBIA.stop = true;
-        }
-        $('#glebia_Panel .glebia_toggle').click();
-        // Show the panel and update the main panel button
-        $('#glebia_Panel').show();
-        $('.gh_glebia .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] GLEBIA started and panel shown');
-      }
-
-      // CODE - need to set stop=true BEFORE click
-      if (state.modules.CODE && !state.modules.CODE.stop) {
-        console.log('[AFO_STATE_MANAGER] Starting CODE...');
-        if (typeof CODE !== 'undefined') {
-          CODE.stop = true;
-        }
-        $('#code_Panel .code_code').click();
-        // Show the panel and update the main panel button
-        $('#code_Panel').show();
-        $('.gh_code .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] CODE started and panel shown');
-      }
-
-      // RES (Zbierajka) - need to set stop=true BEFORE click
-      if (state.modules.RES && !state.modules.RES.stop) {
-        console.log('[AFO_STATE_MANAGER] Starting RES...');
-        if (typeof RES !== 'undefined') {
-          RES.stop = true;
-        }
-        $('#res_Panel .res_res').click();
-        $('#res_Panel').show();
-        $('.gh_res .gh_status').removeClass('red').addClass('green').html('On');
-        console.log('[AFO_STATE_MANAGER] RES started and panel shown');
-      }
+      // Order matches old behavior so that competitor stops cascade correctly.
+      // Each call is fire-and-forget; the module-specific click handler stops
+      // its competitors via existing logic in pvp.js / respawn.js / etc.
+      this.startAfoModuleSafely('RESP', state);
+      this.startAfoModuleSafely('PVP', state);
+      this.startAfoModuleSafely('LPVM', state);
+      this.startAfoModuleSafely('GLEBIA', state);
+      this.startAfoModuleSafely('CODE', state);
+      this.startAfoModuleSafely('RES', state);
 
       // Activities (arena, expeditions, etc.)
       if (state.activities && state.activities.enabled) {
@@ -855,6 +783,257 @@ const AFO_STATE_MANAGER = {
         }
       }, 5500);
     }, 1000);
+  },
+
+  // ============================================
+  // MODULE STARTUP HELPERS (post-reconnect)
+  // Robust restart of AFO modules after server restart / reconnect.
+  // Waits indefinitely until game is fully ready, then triggers click,
+  // verifies, and self-heals via periodic healthcheck.
+  // ============================================
+
+  /**
+   * Per-module config for safe restart.
+   * Each entry describes: how to find module obj, how to check stop flag,
+   * panel selectors, prerequisite for click handler to take effect (e.g. RESP
+   * needs GAME.field_mobs, RES needs map_mines.mine_data).
+   */
+  AFO_MODULE_CONFIGS: {
+    RESP: {
+      stateKey: 'RESP',
+      panelClickSel: '#resp_Panel .resp_resp',
+      panelId: '#resp_Panel',
+      ghStatusSel: '.gh_resp .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof RESP !== 'undefined' ? RESP : null,
+      isInactiveInState: (s) => !s.modules.RESP || s.modules.RESP.stop,
+      // RESP click handler requires GAME.field_mobs to turn on
+      prerequisite: () => typeof GAME !== 'undefined' && !!GAME.field_mobs,
+      isRunning: () => typeof RESP !== 'undefined' && RESP.stop === false
+    },
+    PVP: {
+      stateKey: 'PVP',
+      panelClickSel: '#pvp_Panel .pvp_pvp',
+      panelId: '#pvp_Panel',
+      ghStatusSel: '.gh_pvp .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof PVP !== 'undefined' ? PVP : null,
+      isInactiveInState: (s) => !s.modules.PVP || s.modules.PVP.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof PVP !== 'undefined' && PVP.stop === false
+    },
+    LPVM: {
+      stateKey: 'LPVM',
+      panelClickSel: '#lpvm_Panel .lpvm_lpvm',
+      panelId: '#lpvm_Panel',
+      ghStatusSel: '.gh_lpvm .gh_status',
+      stopProp: 'Stop',
+      getMod: () => typeof LPVM !== 'undefined' ? LPVM : null,
+      isInactiveInState: (s) => !s.modules.LPVM || s.modules.LPVM.Stop,
+      prerequisite: () => true,
+      isRunning: () => typeof LPVM !== 'undefined' && LPVM.Stop === false
+    },
+    GLEBIA: {
+      stateKey: 'GLEBIA',
+      panelClickSel: '#glebia_Panel .glebia_toggle',
+      panelId: '#glebia_Panel',
+      ghStatusSel: '.gh_glebia .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof GLEBIA !== 'undefined' ? GLEBIA : null,
+      isInactiveInState: (s) => !s.modules.GLEBIA || s.modules.GLEBIA.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof GLEBIA !== 'undefined' && GLEBIA.stop === false
+    },
+    CODE: {
+      stateKey: 'CODE',
+      panelClickSel: '#code_Panel .code_code',
+      panelId: '#code_Panel',
+      ghStatusSel: '.gh_code .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof CODE !== 'undefined' ? CODE : null,
+      isInactiveInState: (s) => !s.modules.CODE || s.modules.CODE.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof CODE !== 'undefined' && CODE.stop === false
+    },
+    RES: {
+      stateKey: 'RES',
+      panelClickSel: '#res_Panel .res_res',
+      panelId: '#res_Panel',
+      ghStatusSel: '.gh_res .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof RES !== 'undefined' ? RES : null,
+      isInactiveInState: (s) => !s.modules.RES || s.modules.RES.stop,
+      // RES click handler requires GAME.map_mines.mine_data to be non-empty
+      prerequisite: () => typeof GAME !== 'undefined' && GAME.map_mines && GAME.map_mines.mine_data && Object.keys(GAME.map_mines.mine_data).length > 0,
+      isRunning: () => typeof RES !== 'undefined' && RES.stop === false
+    }
+  },
+
+  /**
+   * Poll until predicate returns true. NEVER times out — restore must
+   * eventually happen even if it takes hours (server outage, no internet, etc).
+   * Logs progress every 30s so console shows it's still alive.
+   * @param {Function} predicate Returns true when ready
+   * @param {string} label Used for periodic progress logs
+   * @param {number} interval Polling interval in ms (default 500)
+   * @returns {Promise<void>}
+   */
+  _waitUntil(predicate, label, interval = 500) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      let lastLogAt = startedAt;
+      const tick = () => {
+        try {
+          if (predicate()) {
+            const waited = Date.now() - startedAt;
+            if (waited > 2000) {
+              console.log(`[AFO_STATE_MANAGER:wait] ${label} ready after ${Math.round(waited / 1000)}s`);
+            }
+            resolve();
+            return;
+          }
+        } catch (e) {
+          // predicate threw — keep waiting; log once
+          console.warn(`[AFO_STATE_MANAGER:wait] ${label} predicate threw:`, e?.message || e);
+        }
+        const now = Date.now();
+        if (now - lastLogAt >= 30000) {
+          console.log(`[AFO_STATE_MANAGER:wait] still waiting for ${label} (${Math.round((now - startedAt) / 1000)}s)...`);
+          lastLogAt = now;
+        }
+        setTimeout(tick, interval);
+      };
+      tick();
+    });
+  },
+
+  /**
+   * Wait until the game engine is fully ready for module actions.
+   * Required after server restart / reconnect because GAME.is_loading,
+   * GAME.char_data, socket sync may take seconds-to-minutes.
+   */
+  _waitForGameReady() {
+    return this._waitUntil(() => {
+      return typeof GAME !== 'undefined'
+        && GAME.is_loading === false
+        && GAME.char_data
+        && typeof GAME.char_data.x === 'number'
+        && GAME.socket
+        && GAME.socket.connected !== false   // socket.io: true OR undefined when ok
+        && typeof AFO !== 'undefined'
+        && AFO.loaded === true;
+    }, 'GAME ready');
+  },
+
+  /**
+   * Wait until jQuery click handler is bound to the panel selector.
+   */
+  _waitForHandlerBound(selector) {
+    return this._waitUntil(() => {
+      const $el = $(selector);
+      if (!$el.length) return false;
+      const events = $._data($el[0], 'events');
+      return !!(events && events.click && events.click.length);
+    }, `handler ${selector}`);
+  },
+
+  /**
+   * Safely (re)start an AFO module after reconnect.
+   * Waits for game ready, handler bound, prerequisites met.
+   * Sets stop=true (so click handler turns it ON), clicks the panel, then
+   * verifies via isRunning(). Schedules a healthcheck 5s later that re-tries
+   * indefinitely if module didn't actually start. Idempotent — if user already
+   * turned the module on manually, just skips.
+   *
+   * @param {string} name e.g. 'PVP', 'RESP', etc. (key into AFO_MODULE_CONFIGS)
+   * @param {object} state Saved state from storage
+   */
+  async startAfoModuleSafely(name, state) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) {
+      console.warn(`[AFO_STATE_MANAGER:start:${name}] no config`);
+      return;
+    }
+    const log = (...args) => console.log(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
+    const warn = (...args) => console.warn(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
+
+    if (cfg.isInactiveInState(state)) {
+      log(`module not active in saved state, skipping`);
+      return;
+    }
+
+    log('beginning safe start');
+
+    // 1) Wait for game ready
+    await this._waitForGameReady();
+    log('game is ready');
+
+    // 2) Wait for handler bound
+    await this._waitForHandlerBound(cfg.panelClickSel);
+    log(`handler bound on ${cfg.panelClickSel}`);
+
+    // 3) Wait for module-specific prerequisite (e.g. GAME.field_mobs for RESP)
+    if (cfg.prerequisite) {
+      await this._waitUntil(cfg.prerequisite, `${name} prerequisite`);
+      log('prerequisite satisfied');
+    }
+
+    // 4) Idempotent: if module is already running (user clicked it manually
+    //    while we were waiting), skip.
+    if (cfg.isRunning()) {
+      log('already running, skipping click');
+      this._scheduleHealthcheck(name, state);
+      return;
+    }
+
+    // 5) Set stop=true so click handler will toggle to ON
+    const mod = cfg.getMod();
+    if (mod) {
+      mod[cfg.stopProp] = true;
+    }
+
+    // 6) Click and force panel visible + status updated
+    log(`clicking ${cfg.panelClickSel}`);
+    $(cfg.panelClickSel).click();
+    $(cfg.panelId).show();
+    $(cfg.ghStatusSel).removeClass('red').addClass('green').html('On');
+
+    // 7) Verify after a short tick (click handler may bail if its own
+    //    prerequisite check fails, e.g. RESP needs GAME.field_mobs again).
+    setTimeout(() => {
+      if (cfg.isRunning()) {
+        log('confirmed running');
+      } else {
+        warn('NOT running 200ms after click — healthcheck will retry');
+      }
+      this._scheduleHealthcheck(name, state);
+    }, 200);
+  },
+
+  /**
+   * Periodically check that the module is still running. If not, re-trigger
+   * startAfoModuleSafely. Runs forever (cleared on user-initiated stop via
+   * canceling on healthcheck if module is missing from state).
+   */
+  _scheduleHealthcheck(name, state) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return;
+    // dedupe: avoid stacking healthchecks for the same module
+    if (!this._healthcheckTimers) this._healthcheckTimers = {};
+    if (this._healthcheckTimers[name]) clearTimeout(this._healthcheckTimers[name]);
+
+    const tick = () => {
+      // Stop healthchecking if state no longer marks module active (user toggled state).
+      if (cfg.isInactiveInState(state)) return;
+      if (!cfg.isRunning()) {
+        console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] module not running, retrying start`);
+        // Fire and forget — startAfoModuleSafely will reschedule healthcheck.
+        this.startAfoModuleSafely(name, state);
+        return;
+      }
+      this._healthcheckTimers[name] = setTimeout(tick, 30000);
+    };
+    this._healthcheckTimers[name] = setTimeout(tick, 5000);
   },
 
   // ============================================

@@ -1294,13 +1294,43 @@ const AFO_PVP = {
   },
 
   start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (PVP._startCallCount === undefined) PVP._startCallCount = 0;
+    PVP._startCallCount++;
+    if (PVP._startCallCount <= 5) {
+      console.log('[AFO_PVP:start]', {
+        call: PVP._startCallCount,
+        stop: PVP.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: PVP.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+
     if (!PVP.stop && !GAME.is_loading) {
+      PVP._isLoadingRetries = 0;
       if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
         $("#player_list_con").find("[data-option=load_more_players]").click();
       }
       this.action();
     } else if (GAME.is_loading) {
-      window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway
+      // (game optimization changed timing — is_loading sometimes never clears).
+      PVP._isLoadingRetries = (PVP._isLoadingRetries || 0) + 1;
+      if (PVP._startCallCount <= 5) {
+        console.log('[AFO_PVP:start] retry — is_loading=true, attempt', PVP._isLoadingRetries);
+      }
+      if (PVP._isLoadingRetries > 50) {
+        console.warn('[AFO_PVP:start] is_loading stuck for >5s, forcing action() anyway');
+        PVP._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      window.setTimeout(() => this.start(), 100);
+    } else if (PVP._startCallCount <= 5) {
+      // Silent exit — PVP.stop became true. Log it so we see the path.
+      console.warn('[AFO_PVP:start] silent exit — stop=' + PVP.stop + ', is_loading=' + GAME.is_loading);
     }
   },
 
@@ -1743,6 +1773,8 @@ const AFO_PVP = {
       if (PVP.stop) {
         $(".pvp_pvp .pvp_status").removeClass("red").addClass("green").html("On");
         PVP.stop = false;
+        PVP._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        PVP._isLoadingRetries = 0;
         this.start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; LPVM.Stop = true; CODE.stop = true;
@@ -1962,6 +1994,18 @@ const AFO_RESP = {
   },
 
   action() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RESP._actionCallCount === undefined) RESP._actionCallCount = 0;
+    RESP._actionCallCount++;
+    if (RESP._actionCallCount <= 5) {
+      console.log('[AFO_RESP:action]', {
+        call: RESP._actionCallCount,
+        stop: RESP.stop,
+        is_loading: GAME.is_loading,
+        field_mobs: !!GAME.field_mobs,
+        x: GAME.char_data?.x, y: GAME.char_data?.y
+      });
+    }
     if (!RESP.stop) {
       if (!this.check() && !this.check_bless()) {
         setTimeout(() => {
@@ -1977,6 +2021,8 @@ const AFO_RESP = {
           kom_clear();
         }, 1700);
       }
+    } else if (RESP._actionCallCount <= 5) {
+      console.warn('[AFO_RESP:action] silent exit — RESP.stop=true');
     }
   },
 
@@ -2270,9 +2316,11 @@ const AFO_RESP = {
 
     // Main resp toggle
     $('#resp_Panel .resp_resp').click(() => {
+      console.log('[AFO_RESP:click]', { stop: RESP.stop, field_mobs: !!GAME.field_mobs });
       if (RESP.stop && GAME.field_mobs) {
         $(".resp_resp .resp_status").removeClass("red").addClass("green").html("On");
         RESP.stop = false;
+        RESP._actionCallCount = 0; // reset diagnostic counter for new ON cycle
         this.action();
         RESP.reloadint = setInterval(() => this.reload_map(), 60000);
         RESP.loc = GAME.char_data.loc;
@@ -2518,6 +2566,18 @@ const AFO_LPVM = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (LPVM._startCallCount === undefined) LPVM._startCallCount = 0;
+    LPVM._startCallCount++;
+    if (LPVM._startCallCount <= 5) {
+      console.log('[AFO_LPVM:Start]', {
+        call: LPVM._startCallCount,
+        Stop: LPVM.Stop,
+        is_loading: GAME.is_loading,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
     this.LoadPVM();
   },
 
@@ -2699,9 +2759,11 @@ const AFO_LPVM = {
   bindHandlers() {
     // Main LPVM toggle
     $('#lpvm_Panel .lpvm_lpvm').click(() => {
+      console.log('[AFO_LPVM:click]', { Stop: LPVM.Stop });
       if (LPVM.Stop) {
         $(".lpvm_lpvm .lpvm_status").removeClass("red").addClass("green").html("On");
         LPVM.Stop = false;
+        LPVM._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; PVP.stop = true; CODE.stop = true;
@@ -2822,6 +2884,19 @@ const AFO_RES = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RES._startCallCount === undefined) RES._startCallCount = 0;
+    RES._startCallCount++;
+    if (RES._startCallCount <= 5) {
+      console.log('[AFO_RES:Start]', {
+        call: RES._startCallCount,
+        stop: RES.stop,
+        loc: GAME.char_data?.loc,
+        is_loading: GAME.is_loading,
+        has_mines: !!(GAME.map_mines && GAME.map_mines.mine_data),
+        socket_connected: GAME.socket?.connected
+      });
+    }
     if (RES.last_loc != GAME.char_data.loc) {
       this.CreateMatrix();
       RES.last_loc = GAME.char_data.loc;
@@ -3051,10 +3126,13 @@ const AFO_RES = {
   bindHandlers() {
     // Main RES toggle
     $('#res_Panel .res_res').click(() => {
-      if (RES.stop && Object.entries(GAME.map_mines.mine_data).length > 0) {
+      const hasMines = !!(GAME.map_mines && GAME.map_mines.mine_data && Object.entries(GAME.map_mines.mine_data).length > 0);
+      console.log('[AFO_RES:click]', { stop: RES.stop, hasMines });
+      if (RES.stop && hasMines) {
         $(".res_res .res_status").removeClass("red").addClass("green").html("On");
         RES.stop = false;
         RES.loc = GAME.char_data.loc;
+        RES._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; CODE.stop = true;
@@ -3113,7 +3191,22 @@ const AFO_CODE = {
   // ============================================
 
   start() {
-    if (CODE.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (CODE._startCallCount === undefined) CODE._startCallCount = 0;
+    CODE._startCallCount++;
+    if (CODE._startCallCount <= 5) {
+      console.log('[AFO_CODE:start]', {
+        call: CODE._startCallCount,
+        stop: CODE.stop,
+        whatNow: CODE.whatNow,
+        is_loading: GAME.is_loading,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+    if (CODE.stop) {
+      if (CODE._startCallCount <= 5) console.warn('[AFO_CODE:start] silent exit — CODE.stop=true');
+      return;
+    }
 
     switch (CODE.whatNow) {
       case 0:
@@ -3262,10 +3355,12 @@ const AFO_CODE = {
   bindHandlers() {
     // Main CODE toggle
     $('#code_Panel .code_code').click(() => {
+      console.log('[AFO_CODE:click]', { stop: CODE.stop });
       if (CODE.stop) {
         $(".code_code .code_status").removeClass("red").addClass("green").html("On");
         CODE.stop = false;
         CODE.whatNow = 0;
+        CODE._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; RES.stop = true;
@@ -3386,6 +3481,7 @@ const AFO_GLEBIA = {
   bindHandlers() {
     // Start/Stop toggle
     $('#glebia_Panel .glebia_toggle').click(() => {
+      console.log('[AFO_GLEBIA:click]', { stop: GLEBIA.stop });
       if (GLEBIA.stop) {
         $(".glebia_toggle .glebia_status").removeClass("red").addClass("green").html("On");
         GLEBIA.stop = false;
@@ -3396,6 +3492,8 @@ const AFO_GLEBIA = {
         GLEBIA.tileRetries = 0;
         GLEBIA.lastEnemyCount = -1;
         GLEBIA.caseNumber = 0;
+        GLEBIA._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        GLEBIA._isLoadingRetries = 0;
 
         this.start();
 
@@ -3502,12 +3600,41 @@ const AFO_GLEBIA = {
   // ============================================
 
   start() {
-    if (GLEBIA.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (GLEBIA._startCallCount === undefined) GLEBIA._startCallCount = 0;
+    GLEBIA._startCallCount++;
+    if (GLEBIA._startCallCount <= 5) {
+      console.log('[AFO_GLEBIA:start]', {
+        call: GLEBIA._startCallCount,
+        stop: GLEBIA.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: GLEBIA.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+
+    if (GLEBIA.stop) {
+      if (GLEBIA._startCallCount <= 5) console.warn('[AFO_GLEBIA:start] silent exit — GLEBIA.stop=true');
+      return;
+    }
 
     if (!GAME.is_loading) {
+      GLEBIA._isLoadingRetries = 0;
       this.action();
     } else {
-      setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway.
+      GLEBIA._isLoadingRetries = (GLEBIA._isLoadingRetries || 0) + 1;
+      if (GLEBIA._startCallCount <= 5) {
+        console.log('[AFO_GLEBIA:start] retry — is_loading=true, attempt', GLEBIA._isLoadingRetries);
+      }
+      if (GLEBIA._isLoadingRetries > 50) {
+        console.warn('[AFO_GLEBIA:start] is_loading stuck for >5s, forcing action() anyway');
+        GLEBIA._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      setTimeout(() => this.start(), 100);
     }
   },
 
