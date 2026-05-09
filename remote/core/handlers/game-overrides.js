@@ -201,8 +201,15 @@ function setupGameOverrides() {
     if (idx === -1) return;
     var w = GAME._trackedQuests[idx].want;
     if (!w) return;
-    var cnt = (parseInt(w.count) || 0) + (parseInt(res.amount) || 0);
+    var amount = parseInt(res.amount) || 0;
     var max = parseInt(w.maxv);
+    // Sanity: a single increment larger than max can't be legit — game caps to max.
+    // Likely a server glitch or a value meant for a different requirement type.
+    if (!isNaN(max) && amount > max) {
+      console.warn('[QuestTracker] suspicious res.amount=' + amount + ' for qid=' + res.track + ' (max=' + max + '), ignoring');
+      return;
+    }
+    var cnt = (parseInt(w.count) || 0) + amount;
     if (!isNaN(max) && cnt >= max) {
       cnt = max;
       w.is_met = 1;
@@ -229,18 +236,6 @@ function setupGameOverrides() {
       }
     }
     if (track && track.length) {
-      // Defensive: pull fresh data-count from DOM if it's higher than cache
-      // (in case socket hook missed an early res.track before this module loaded).
-      for (var di = 0; di < track.length; di++) {
-        if (!track[di].want) continue;
-        var $sp = $('.quest_warunek' + track[di].qb_id);
-        if (!$sp.length) continue;
-        var domCnt = parseInt($sp.attr('data-count'));
-        var cacheCnt = parseInt(track[di].want.count) || 0;
-        if (!isNaN(domCnt) && domCnt > cacheCnt) {
-          track[di].want.count = domCnt;
-        }
-      }
       var len = track.length;
       for (var i = 0; i < len; i++) {
         any = true;
