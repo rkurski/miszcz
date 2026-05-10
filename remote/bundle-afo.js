@@ -9003,8 +9003,10 @@ const AFO_DAILY = {
           (mobCount > 0 && fmf[fmi - 1] < 4 && fm[fmi - 1].ranks[4]) ||
           (mobCount > 0 && fmf[fmi - 1] < 5 && fm[fmi - 1].ranks[5]))) {
         GAME.socket.emit('ga', { a: 7, order: 2, quick: 1, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else if (this.getMobCount2() > 0) {
         GAME.socket.emit('ga', { a: 13, mob_num: fmi, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else {
         GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
       }
@@ -9436,7 +9438,16 @@ const AFO_DAILY = {
       return;
     }
 
-    const questSpan = $(`.quest_warunek${qbId}`);
+    // Scoped selector cascade: dialog (freshest, server-rendered) → tracker → none.
+    // GLOBAL `.quest_warunek${qbId}` was unsafe — it picked the first match anywhere
+    // (qb_list, dialog of a different quest stage), causing infinity loops when DOM
+    // had stale/poisoned values.
+    let questSpan = $(`#quest_con .quest_warunek${qbId}`);
+    let progressSource = 'dialog';
+    if (!questSpan.length) {
+      questSpan = $(`#track_quest_${qbId} .quest_warunek${qbId}`);
+      progressSource = 'track_quest';
+    }
     let currentProgress = 0;
     let target = requires.target;
 
@@ -9496,12 +9507,22 @@ const AFO_DAILY = {
       if (parsed) {
         currentProgress = parsed.current;
         if (parsed.target > 0) target = parsed.target;
-        console.log('[AFO_DAILY] Parsed progress from quest_warunek text:', currentProgress, '/', target);
       } else {
         // Fallback to data-count if text parsing fails
         currentProgress = parseInt(questSpan.attr('data-count')) || 0;
         target = parseInt(questSpan.attr('data-max')) || requires.target;
-        console.log('[AFO_DAILY] Using quest_warunek data-count fallback:', currentProgress, '/', target);
+      }
+
+      // Sanity: poisoned DOM (from stale tracker cache or other quest stages)
+      // sometimes shows progress >> target. Game caps to max — anything above
+      // 2x target is clearly bogus. Trust requires.current (just parsed from
+      // dialog by parseQuestRequirements) instead.
+      if (target > 0 && currentProgress > target * 2) {
+        console.warn('[AFO_DAILY] Suspicious progress', currentProgress, '>>', target,
+          'from', progressSource, '— ignoring, using requires.current=' + (requires.current || 0));
+        currentProgress = requires.current || 0;
+      } else {
+        console.log('[AFO_DAILY] Parsed progress from', progressSource, ':', currentProgress, '/', target);
       }
 
       if (currentProgress >= target) {
@@ -9512,37 +9533,9 @@ const AFO_DAILY = {
 
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     } else {
-      // quest_warunek not found - we may be on a different location (useCombatLocation)
-      // First try to find quest_warunek span inside track_quest (most reliable)
-      const trackQuestSpan = trackQuest.find(`[class^="quest_warunek"]`);
-
-      if (trackQuestSpan.length > 0) {
-        const spanText = trackQuestSpan.text().trim();
-        const parsed = parseProgressText(spanText);
-        if (parsed) {
-          currentProgress = parsed.current;
-          if (parsed.target > 0) target = parsed.target;
-          console.log('[AFO_DAILY] Parsed progress from track_quest span:', currentProgress, '/', target);
-        }
-      } else if (trackQuest.length > 0) {
-        // Fallback: parse from full track_quest text
-        const trackText = trackQuest.text();
-        const parsed = parseProgressText(trackText);
-
-        if (parsed) {
-          currentProgress = parsed.current;
-          if (parsed.target > 0) target = parsed.target;
-          console.log('[AFO_DAILY] Parsed progress from track_quest HTML:', currentProgress, '/', target);
-        } else {
-          // Fallback to requires.current if parsing failed
-          currentProgress = requires.current || 0;
-          console.log('[AFO_DAILY] Could not parse progress from track_quest, using requires:', currentProgress, '/', target);
-        }
-      } else {
-        // No track_quest element at all - use requires fallback
-        currentProgress = requires.current || 0;
-        console.log('[AFO_DAILY] No track_quest found, using requires fallback:', currentProgress, '/', target);
-      }
+      // No quest_warunek anywhere (neither dialog nor tracker) — use parseQuestRequirements value
+      currentProgress = requires.current || 0;
+      console.log('[AFO_DAILY] No quest_warunek element found, using requires.current:', currentProgress, '/', target);
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     }
 
@@ -9590,6 +9583,17 @@ const AFO_DAILY = {
     DAILY._combatRequires = null;
     DAILY._spawnerIgnore = null;  // Clear spawner filter cache
     DAILY._lastRefresh = 0;
+
+    // Reset _dialogAttempts ONLY if we actually fought. If combat completed
+    // without any fight (sanity check skipped, or stale DOM said "met" instantly),
+    // it's a false positive — keep the counter rising so startDialog's >10 guard
+    // eventually skips this broken quest instead of looping forever.
+    if (DAILY._combatHadFight) {
+      DAILY._dialogAttempts = 0;
+      DAILY._combatHadFight = false;
+    } else {
+      console.warn('[AFO_DAILY] Combat completed without any fight — possible false positive, _dialogAttempts kept at', DAILY._dialogAttempts);
+    }
 
     // Reset stuck detection
     DAILY._lastProgress = 0;
@@ -9783,9 +9787,11 @@ const AFO_DAILY = {
           (mobCount > 0 && fmf[fmi - 1] < 5 && fm[fmi - 1].ranks[5]))) {
         // Normal fight
         GAME.socket.emit('ga', { a: 7, order: 2, quick: 1, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else if (this.getMobCount2() > 0) {
         // Multifight
         GAME.socket.emit('ga', { a: 13, mob_num: fmi, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else {
         // Spawn mobs with rank filter
         GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
@@ -10395,8 +10401,12 @@ const AFO_DAILY = {
 
   // Called after any teleport - waits for map data then continues
   afterTeleport() {
-    // Skip if Anielska batch handler is managing its own teleport flow
-    if (DAILY._anielskaTeleporting || DAILY._anielskaBatchActive) {
+    // Skip if Anielska batch handler is managing its own teleport flow,
+    // EXCEPT when we're returning from combat — combat return is our own teleport
+    // (initiated in onCombatComplete) and we own this afterTeleport call. Without
+    // this exception, combat returns during an active Anielska batch would hang
+    // (teleport fires but afterTeleport is silently skipped, no NPC navigation).
+    if ((DAILY._anielskaTeleporting || DAILY._anielskaBatchActive) && !DAILY._returnFromCombat) {
       console.log('[AFO_DAILY] afterTeleport skipped - Anielska batch active');
       return;
     }

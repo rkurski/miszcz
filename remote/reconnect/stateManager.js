@@ -878,7 +878,7 @@ const AFO_STATE_MANAGER = {
    * @param {number} interval Polling interval in ms (default 500)
    * @returns {Promise<void>}
    */
-  _waitUntil(predicate, label, interval = 500) {
+  _waitUntil(predicate, label, interval = 500, diagnoseFn = null) {
     return new Promise((resolve) => {
       const startedAt = Date.now();
       let lastLogAt = startedAt;
@@ -898,7 +898,11 @@ const AFO_STATE_MANAGER = {
         }
         const now = Date.now();
         if (now - lastLogAt >= 30000) {
-          console.log(`[AFO_STATE_MANAGER:wait] still waiting for ${label} (${Math.round((now - startedAt) / 1000)}s)...`);
+          let extra = '';
+          if (diagnoseFn) {
+            try { extra = ' ' + diagnoseFn(); } catch (e) { /* ignore diagnose error */ }
+          }
+          console.log(`[AFO_STATE_MANAGER:wait] still waiting for ${label} (${Math.round((now - startedAt) / 1000)}s)...${extra}`);
           lastLogAt = now;
         }
         setTimeout(tick, interval);
@@ -908,21 +912,41 @@ const AFO_STATE_MANAGER = {
   },
 
   /**
-   * Wait until the game engine is fully ready for module actions.
-   * Required after server restart / reconnect because GAME.is_loading,
-   * GAME.char_data, socket sync may take seconds-to-minutes.
+   * Diagnose why _waitForGameReady is stuck — returns array of failed condition names.
+   */
+  _gameReadyDiagnose() {
+    const failed = [];
+    if (typeof GAME === 'undefined') failed.push('GAME=undefined');
+    else {
+      if (!GAME.char_id) failed.push('GAME.char_id=' + GAME.char_id);
+      if (!GAME.char_data) failed.push('GAME.char_data missing');
+      if (!GAME.socket) failed.push('GAME.socket missing');
+    }
+    if (typeof AFO === 'undefined') failed.push('AFO=undefined');
+    else if (!AFO.loaded) failed.push('AFO.loaded=' + AFO.loaded);
+    return failed;
+  },
+
+  /**
+   * Wait until the game engine is ready for module actions.
+   * Tolerant predicate — only requires what's strictly needed to click a panel.
+   * GAME.is_loading and GAME.char_data.x removed from check: post-game-optimization
+   * is_loading sometimes stays true indefinitely, and char_data.x may be undefined
+   * until the user actually moves on the map. Click handlers don't need either.
    */
   _waitForGameReady() {
     return this._waitUntil(() => {
       return typeof GAME !== 'undefined'
-        && GAME.is_loading === false
+        && GAME.char_id > 0
         && GAME.char_data
-        && typeof GAME.char_data.x === 'number'
         && GAME.socket
-        && GAME.socket.connected !== false   // socket.io: true OR undefined when ok
         && typeof AFO !== 'undefined'
         && AFO.loaded === true;
-    }, 'GAME ready');
+    }, 'GAME ready', 500, () => {
+      // Diagnostic on each 30s stuck-warning: show which conditions are false
+      const failed = this._gameReadyDiagnose();
+      return failed.length ? `failed: [${failed.join(', ')}]` : '';
+    });
   },
 
   /**
