@@ -11922,7 +11922,11 @@ const AFO_STATE_MANAGER = {
       isInactiveInState: (s) => !s.modules.RESP || s.modules.RESP.stop,
       // RESP click handler requires GAME.field_mobs to turn on
       prerequisite: () => typeof GAME !== 'undefined' && !!GAME.field_mobs,
-      isRunning: () => typeof RESP !== 'undefined' && RESP.stop === false
+      // Loop is "running" only when stop=false AND action() actually executed
+      // at least once (counter is reset to 0 in click handler ON branch and
+      // incremented inside action()). After _doRestore the stop flag is false
+      // but the loop hasn't started — this distinguishes those cases.
+      isRunning: () => typeof RESP !== 'undefined' && RESP.stop === false && (RESP._actionCallCount || 0) > 0
     },
     PVP: {
       stateKey: 'PVP',
@@ -11933,7 +11937,7 @@ const AFO_STATE_MANAGER = {
       getMod: () => typeof PVP !== 'undefined' ? PVP : null,
       isInactiveInState: (s) => !s.modules.PVP || s.modules.PVP.stop,
       prerequisite: () => true,
-      isRunning: () => typeof PVP !== 'undefined' && PVP.stop === false
+      isRunning: () => typeof PVP !== 'undefined' && PVP.stop === false && (PVP._startCallCount || 0) > 0
     },
     LPVM: {
       stateKey: 'LPVM',
@@ -11944,7 +11948,7 @@ const AFO_STATE_MANAGER = {
       getMod: () => typeof LPVM !== 'undefined' ? LPVM : null,
       isInactiveInState: (s) => !s.modules.LPVM || s.modules.LPVM.Stop,
       prerequisite: () => true,
-      isRunning: () => typeof LPVM !== 'undefined' && LPVM.Stop === false
+      isRunning: () => typeof LPVM !== 'undefined' && LPVM.Stop === false && (LPVM._startCallCount || 0) > 0
     },
     GLEBIA: {
       stateKey: 'GLEBIA',
@@ -11955,7 +11959,7 @@ const AFO_STATE_MANAGER = {
       getMod: () => typeof GLEBIA !== 'undefined' ? GLEBIA : null,
       isInactiveInState: (s) => !s.modules.GLEBIA || s.modules.GLEBIA.stop,
       prerequisite: () => true,
-      isRunning: () => typeof GLEBIA !== 'undefined' && GLEBIA.stop === false
+      isRunning: () => typeof GLEBIA !== 'undefined' && GLEBIA.stop === false && (GLEBIA._startCallCount || 0) > 0
     },
     CODE: {
       stateKey: 'CODE',
@@ -11966,7 +11970,7 @@ const AFO_STATE_MANAGER = {
       getMod: () => typeof CODE !== 'undefined' ? CODE : null,
       isInactiveInState: (s) => !s.modules.CODE || s.modules.CODE.stop,
       prerequisite: () => true,
-      isRunning: () => typeof CODE !== 'undefined' && CODE.stop === false
+      isRunning: () => typeof CODE !== 'undefined' && CODE.stop === false && (CODE._startCallCount || 0) > 0
     },
     RES: {
       stateKey: 'RES',
@@ -11978,7 +11982,7 @@ const AFO_STATE_MANAGER = {
       isInactiveInState: (s) => !s.modules.RES || s.modules.RES.stop,
       // RES click handler requires GAME.map_mines.mine_data to be non-empty
       prerequisite: () => typeof GAME !== 'undefined' && GAME.map_mines && GAME.map_mines.mine_data && Object.keys(GAME.map_mines.mine_data).length > 0,
-      isRunning: () => typeof RES !== 'undefined' && RES.stop === false
+      isRunning: () => typeof RES !== 'undefined' && RES.stop === false && (RES._startCallCount || 0) > 0
     }
   },
 
@@ -12085,6 +12089,31 @@ const AFO_STATE_MANAGER = {
    * @param {string} name e.g. 'PVP', 'RESP', etc. (key into AFO_MODULE_CONFIGS)
    * @param {object} state Saved state from storage
    */
+  /**
+   * Has the module loop ever executed (counter > 0)?
+   * Used to distinguish "user stopped a working module" from "module never started".
+   */
+  _hasRunBefore(name) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return false;
+    const mod = cfg.getMod();
+    if (!mod) return false;
+    return ((mod._startCallCount || 0) + (mod._actionCallCount || 0)) > 0;
+  },
+
+  /**
+   * Detect that the user stopped the module while we were waiting / restoring.
+   * If module ran before AND its current stop flag is true, the user must have
+   * clicked OFF. We respect that and abort our restore attempt.
+   */
+  _userStopped(name) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return false;
+    const mod = cfg.getMod();
+    if (!mod) return false;
+    return mod[cfg.stopProp] === true && this._hasRunBefore(name);
+  },
+
   async startAfoModuleSafely(name, state) {
     const cfg = this.AFO_MODULE_CONFIGS[name];
     if (!cfg) {
@@ -12104,15 +12133,18 @@ const AFO_STATE_MANAGER = {
     // 1) Wait for game ready
     await this._waitForGameReady();
     log('game is ready');
+    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
 
     // 2) Wait for handler bound
     await this._waitForHandlerBound(cfg.panelClickSel);
     log(`handler bound on ${cfg.panelClickSel}`);
+    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
 
     // 3) Wait for module-specific prerequisite (e.g. GAME.field_mobs for RESP)
     if (cfg.prerequisite) {
       await this._waitUntil(cfg.prerequisite, `${name} prerequisite`);
       log('prerequisite satisfied');
+      if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
     }
 
     // 4) Idempotent: if module is already running (user clicked it manually
@@ -12152,25 +12184,44 @@ const AFO_STATE_MANAGER = {
    * startAfoModuleSafely. Runs forever (cleared on user-initiated stop via
    * canceling on healthcheck if module is missing from state).
    */
+  /**
+   * One-shot verification 5s after startAfoModuleSafely's click. Sole purpose:
+   * confirm the restore actually took effect. After confirmation we get out of
+   * the user's way — no periodic polling, no nagging. User can toggle the
+   * module on/off freely without the state manager fighting back.
+   *
+   * If the module isn't running 5s after click, retry startAfoModuleSafely up
+   * to MAX_RETRIES times (each with its own 5s verification). After that, give
+   * up — manual intervention needed.
+   */
   _scheduleHealthcheck(name, state) {
     const cfg = this.AFO_MODULE_CONFIGS[name];
     if (!cfg) return;
-    // dedupe: avoid stacking healthchecks for the same module
     if (!this._healthcheckTimers) this._healthcheckTimers = {};
+    if (!this._healthcheckRetries) this._healthcheckRetries = {};
     if (this._healthcheckTimers[name]) clearTimeout(this._healthcheckTimers[name]);
 
-    const tick = () => {
-      // Stop healthchecking if state no longer marks module active (user toggled state).
+    const MAX_RETRIES = 3;
+
+    this._healthcheckTimers[name] = setTimeout(() => {
       if (cfg.isInactiveInState(state)) return;
-      if (!cfg.isRunning()) {
-        console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] module not running, retrying start`);
-        // Fire and forget — startAfoModuleSafely will reschedule healthcheck.
-        this.startAfoModuleSafely(name, state);
+
+      if (cfg.isRunning()) {
+        console.log(`[AFO_STATE_MANAGER:healthcheck:${name}] confirmed running — done, leaving user alone`);
+        this._healthcheckRetries[name] = 0;
+        return;  // success — no further checks ever
+      }
+
+      const attempts = (this._healthcheckRetries[name] || 0) + 1;
+      this._healthcheckRetries[name] = attempts;
+      if (attempts > MAX_RETRIES) {
+        console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] gave up after ${MAX_RETRIES} retries — manual intervention needed`);
+        this._healthcheckRetries[name] = 0;
         return;
       }
-      this._healthcheckTimers[name] = setTimeout(tick, 30000);
-    };
-    this._healthcheckTimers[name] = setTimeout(tick, 5000);
+      console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] not running 5s after click, retry ${attempts}/${MAX_RETRIES}`);
+      this.startAfoModuleSafely(name, state);
+    }, 5000);
   },
 
   // ============================================
