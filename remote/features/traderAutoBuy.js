@@ -92,6 +92,13 @@
     return 'Item #' + id;
   }
 
+  // Trader appears at 20:00:00, may be delayed up to ~3 min (per user observation).
+  // Inside this window we force max-gas polling regardless of RTT.
+  function isInTraderWindow() {
+    const now = new Date();
+    return now.getHours() === 20 && now.getMinutes() <= 2;
+  }
+
   function addLog(msg) {
     const now = new Date();
     const time = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -475,21 +482,37 @@
     TRADER_AUTO.pollPending = false;
     if (TRADER_AUTO.pollSentAt) {
       const rtt = performance.now() - TRADER_AUTO.pollSentAt;
-      TRADER_AUTO.adaptiveInterval = Math.max(200, Math.min(Math.round(rtt + 100), 1000));
+      if (isInTraderWindow()) {
+        // Critical 20:00-20:02 window — force max-gas polling regardless of RTT
+        TRADER_AUTO.adaptiveInterval = 100;
+      } else {
+        TRADER_AUTO.adaptiveInterval = Math.max(100, Math.min(Math.round(rtt + 50), 500));
+      }
     }
 
     // Update currencies
     if (res.hasOwnProperty('tokens')) TRADER_AUTO.currentTokens = res.tokens;
     if (res.hasOwnProperty('zeni')) TRADER_AUTO.currentZeni = res.zeni;
 
-    // Update trader status
+    // Update trader status (track 0→1 transition for pre-emptive buy)
+    let traderJustAppeared = false;
     if (res.hasOwnProperty('trader')) {
+      const wasActive = TRADER_AUTO.traderActive;
       TRADER_AUTO.traderActive = !!res.trader.status;
       if (res.trader.goods) TRADER_AUTO.lastGoods = res.trader.goods;
       if (res.trader.goods2) TRADER_AUTO.lastGoods2 = res.trader.goods2;
+      traderJustAppeared = !wasActive && TRADER_AUTO.traderActive;
     }
 
     if (!TRADER_AUTO.traderActive) return;
+
+    // Pre-emptive: handlarz właśnie się pojawił — kupuj OD RAZU w tym samym tick'u,
+    // bez czekania na kolejny poll cycle. Skraca reaction time o ~jeden interval.
+    if (traderJustAppeared && !TRADER_AUTO.buying && TRADER_AUTO.lastBuyItemId === null) {
+      addLog('Handlarz wykryty — natychmiastowy zakup');
+      tryBuyNext();
+      return;
+    }
 
     // Check if we just attempted a buy
     if (TRADER_AUTO.lastBuyItemId !== null) {
@@ -538,6 +561,10 @@
         addLog('<span class="green">Kupiono: ' + getItemName(buyId) + '!</span>');
         startCooldown();
       } else {
+        // Mark this item invalid in cache so collectAvailableItems skips it.
+        // Server resends fresh goods/goods2 array on next poll, so mark
+        // auto-clears (new array, new objects).
+        boughtItem._invalid = true;
         addLog('<span class="orange">' + getItemName(buyId) + ' - kupione przez ' + boughtItem.bought_by + '!</span>');
         // No cooldown - try next immediately
         tryBuyNext();
@@ -598,7 +625,7 @@
     // Collect from goods2 (Zeni)
     if (reborn >= 5 && TRADER_AUTO.lastGoods2) {
       for (const good of TRADER_AUTO.lastGoods2) {
-        if (good.bought_by) continue;
+        if (good.bought_by || good._invalid) continue;
         const cfg = TRADER_AUTO.configZeni.find(c => c.id === good.item);
         if (!cfg || !cfg.enabled) continue;
         if (TRADER_AUTO.currentZeni < good.ze) continue;
@@ -618,7 +645,7 @@
     // Collect from goods (Tokens)
     if (TRADER_AUTO.lastGoods) {
       for (const good of TRADER_AUTO.lastGoods) {
-        if (good.bought_by) continue;
+        if (good.bought_by || good._invalid) continue;
         const cfg = TRADER_AUTO.configTokens.find(c => c.id === good.item);
         if (!cfg || !cfg.enabled) continue;
         if (TRADER_AUTO.currentTokens < good.dt) continue;
@@ -662,18 +689,20 @@
       am: item.amount,
     });
 
-    // Safety timeout - if no parseData(62) response within 5s, resume polling
+    // Safety timeout — post-optimization server replies in ~50-200ms RTT,
+    // so 500ms gives margin for spikes while recovering fast in speed competition.
     TRADER_AUTO.buyTimeout = setTimeout(() => {
       if (TRADER_AUTO.lastBuyItemId !== null) {
         addLog('<span class="orange">Brak odpowiedzi serwera, wznawiam polling</span>');
         TRADER_AUTO.lastBuyItemId = null;
         TRADER_AUTO.lastBuyShop = null;
+        TRADER_AUTO.pollPending = false;  // reset so poll() doesn't bail at the pending guard
         if (TRADER_AUTO.active && !TRADER_AUTO.buying) {
           poll();
           schedulePoll();
         }
       }
-    }, 5000);
+    }, 500);
   }
 
   // ============================================

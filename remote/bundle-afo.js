@@ -1294,13 +1294,49 @@ const AFO_PVP = {
   },
 
   start() {
-    if (!PVP.stop && !GAME.is_loading) {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (PVP._startCallCount === undefined) PVP._startCallCount = 0;
+    PVP._startCallCount++;
+    if (PVP._startCallCount <= 5) {
+      console.log('[AFO_PVP:start]', {
+        call: PVP._startCallCount,
+        stop: PVP.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: PVP.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+
+    // Bind socket listener once (idempotent) for event-driven attacks.
+    this._bindGrListener();
+
+    // High-speed bypass: at speed >= 150 we don't wait for is_loading to clear.
+    const canSkipLoading = GAME.is_loading && this.shouldBypassLoading();
+
+    if (!PVP.stop && (!GAME.is_loading || canSkipLoading)) {
+      PVP._isLoadingRetries = 0;
       if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
         $("#player_list_con").find("[data-option=load_more_players]").click();
       }
       this.action();
     } else if (GAME.is_loading) {
-      window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway
+      // (game optimization changed timing — is_loading sometimes never clears).
+      PVP._isLoadingRetries = (PVP._isLoadingRetries || 0) + 1;
+      if (PVP._startCallCount <= 5) {
+        console.log('[AFO_PVP:start] retry — is_loading=true, attempt', PVP._isLoadingRetries);
+      }
+      if (PVP._isLoadingRetries > 50) {
+        console.warn('[AFO_PVP:start] is_loading stuck for >5s, forcing action() anyway');
+        PVP._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      window.setTimeout(() => this.start(), this.scaleDelay(100, 30, 150));
+    } else if (PVP._startCallCount <= 5) {
+      // Silent exit — PVP.stop became true. Log it so we see the path.
+      console.warn('[AFO_PVP:start] silent exit — stop=' + PVP.stop + ', is_loading=' + GAME.is_loading);
     }
   },
 
@@ -1381,6 +1417,8 @@ const AFO_PVP = {
     // Reset attack state
     PVP.attackRetries = 0;
     PVP.lastEnemyCount = -1;
+    PVP._cleanupPasses = 0;       // re-check counter for players coming off cooldown
+    PVP._myClicksThisCycle = 0;   // count of our own attack clicks on this tile
 
     this.attackLoop();
   },
@@ -1389,9 +1427,9 @@ const AFO_PVP = {
     // Check if stopped
     if (PVP.stop) return;
 
-    // If game is loading, wait briefly but don't block too long
-    // Max wait is affected by speed: faster speed = shorter max wait
-    if (GAME.is_loading || $("#loader").is(":visible")) {
+    // If game is loading, wait briefly but don't block too long.
+    // High-speed bypass: at speed >= 150 we don't wait for is_loading.
+    if ((GAME.is_loading || $("#loader").is(":visible")) && !this.shouldBypassLoading()) {
       window.setTimeout(() => this.attackLoop(), this.getLoadingWait());
       return;
     }
@@ -1410,34 +1448,57 @@ const AFO_PVP = {
     // Load more players if available - wait after clicking for them to load
     if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
       $("#player_list_con").find("[data-option=load_more_players]").click();
-      // Wait for players to load before continuing
-      window.setTimeout(() => this.attackLoop(), 300);
+      // Wait for players to load before continuing (speed-aware)
+      window.setTimeout(() => this.attackLoop(), this.scaleDelay(300, 50, 350));
       return;
     }
 
-    // Count attackable enemies
-    let enemies = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    // Count attackable enemies. Exclude players with active cooldown.
+    // Game adds `.timer` element only while cooldown is running and removes
+    // the class when it expires (bigcode:16248). `initial_hide_forced` only
+    // covers cooldowns present at INITIAL render — cooldowns triggered by our
+    // own attacks add a fresh `.timer` but leave the button without that class,
+    // so we must filter at the `.player` level to avoid wasted clicks.
+    let enemies = $("#player_list_con .player").filter(function () {
+      return $(this).find(".timer").length === 0;
+    }).find("button[data-quick=1]:not(.initial_hide_forced)");
     const enemyCount = enemies.length;
 
-    // No enemies - exit attack mode and continue main loop
+    // Cleanup logic — wait only if there are FOREIGN cooldowns left (players we
+    // didn't hit; their cooldown was set by someone else and may be short).
+    // If all remaining cooldowns are OURS (post-attack ~1-2 min), exit immediately.
+    // Up to 3 passes × 800ms = 2.4s budget to catch foreign cooldowns expiring.
     if (enemyCount === 0) {
+      const totalPlayers = $("#player_list_con .player").length;
+      const foreignCooldowns = totalPlayers - (PVP._myClicksThisCycle || 0);
+      if (foreignCooldowns > 0 && (PVP._cleanupPasses || 0) < 3) {
+        PVP._cleanupPasses = (PVP._cleanupPasses || 0) + 1;
+        window.setTimeout(() => this.attackLoop(), 800);
+        return;
+      }
       PVP.attackRetries = 0;
       PVP.tileRetries = 0;
+      PVP._cleanupPasses = 0;
       PVP.caseNumber++;
       kom_clear();
       window.setTimeout(() => this.start(), PVP.wait);
       return;
     }
 
+    // Found targets — reset cleanup counter so a future emptying gets a fresh budget.
+    PVP._cleanupPasses = 0;
+
     // Check if we're making progress (enemy count decreased)
     if (PVP.lastEnemyCount === enemyCount) {
       PVP.attackRetries++;
       PVP.tileRetries++;
 
-      // Too many retries on this tile - player likely moved or has cooldown
-      // After 3 failed attempts, move on instead of getting stuck
-      if (PVP.tileRetries > 3) {
-        console.log('[PVP] Max tile retries reached (' + PVP.tileRetries + '), moving on');
+      // Too many retries on this tile - player likely moved or has cooldown.
+      // Threshold 20 — event-driven loop iterates fast and a hard-to-kill player
+      // (defensive build, miss streak, response lag) can burn retries quickly
+      // even when others around them are still attackable.
+      if (PVP.tileRetries > 20) {
+        console.log('[PVP] Max tile retries reached (' + PVP.tileRetries + '), ' + enemyCount + ' enemies left, moving on');
         PVP.attackRetries = 0;
         PVP.tileRetries = 0;
         PVP.caseNumber++;
@@ -1445,23 +1506,48 @@ const AFO_PVP = {
         return;
       }
 
-      // Short-term retry - wait for server response
+      // Short-term retry - wait for server response (speed-aware)
       if (PVP.attackRetries > 5) {
         PVP.attackRetries = 0;
-        window.setTimeout(() => this.attackLoop(), 500);
+        window.setTimeout(() => this.attackLoop(), this.scaleDelay(500, 80, 600));
         return;
       }
     } else {
+      // Progress! Reset both counters (bug fix — was only resetting attackRetries).
       PVP.attackRetries = 0;
+      PVP.tileRetries = 0;
     }
 
     PVP.lastEnemyCount = enemyCount;
 
-    // Attack first enemy
+    // Event-driven attack: fire click, then race the gr listener vs a fallback timeout.
+    // Listener (a:7) flips _awaitingFight=false the instant server confirms — at high speed
+    // we re-enter attackLoop in ~5-10ms instead of waiting full getAttackDelay().
+    // eq(0) — list is sorted with attackable players on top; rotating index attacks
+    // already-attacked players further down (visible cooldown = wasted click).
+    PVP._awaitingFight = true;
+    PVP._myClicksThisCycle = (PVP._myClicksThisCycle || 0) + 1;
     enemies.eq(0).click();
 
-    // Continue attack loop - delay affected by speed
-    window.setTimeout(() => this.attackLoop(), this.getAttackDelay());
+    const attackDelay = this.getAttackDelay();
+    const checkAndContinue = (attempts) => {
+      if (PVP.stop) return;
+      if (!PVP._awaitingFight) {
+        // Server response landed — pause for DOM to refresh player list.
+        // Floor 25ms: empirically the player list takes ~20-30ms to update after gr,
+        // shorter than that causes false "no progress" detections.
+        window.setTimeout(() => this.attackLoop(), Math.max(25, Math.round(attackDelay / 2)));
+        return;
+      }
+      if (attempts >= 3) {
+        // Fallback: response didn't arrive, continue with full delay
+        window.setTimeout(() => this.attackLoop(), attackDelay);
+        return;
+      }
+      // Re-check the event flag at half-delay granularity
+      window.setTimeout(() => checkAndContinue(attempts + 1), Math.max(10, Math.round(attackDelay / 2)));
+    };
+    checkAndContinue(0);
   },
 
   // Legacy alias for compatibility
@@ -1501,27 +1587,27 @@ const AFO_PVP = {
       if (!PVP.adimp) {
         GAME.socket.emit('ga', { a: 50, type: 0, empire: GAME.char_data.empire });
         PVP.adimp = true;
-        window.setTimeout(() => this.declareEmpireWars(), 500);
+        window.setTimeout(() => this.declareEmpireWars(), this.scaleDelay(500, 100, 600));
       } else if (!GAME.emp_enemies.includes(1) && ![GAME.char_data.empire].includes(1) &&
         (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
           imp == GAME.char_id || aimp == GAME.char_id)) {
         GAME.socket.emit('ga', { a: 50, type: 7, target: 1 });
-        window.setTimeout(() => this.declareEmpireWars(), 500);
+        window.setTimeout(() => this.declareEmpireWars(), this.scaleDelay(500, 100, 600));
       } else if (!GAME.emp_enemies.includes(2) && ![GAME.char_data.empire].includes(2) &&
         (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
           imp == GAME.char_id || aimp == GAME.char_id)) {
         GAME.socket.emit('ga', { a: 50, type: 7, target: 2 });
-        window.setTimeout(() => this.declareEmpireWars(), 500);
+        window.setTimeout(() => this.declareEmpireWars(), this.scaleDelay(500, 100, 600));
       } else if (!GAME.emp_enemies.includes(3) && ![GAME.char_data.empire].includes(3) &&
         (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
           imp == GAME.char_id || aimp == GAME.char_id)) {
         GAME.socket.emit('ga', { a: 50, type: 7, target: 3 });
-        window.setTimeout(() => this.declareEmpireWars(), 500);
+        window.setTimeout(() => this.declareEmpireWars(), this.scaleDelay(500, 100, 600));
       } else if (!GAME.emp_enemies.includes(4) && ![GAME.char_data.empire].includes(4) &&
         (this.check_imp().includes(GAME.char_id) || this.check_imp2().includes(GAME.char_id) ||
           imp == GAME.char_id || aimp == GAME.char_id)) {
         GAME.socket.emit('ga', { a: 50, type: 7, target: 4 });
-        window.setTimeout(() => this.declareEmpireWars(), 500);
+        window.setTimeout(() => this.declareEmpireWars(), this.scaleDelay(500, 100, 600));
       } else {
         window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
       }
@@ -1536,7 +1622,7 @@ const AFO_PVP = {
 
   zejdz() {
     GAME.socket.emit('ga', { a: 16 });
-    window.setTimeout(() => this.teleport(), 2000);
+    window.setTimeout(() => this.teleport(), this.scaleDelay(2000, 300, 2500));
   },
 
   go() {
@@ -1588,7 +1674,7 @@ const AFO_PVP = {
   teleport() {
     if (PVP.tele) {
       GAME.socket.emit('ga', { a: 50, type: 5, e: PVP.g });
-      window.setTimeout(() => this.start(), 2000);
+      window.setTimeout(() => this.start(), this.scaleDelay(2000, 300, 2500));
       PVP.tele = false;
     } else {
       window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
@@ -1610,7 +1696,7 @@ const AFO_PVP = {
       this.go_down();
     } else {
       GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
-      window.setTimeout(() => this.cofanie(), 150);
+      window.setTimeout(() => this.cofanie(), this.scaleDelay(150, 30, 200));
     }
   },
 
@@ -1666,7 +1752,7 @@ const AFO_PVP = {
 
   check() {
     if ($("#ewar_list").text().includes("--:--:--")) {
-      window.setTimeout(() => this.check(), 300);
+      window.setTimeout(() => this.check(), this.scaleDelay(300, 80, 400));
     } else {
       window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
     }
@@ -1734,6 +1820,31 @@ const AFO_PVP = {
     return Math.max(20, Math.min(80, Math.round(2500 / speed)));
   },
 
+  // Generic speed-aware delay scaler with floor/ceiling guards.
+  scaleDelay(baseMs, minMs, maxMs) {
+    const mul = this.getSpeedMultiplier();
+    return Math.max(minMs, Math.min(maxMs, Math.round(baseMs / mul)));
+  },
+
+  // High-speed bypass: above this threshold we skip is_loading polling.
+  shouldBypassLoading() {
+    return (PVP.speed || 50) >= 150;
+  },
+
+  // Idempotent socket listener for fight responses (a:7).
+  // Sets _awaitingFight=false so attackLoop can fire next attack without fixed delay.
+  _bindGrListener() {
+    if (PVP._grBound || !GAME || !GAME.socket) return;
+    PVP._grBound = true;
+    GAME.socket.on('gr', (res) => {
+      if (res && res.a === 7 && !res.game_progress) {
+        PVP._awaitingFight = false;
+        PVP._lastFightRes = res;
+      }
+    });
+    console.log('[AFO_PVP] gr listener bound (event-driven attack)');
+  },
+
   // ============================================
   // PANEL HANDLERS
   // ============================================
@@ -1743,6 +1854,8 @@ const AFO_PVP = {
       if (PVP.stop) {
         $(".pvp_pvp .pvp_status").removeClass("red").addClass("green").html("On");
         PVP.stop = false;
+        PVP._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        PVP._isLoadingRetries = 0;
         this.start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; LPVM.Stop = true; CODE.stop = true;
@@ -1962,6 +2075,18 @@ const AFO_RESP = {
   },
 
   action() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RESP._actionCallCount === undefined) RESP._actionCallCount = 0;
+    RESP._actionCallCount++;
+    if (RESP._actionCallCount <= 5) {
+      console.log('[AFO_RESP:action]', {
+        call: RESP._actionCallCount,
+        stop: RESP.stop,
+        is_loading: GAME.is_loading,
+        field_mobs: !!GAME.field_mobs,
+        x: GAME.char_data?.x, y: GAME.char_data?.y
+      });
+    }
     if (!RESP.stop) {
       if (!this.check() && !this.check_bless()) {
         setTimeout(() => {
@@ -1977,6 +2102,8 @@ const AFO_RESP = {
           kom_clear();
         }, 1700);
       }
+    } else if (RESP._actionCallCount <= 5) {
+      console.warn('[AFO_RESP:action] silent exit — RESP.stop=true');
     }
   },
 
@@ -2270,9 +2397,11 @@ const AFO_RESP = {
 
     // Main resp toggle
     $('#resp_Panel .resp_resp').click(() => {
+      console.log('[AFO_RESP:click]', { stop: RESP.stop, field_mobs: !!GAME.field_mobs });
       if (RESP.stop && GAME.field_mobs) {
         $(".resp_resp .resp_status").removeClass("red").addClass("green").html("On");
         RESP.stop = false;
+        RESP._actionCallCount = 0; // reset diagnostic counter for new ON cycle
         this.action();
         RESP.reloadint = setInterval(() => this.reload_map(), 60000);
         RESP.loc = GAME.char_data.loc;
@@ -2518,6 +2647,18 @@ const AFO_LPVM = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (LPVM._startCallCount === undefined) LPVM._startCallCount = 0;
+    LPVM._startCallCount++;
+    if (LPVM._startCallCount <= 5) {
+      console.log('[AFO_LPVM:Start]', {
+        call: LPVM._startCallCount,
+        Stop: LPVM.Stop,
+        is_loading: GAME.is_loading,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
     this.LoadPVM();
   },
 
@@ -2699,9 +2840,11 @@ const AFO_LPVM = {
   bindHandlers() {
     // Main LPVM toggle
     $('#lpvm_Panel .lpvm_lpvm').click(() => {
+      console.log('[AFO_LPVM:click]', { Stop: LPVM.Stop });
       if (LPVM.Stop) {
         $(".lpvm_lpvm .lpvm_status").removeClass("red").addClass("green").html("On");
         LPVM.Stop = false;
+        LPVM._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; PVP.stop = true; CODE.stop = true;
@@ -2822,6 +2965,19 @@ const AFO_RES = {
   },
 
   Start() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RES._startCallCount === undefined) RES._startCallCount = 0;
+    RES._startCallCount++;
+    if (RES._startCallCount <= 5) {
+      console.log('[AFO_RES:Start]', {
+        call: RES._startCallCount,
+        stop: RES.stop,
+        loc: GAME.char_data?.loc,
+        is_loading: GAME.is_loading,
+        has_mines: !!(GAME.map_mines && GAME.map_mines.mine_data),
+        socket_connected: GAME.socket?.connected
+      });
+    }
     if (RES.last_loc != GAME.char_data.loc) {
       this.CreateMatrix();
       RES.last_loc = GAME.char_data.loc;
@@ -3051,10 +3207,13 @@ const AFO_RES = {
   bindHandlers() {
     // Main RES toggle
     $('#res_Panel .res_res').click(() => {
-      if (RES.stop && Object.entries(GAME.map_mines.mine_data).length > 0) {
+      const hasMines = !!(GAME.map_mines && GAME.map_mines.mine_data && Object.entries(GAME.map_mines.mine_data).length > 0);
+      console.log('[AFO_RES:click]', { stop: RES.stop, hasMines });
+      if (RES.stop && hasMines) {
         $(".res_res .res_status").removeClass("red").addClass("green").html("On");
         RES.stop = false;
         RES.loc = GAME.char_data.loc;
+        RES._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.Start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; CODE.stop = true;
@@ -3113,7 +3272,22 @@ const AFO_CODE = {
   // ============================================
 
   start() {
-    if (CODE.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (CODE._startCallCount === undefined) CODE._startCallCount = 0;
+    CODE._startCallCount++;
+    if (CODE._startCallCount <= 5) {
+      console.log('[AFO_CODE:start]', {
+        call: CODE._startCallCount,
+        stop: CODE.stop,
+        whatNow: CODE.whatNow,
+        is_loading: GAME.is_loading,
+        socket_connected: GAME.socket?.connected
+      });
+    }
+    if (CODE.stop) {
+      if (CODE._startCallCount <= 5) console.warn('[AFO_CODE:start] silent exit — CODE.stop=true');
+      return;
+    }
 
     switch (CODE.whatNow) {
       case 0:
@@ -3262,10 +3436,12 @@ const AFO_CODE = {
   bindHandlers() {
     // Main CODE toggle
     $('#code_Panel .code_code').click(() => {
+      console.log('[AFO_CODE:click]', { stop: CODE.stop });
       if (CODE.stop) {
         $(".code_code .code_status").removeClass("red").addClass("green").html("On");
         CODE.stop = false;
         CODE.whatNow = 0;
+        CODE._startCallCount = 0; // reset diagnostic counter for new ON cycle
         this.start();
         // Stop other modules
         PVP.stop = true; RESP.stop = true; LPVM.Stop = true; RES.stop = true;
@@ -3386,6 +3562,7 @@ const AFO_GLEBIA = {
   bindHandlers() {
     // Start/Stop toggle
     $('#glebia_Panel .glebia_toggle').click(() => {
+      console.log('[AFO_GLEBIA:click]', { stop: GLEBIA.stop });
       if (GLEBIA.stop) {
         $(".glebia_toggle .glebia_status").removeClass("red").addClass("green").html("On");
         GLEBIA.stop = false;
@@ -3396,6 +3573,8 @@ const AFO_GLEBIA = {
         GLEBIA.tileRetries = 0;
         GLEBIA.lastEnemyCount = -1;
         GLEBIA.caseNumber = 0;
+        GLEBIA._startCallCount = 0; // reset diagnostic counter for new ON cycle
+        GLEBIA._isLoadingRetries = 0;
 
         this.start();
 
@@ -3486,6 +3665,31 @@ const AFO_GLEBIA = {
     return Math.max(20, Math.min(80, Math.round(2500 / speed)));
   },
 
+  // Generic speed-aware delay scaler with floor/ceiling guards.
+  scaleDelay(baseMs, minMs, maxMs) {
+    const mul = this.getSpeedMultiplier();
+    return Math.max(minMs, Math.min(maxMs, Math.round(baseMs / mul)));
+  },
+
+  // High-speed bypass: above this threshold we skip is_loading polling.
+  shouldBypassLoading() {
+    return (GLEBIA.speed || 50) >= 150;
+  },
+
+  // Idempotent socket listener for fight responses (a:7).
+  // Sets _awaitingFight=false so attackLoop can fire next attack without fixed delay.
+  _bindGrListener() {
+    if (GLEBIA._grBound || !GAME || !GAME.socket) return;
+    GLEBIA._grBound = true;
+    GAME.socket.on('gr', (res) => {
+      if (res && res.a === 7 && !res.game_progress) {
+        GLEBIA._awaitingFight = false;
+        GLEBIA._lastFightRes = res;
+      }
+    });
+    console.log('[AFO_GLEBIA] gr listener bound (event-driven attack)');
+  },
+
   saveSpeed() {
     localStorage.setItem('glebia_speed', GLEBIA.speed);
   },
@@ -3502,12 +3706,47 @@ const AFO_GLEBIA = {
   // ============================================
 
   start() {
-    if (GLEBIA.stop) return;
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (GLEBIA._startCallCount === undefined) GLEBIA._startCallCount = 0;
+    GLEBIA._startCallCount++;
+    if (GLEBIA._startCallCount <= 5) {
+      console.log('[AFO_GLEBIA:start]', {
+        call: GLEBIA._startCallCount,
+        stop: GLEBIA.stop,
+        is_loading: GAME.is_loading,
+        caseNumber: GLEBIA.caseNumber,
+        x: GAME.char_data?.x, y: GAME.char_data?.y,
+        socket_connected: GAME.socket?.connected
+      });
+    }
 
-    if (!GAME.is_loading) {
+    if (GLEBIA.stop) {
+      if (GLEBIA._startCallCount <= 5) console.warn('[AFO_GLEBIA:start] silent exit — GLEBIA.stop=true');
+      return;
+    }
+
+    // Bind socket listener once (idempotent) for event-driven attacks.
+    this._bindGrListener();
+
+    // High-speed bypass: at speed >= 150 we don't wait for is_loading to clear.
+    const canSkipLoading = GAME.is_loading && this.shouldBypassLoading();
+
+    if (!GAME.is_loading || canSkipLoading) {
+      GLEBIA._isLoadingRetries = 0;
       this.action();
     } else {
-      setTimeout(() => this.start(), GLEBIA.wait / this.getSpeedMultiplier());
+      // Defensive: cap retries. After 5s of stuck is_loading, force start anyway.
+      GLEBIA._isLoadingRetries = (GLEBIA._isLoadingRetries || 0) + 1;
+      if (GLEBIA._startCallCount <= 5) {
+        console.log('[AFO_GLEBIA:start] retry — is_loading=true, attempt', GLEBIA._isLoadingRetries);
+      }
+      if (GLEBIA._isLoadingRetries > 50) {
+        console.warn('[AFO_GLEBIA:start] is_loading stuck for >5s, forcing action() anyway');
+        GLEBIA._isLoadingRetries = 0;
+        this.action();
+        return;
+      }
+      setTimeout(() => this.start(), this.scaleDelay(100, 30, 150));
     }
   },
 
@@ -3546,10 +3785,10 @@ const AFO_GLEBIA = {
       this.cofanie();
     } else if (x === 2 && y === 11 && GLEBIA.loc === 1 && GLEBIA.move1) {
       this.przejdz();
-      setTimeout(() => { this.move(7); }, 1000);
+      setTimeout(() => { this.move(7); }, this.scaleDelay(1000, 150, 1200));
     } else if (x === 1 && y === 1 && GLEBIA.loc === 2 && GLEBIA.move3) {
       this.przejdz();
-      setTimeout(() => { this.move(7); }, 1000);
+      setTimeout(() => { this.move(7); }, this.scaleDelay(1000, 150, 1200));
     } else if (((x === 7 && y === 7) && GLEBIA.loc === 2 && GLEBIA.move2) ||
       (x === 9 && y === 7 && GLEBIA.loc === 2 && GLEBIA.move2)) {
       this.move(3);
@@ -3620,7 +3859,7 @@ const AFO_GLEBIA = {
       setTimeout(() => this.start(), GLEBIA.wait);
     } else {
       GAME.emitOrder({ a: 4, dir: 6, vo: GAME.map_options.vo });
-      setTimeout(() => { this.cofanie(); }, 50);
+      setTimeout(() => { this.cofanie(); }, this.scaleDelay(50, 15, 80));
     }
   },
 
@@ -3631,7 +3870,7 @@ const AFO_GLEBIA = {
     } else {
       GAME.emitOrder({ a: 4, dir: 2, vo: GAME.map_options.vo });
       GLEBIA.move1 = true;
-      setTimeout(() => { this.cofanie2(); }, 50);
+      setTimeout(() => { this.cofanie2(); }, this.scaleDelay(50, 15, 80));
     }
   },
 
@@ -3666,7 +3905,6 @@ const AFO_GLEBIA = {
 
   przejdz() {
     GAME.emitOrder({ a: 6, tpid: 0 });
-    setTimeout(() => GLEBIA.stop, 1000);
     GLEBIA.move3 = false;
     GLEBIA.move1 = false;
   },
@@ -3698,7 +3936,7 @@ const AFO_GLEBIA = {
         playerList.children[0].children[1].childElementCount === 3) {
         const tabb2 = playerList.children[0].children[1].children[0].textContent.split(":");
         if (parseInt(tabb2[1]) <= 1 && GAME.char_data.y === 2) {
-          return setTimeout(() => this.check_players(), 150);
+          return setTimeout(() => this.check_players(), this.scaleDelay(150, 30, 200));
         }
       }
     }
@@ -3730,6 +3968,8 @@ const AFO_GLEBIA = {
     // Reset attack state
     GLEBIA.attackRetries = 0;
     GLEBIA.lastEnemyCount = -1;
+    GLEBIA._cleanupPasses = 0;       // re-check counter for players coming off cooldown
+    GLEBIA._myClicksThisCycle = 0;   // count of our own attack clicks on this tile
 
     this.attackLoop(startX, startY);
   },
@@ -3738,7 +3978,11 @@ const AFO_GLEBIA = {
     // Check if stopped
     if (GLEBIA.stop) return;
 
-    // If game is loading, wait briefly but don't block too long
+    // If game is loading, wait — do NOT bypass here even at high speed.
+    // Game silently drops emit() when is_loading=true (bigcode:7249), so a
+    // bypassed click never produces a response, _awaitingFight stays stuck,
+    // and we burn retries without progress. Crowded tiles (lots of activity)
+    // make this catastrophic — was losing 100+ enemies per tile.
     if (GAME.is_loading || $("#loader").is(":visible")) {
       setTimeout(() => this.attackLoop(startX, startY), this.getLoadingWait());
       return;
@@ -3756,37 +4000,59 @@ const AFO_GLEBIA = {
       return;
     }
 
-    // Load more players if available - wait after clicking for them to load
+    // Load more players if available - wait after clicking for them to load (speed-aware)
     if ($("#player_list_con").find("[data-option=load_more_players]").length != 0) {
       $("#player_list_con").find("[data-option=load_more_players]").click();
-      // Wait for players to load before continuing
-      setTimeout(() => this.attackLoop(startX, startY), 300);
+      setTimeout(() => this.attackLoop(startX, startY), this.scaleDelay(300, 50, 350));
       return;
     }
 
-    // Count attackable enemies (only those with visible attack button)
-    let enemies = $("#player_list_con").find(".player button[data-quick=1]:not(.initial_hide_forced)");
+    // Count attackable enemies. Exclude players with active cooldown.
+    // Game adds `.timer` element only while cooldown is running and removes
+    // the class when it expires (bigcode:16248). `initial_hide_forced` only
+    // covers cooldowns present at INITIAL render — cooldowns triggered by our
+    // own attacks add a fresh `.timer` but leave the button without that class,
+    // so we must filter at the `.player` level to avoid wasted clicks.
+    let enemies = $("#player_list_con .player").filter(function () {
+      return $(this).find(".timer").length === 0;
+    }).find("button[data-quick=1]:not(.initial_hide_forced)");
     const enemyCount = enemies.length;
 
-    // No enemies - exit attack mode and continue main loop
+    // Cleanup logic — wait only if there are FOREIGN cooldowns left (players we
+    // didn't hit; their cooldown was set by someone else and may be short).
+    // If all remaining cooldowns are OURS (post-attack ~1-2 min), exit immediately.
+    // Up to 3 passes × 800ms = 2.4s budget to catch foreign cooldowns expiring.
     if (enemyCount === 0) {
+      const totalPlayers = $("#player_list_con .player").length;
+      const foreignCooldowns = totalPlayers - (GLEBIA._myClicksThisCycle || 0);
+      if (foreignCooldowns > 0 && (GLEBIA._cleanupPasses || 0) < 3) {
+        GLEBIA._cleanupPasses = (GLEBIA._cleanupPasses || 0) + 1;
+        setTimeout(() => this.attackLoop(startX, startY), 800);
+        return;
+      }
       GLEBIA.attackRetries = 0;
       GLEBIA.tileRetries = 0;
       GLEBIA.isAttacking = false;
+      GLEBIA._cleanupPasses = 0;
       GLEBIA.caseNumber++;
       setTimeout(() => this.start(), GLEBIA.wait);
       return;
     }
+
+    // Found targets — reset cleanup counter so a future emptying gets a fresh budget.
+    GLEBIA._cleanupPasses = 0;
 
     // Check if we're making progress (enemy count decreased)
     if (GLEBIA.lastEnemyCount === enemyCount) {
       GLEBIA.attackRetries++;
       GLEBIA.tileRetries++;
 
-      // Too many retries on this tile - player likely moved or has cooldown
-      // After 3 failed attempts, move on instead of getting stuck
-      if (GLEBIA.tileRetries > 3) {
-        console.log('[GLEBIA] Max tile retries reached (' + GLEBIA.tileRetries + '), moving on');
+      // Too many retries on this tile - player likely moved or has cooldown.
+      // Threshold 20 — event-driven loop iterates fast and a hard-to-kill player
+      // (defensive build, miss streak, response lag) can burn retries quickly
+      // even when others around them are still attackable.
+      if (GLEBIA.tileRetries > 20) {
+        console.log('[GLEBIA] Max tile retries reached (' + GLEBIA.tileRetries + '), ' + enemyCount + ' enemies left, moving on');
         GLEBIA.attackRetries = 0;
         GLEBIA.tileRetries = 0;
         GLEBIA.isAttacking = false;
@@ -3795,10 +4061,10 @@ const AFO_GLEBIA = {
         return;
       }
 
-      // Short-term retry - wait a bit for server response
+      // Short-term retry - wait a bit for server response (speed-aware)
       if (GLEBIA.attackRetries > 5) {
         GLEBIA.attackRetries = 0;
-        setTimeout(() => this.attackLoop(startX, startY), 500);
+        setTimeout(() => this.attackLoop(startX, startY), this.scaleDelay(500, 80, 600));
         return;
       }
     } else {
@@ -3818,11 +4084,34 @@ const AFO_GLEBIA = {
 
     GLEBIA.lastEnemyCount = enemyCount;
 
-    // Attack first enemy
+    // Event-driven attack: fire click, then race the gr listener vs a fallback timeout.
+    // Listener (a:7) flips _awaitingFight=false the instant server confirms — at high speed
+    // we re-enter attackLoop in ~5-10ms instead of waiting full getAttackDelay().
+    // eq(0) — list is sorted with attackable players on top; rotating index attacks
+    // already-attacked players further down (visible cooldown = wasted click).
+    GLEBIA._awaitingFight = true;
+    GLEBIA._myClicksThisCycle = (GLEBIA._myClicksThisCycle || 0) + 1;
     enemies.eq(0).click();
 
-    // Continue attack loop - delay affected by speed
-    setTimeout(() => this.attackLoop(startX, startY), this.getAttackDelay());
+    const attackDelay = this.getAttackDelay();
+    const checkAndContinue = (attempts) => {
+      if (GLEBIA.stop) return;
+      if (!GLEBIA._awaitingFight) {
+        // Server response landed — pause for DOM to refresh player list.
+        // Floor 25ms: empirically the player list takes ~20-30ms to update after gr,
+        // shorter than that causes false "no progress" detections.
+        setTimeout(() => this.attackLoop(startX, startY), Math.max(25, Math.round(attackDelay / 2)));
+        return;
+      }
+      if (attempts >= 3) {
+        // Fallback: response didn't arrive, continue with full delay
+        setTimeout(() => this.attackLoop(startX, startY), attackDelay);
+        return;
+      }
+      // Re-check the event flag at half-delay granularity
+      setTimeout(() => checkAndContinue(attempts + 1), Math.max(10, Math.round(attackDelay / 2)));
+    };
+    checkAndContinue(0);
   },
 
   // ============================================
@@ -8876,8 +9165,10 @@ const AFO_DAILY = {
           (mobCount > 0 && fmf[fmi - 1] < 4 && fm[fmi - 1].ranks[4]) ||
           (mobCount > 0 && fmf[fmi - 1] < 5 && fm[fmi - 1].ranks[5]))) {
         GAME.socket.emit('ga', { a: 7, order: 2, quick: 1, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else if (this.getMobCount2() > 0) {
         GAME.socket.emit('ga', { a: 13, mob_num: fmi, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else {
         GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
       }
@@ -9309,7 +9600,16 @@ const AFO_DAILY = {
       return;
     }
 
-    const questSpan = $(`.quest_warunek${qbId}`);
+    // Scoped selector cascade: dialog (freshest, server-rendered) → tracker → none.
+    // GLOBAL `.quest_warunek${qbId}` was unsafe — it picked the first match anywhere
+    // (qb_list, dialog of a different quest stage), causing infinity loops when DOM
+    // had stale/poisoned values.
+    let questSpan = $(`#quest_con .quest_warunek${qbId}`);
+    let progressSource = 'dialog';
+    if (!questSpan.length) {
+      questSpan = $(`#track_quest_${qbId} .quest_warunek${qbId}`);
+      progressSource = 'track_quest';
+    }
     let currentProgress = 0;
     let target = requires.target;
 
@@ -9369,12 +9669,22 @@ const AFO_DAILY = {
       if (parsed) {
         currentProgress = parsed.current;
         if (parsed.target > 0) target = parsed.target;
-        console.log('[AFO_DAILY] Parsed progress from quest_warunek text:', currentProgress, '/', target);
       } else {
         // Fallback to data-count if text parsing fails
         currentProgress = parseInt(questSpan.attr('data-count')) || 0;
         target = parseInt(questSpan.attr('data-max')) || requires.target;
-        console.log('[AFO_DAILY] Using quest_warunek data-count fallback:', currentProgress, '/', target);
+      }
+
+      // Sanity: poisoned DOM (from stale tracker cache or other quest stages)
+      // sometimes shows progress >> target. Game caps to max — anything above
+      // 2x target is clearly bogus. Trust requires.current (just parsed from
+      // dialog by parseQuestRequirements) instead.
+      if (target > 0 && currentProgress > target * 2) {
+        console.warn('[AFO_DAILY] Suspicious progress', currentProgress, '>>', target,
+          'from', progressSource, '— ignoring, using requires.current=' + (requires.current || 0));
+        currentProgress = requires.current || 0;
+      } else {
+        console.log('[AFO_DAILY] Parsed progress from', progressSource, ':', currentProgress, '/', target);
       }
 
       if (currentProgress >= target) {
@@ -9385,37 +9695,9 @@ const AFO_DAILY = {
 
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     } else {
-      // quest_warunek not found - we may be on a different location (useCombatLocation)
-      // First try to find quest_warunek span inside track_quest (most reliable)
-      const trackQuestSpan = trackQuest.find(`[class^="quest_warunek"]`);
-
-      if (trackQuestSpan.length > 0) {
-        const spanText = trackQuestSpan.text().trim();
-        const parsed = parseProgressText(spanText);
-        if (parsed) {
-          currentProgress = parsed.current;
-          if (parsed.target > 0) target = parsed.target;
-          console.log('[AFO_DAILY] Parsed progress from track_quest span:', currentProgress, '/', target);
-        }
-      } else if (trackQuest.length > 0) {
-        // Fallback: parse from full track_quest text
-        const trackText = trackQuest.text();
-        const parsed = parseProgressText(trackText);
-
-        if (parsed) {
-          currentProgress = parsed.current;
-          if (parsed.target > 0) target = parsed.target;
-          console.log('[AFO_DAILY] Parsed progress from track_quest HTML:', currentProgress, '/', target);
-        } else {
-          // Fallback to requires.current if parsing failed
-          currentProgress = requires.current || 0;
-          console.log('[AFO_DAILY] Could not parse progress from track_quest, using requires:', currentProgress, '/', target);
-        }
-      } else {
-        // No track_quest element at all - use requires fallback
-        currentProgress = requires.current || 0;
-        console.log('[AFO_DAILY] No track_quest found, using requires fallback:', currentProgress, '/', target);
-      }
+      // No quest_warunek anywhere (neither dialog nor tracker) — use parseQuestRequirements value
+      currentProgress = requires.current || 0;
+      console.log('[AFO_DAILY] No quest_warunek element found, using requires.current:', currentProgress, '/', target);
       this.updateStatus(`${quest.name}: ${currentProgress}/${target}`);
     }
 
@@ -9463,6 +9745,17 @@ const AFO_DAILY = {
     DAILY._combatRequires = null;
     DAILY._spawnerIgnore = null;  // Clear spawner filter cache
     DAILY._lastRefresh = 0;
+
+    // Reset _dialogAttempts ONLY if we actually fought. If combat completed
+    // without any fight (sanity check skipped, or stale DOM said "met" instantly),
+    // it's a false positive — keep the counter rising so startDialog's >10 guard
+    // eventually skips this broken quest instead of looping forever.
+    if (DAILY._combatHadFight) {
+      DAILY._dialogAttempts = 0;
+      DAILY._combatHadFight = false;
+    } else {
+      console.warn('[AFO_DAILY] Combat completed without any fight — possible false positive, _dialogAttempts kept at', DAILY._dialogAttempts);
+    }
 
     // Reset stuck detection
     DAILY._lastProgress = 0;
@@ -9656,9 +9949,11 @@ const AFO_DAILY = {
           (mobCount > 0 && fmf[fmi - 1] < 5 && fm[fmi - 1].ranks[5]))) {
         // Normal fight
         GAME.socket.emit('ga', { a: 7, order: 2, quick: 1, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else if (this.getMobCount2() > 0) {
         // Multifight
         GAME.socket.emit('ga', { a: 13, mob_num: fmi, fo: GAME.map_options.ma });
+        DAILY._combatHadFight = true;
       } else {
         // Spawn mobs with rank filter
         GAME.socket.emit('ga', { a: 444, max: GAME.spawner[0], ignore: spawnerIgnore });
@@ -10268,8 +10563,12 @@ const AFO_DAILY = {
 
   // Called after any teleport - waits for map data then continues
   afterTeleport() {
-    // Skip if Anielska batch handler is managing its own teleport flow
-    if (DAILY._anielskaTeleporting || DAILY._anielskaBatchActive) {
+    // Skip if Anielska batch handler is managing its own teleport flow,
+    // EXCEPT when we're returning from combat — combat return is our own teleport
+    // (initiated in onCombatComplete) and we own this afterTeleport call. Without
+    // this exception, combat returns during an active Anielska batch would hang
+    // (teleport fires but afterTeleport is silently skipped, no NPC navigation).
+    if ((DAILY._anielskaTeleporting || DAILY._anielskaBatchActive) && !DAILY._returnFromCombat) {
       console.log('[AFO_DAILY] afterTeleport skipped - Anielska batch active');
       return;
     }

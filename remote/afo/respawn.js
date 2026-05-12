@@ -103,6 +103,18 @@ const AFO_RESP = {
   },
 
   action() {
+    // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
+    if (RESP._actionCallCount === undefined) RESP._actionCallCount = 0;
+    RESP._actionCallCount++;
+    if (RESP._actionCallCount <= 5) {
+      console.log('[AFO_RESP:action]', {
+        call: RESP._actionCallCount,
+        stop: RESP.stop,
+        is_loading: GAME.is_loading,
+        field_mobs: !!GAME.field_mobs,
+        x: GAME.char_data?.x, y: GAME.char_data?.y
+      });
+    }
     if (!RESP.stop) {
       if (!this.check() && !this.check_bless()) {
         setTimeout(() => {
@@ -118,6 +130,8 @@ const AFO_RESP = {
           kom_clear();
         }, 1700);
       }
+    } else if (RESP._actionCallCount <= 5) {
+      console.warn('[AFO_RESP:action] silent exit — RESP.stop=true');
     }
   },
 
@@ -411,9 +425,11 @@ const AFO_RESP = {
 
     // Main resp toggle
     $('#resp_Panel .resp_resp').click(() => {
+      console.log('[AFO_RESP:click]', { stop: RESP.stop, field_mobs: !!GAME.field_mobs });
       if (RESP.stop && GAME.field_mobs) {
         $(".resp_resp .resp_status").removeClass("red").addClass("green").html("On");
         RESP.stop = false;
+        RESP._actionCallCount = 0; // reset diagnostic counter for new ON cycle
         this.action();
         RESP.reloadint = setInterval(() => this.reload_map(), 60000);
         RESP.loc = GAME.char_data.loc;
