@@ -32,6 +32,9 @@ const AFO_SOUL_CARD_SETS = {
   // Max retry dla weryfikacji założenia karty
   MAX_EQUIP_RETRIES: 3,
 
+  // Max retry dla pełnego wyczyszczenia slotów
+  MAX_CLEAR_RETRIES: 4,
+
   // ============================================
   // ZESTAWY KART - EDYTUJ TUTAJ
   // ============================================
@@ -278,24 +281,61 @@ const AFO_SOUL_CARD_SETS = {
   },
 
   /**
-   * Czyści wszystkie sloty
+   * Liczy ile slotów wciąż ma założoną kartę
+   * @param {number} slotCount
+   * @returns {number}
+   */
+  countOccupiedSlots(slotCount) {
+    let count = 0;
+    for (let slot = 1; slot <= slotCount; slot++) {
+      if ($(`#card_slot${slot}`).find('.small_card').length > 0) {
+        count++;
+      }
+    }
+    return count;
+  },
+
+  /**
+   * Czyści wszystkie sloty z retry — gwarantuje że WSZYSTKIE karty zostaną zdjęte
+   * przed zakończeniem (lub rzuca błąd jeśli się nie da).
    * @param {number} slotCount - Liczba slotów do wyczyszczenia
    */
   async clearAllSlots(slotCount) {
     console.log(`[SoulCardSets] Clearing ${slotCount} slots...`);
 
-    for (let slot = 1; slot <= slotCount; slot++) {
-      const slotElement = $(`#card_slot${slot}`);
+    for (let attempt = 1; attempt <= this.MAX_CLEAR_RETRIES; attempt++) {
+      let requestsSent = 0;
 
-      // Sprawdź czy slot ma założoną kartę
-      if (slotElement.find('.small_card').length > 0) {
-        GAME.emitOrder({ a: 58, type: 2, slot: slot });
-        await this.delay(this.DELAY_BETWEEN_ACTIONS);
+      for (let slot = 1; slot <= slotCount; slot++) {
+        if ($(`#card_slot${slot}`).find('.small_card').length > 0) {
+          GAME.emitOrder({ a: 58, type: 2, slot: slot });
+          requestsSent++;
+          await this.delay(this.DELAY_BETWEEN_ACTIONS);
+        }
       }
+
+      // Nic do zdjęcia — wszystkie sloty już puste
+      if (requestsSent === 0) {
+        console.log(`[SoulCardSets] All slots clear (attempt ${attempt})`);
+        return;
+      }
+
+      // Daj serwerowi/DOM-owi czas na zsynchronizowanie się po batchu zdjęć
+      await this.delay(this.DELAY_BETWEEN_ACTIONS * 3);
+
+      const remaining = this.countOccupiedSlots(slotCount);
+      if (remaining === 0) {
+        console.log(`[SoulCardSets] All slots cleared after attempt ${attempt}`);
+        return;
+      }
+
+      console.warn(`[SoulCardSets] ${remaining} slot(s) still occupied after attempt ${attempt}, retrying...`);
     }
 
-    // Poczekaj chwilę na synchronizację
-    await this.delay(this.DELAY_BETWEEN_ACTIONS);
+    const stillOccupied = this.countOccupiedSlots(slotCount);
+    if (stillOccupied > 0) {
+      throw new Error(`Nie udało się zdjąć wszystkich kart (zostało ${stillOccupied})`);
+    }
   },
 
   /**
