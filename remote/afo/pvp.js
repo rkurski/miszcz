@@ -203,6 +203,7 @@ const AFO_PVP = {
     PVP.lastEnemyCount = -1;
     PVP._cleanupPasses = 0;       // re-check counter for players coming off cooldown
     PVP._myClicksThisCycle = 0;   // count of our own attack clicks on this tile
+    PVP._tileGhosts = new Set();  // char_ids that returned "not on tile" — skip them
 
     this.attackLoop();
   },
@@ -243,29 +244,56 @@ const AFO_PVP = {
     // covers cooldowns present at INITIAL render — cooldowns triggered by our
     // own attacks add a fresh `.timer` but leave the button without that class,
     // so we must filter at the `.player` level to avoid wasted clicks.
+    // Also skip "ghost" players — those whose attack returned error 55 (player
+    // already left the tile). Their entry stays in the list until the server
+    // refreshes it, and attacking them again just wastes retries.
+    const ghosts = PVP._tileGhosts || new Set();
     let enemies = $("#player_list_con .player").filter(function () {
-      return $(this).find(".timer").length === 0;
+      if ($(this).find(".timer").length !== 0) return false;
+      if (ghosts.size > 0) {
+        const cid = parseInt($(this).find("button[data-quick=1]").attr('data-char_id'), 10);
+        if (ghosts.has(cid)) return false;
+      }
+      return true;
     }).find("button[data-quick=1]:not(.initial_hide_forced)");
     const enemyCount = enemies.length;
 
-    // Cleanup logic — wait only if there are FOREIGN cooldowns left (players we
-    // didn't hit; their cooldown was set by someone else and may be short).
-    // If all remaining cooldowns are OURS (post-attack ~1-2 min), exit immediately.
-    // Up to 3 passes × 800ms = 2.4s budget to catch foreign cooldowns expiring.
+    // Cleanup logic — only wait if someone's cooldown is about to expire NOW.
+    // Each .timer has data-end=<unix seconds>. Compute the smallest remaining
+    // cooldown across all players on the tile. If even the soonest is >5s, no
+    // sense waiting — go. If it's small, wait precisely that long (cap ~3s).
+    // This kills the long pause when the only "blocker" is a 4-minute foreign
+    // cooldown (we can't attack them anyway).
     if (enemyCount === 0) {
-      const totalPlayers = $("#player_list_con .player").length;
-      const foreignCooldowns = totalPlayers - (PVP._myClicksThisCycle || 0);
-      if (foreignCooldowns > 0 && (PVP._cleanupPasses || 0) < 3) {
-        PVP._cleanupPasses = (PVP._cleanupPasses || 0) + 1;
-        window.setTimeout(() => this.attackLoop(), 800);
+      const now = GAME.getTime();
+      const cooldowns = [];
+      $("#player_list_con .player .timer").each(function () {
+        const end = parseInt($(this).attr('data-end'), 10);
+        if (end > 0) cooldowns.push(end - now);
+      });
+      const minCd = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
+      const CLEANUP_THRESHOLD_S = 5;
+
+      const moveOn = () => {
+        PVP.attackRetries = 0;
+        PVP.tileRetries = 0;
+        PVP._cleanupPasses = 0;
+        PVP.caseNumber++;
+        kom_clear();
+        window.setTimeout(() => this.start(), PVP.wait);
+      };
+
+      if (minCd > CLEANUP_THRESHOLD_S || minCd <= 0) {
+        moveOn();
         return;
       }
-      PVP.attackRetries = 0;
-      PVP.tileRetries = 0;
-      PVP._cleanupPasses = 0;
-      PVP.caseNumber++;
-      kom_clear();
-      window.setTimeout(() => this.start(), PVP.wait);
+      if ((PVP._cleanupPasses || 0) < 2) {
+        PVP._cleanupPasses = (PVP._cleanupPasses || 0) + 1;
+        const waitMs = Math.min(3000, minCd * 1000 + 200);
+        window.setTimeout(() => this.attackLoop(), waitMs);
+        return;
+      }
+      moveOn();
       return;
     }
 
@@ -309,9 +337,11 @@ const AFO_PVP = {
     // we re-enter attackLoop in ~5-10ms instead of waiting full getAttackDelay().
     // eq(0) — list is sorted with attackable players on top; rotating index attacks
     // already-attacked players further down (visible cooldown = wasted click).
+    const $btn = enemies.eq(0);
+    PVP._lastAttackTarget = parseInt($btn.attr('data-char_id'), 10) || null;
     PVP._awaitingFight = true;
     PVP._myClicksThisCycle = (PVP._myClicksThisCycle || 0) + 1;
-    enemies.eq(0).click();
+    $btn.click();
 
     const attackDelay = this.getAttackDelay();
     const checkAndContinue = (attempts) => {
@@ -474,49 +504,141 @@ const AFO_PVP = {
     window.setTimeout(() => this.start(), PVP.wait / this.getSpeedMultiplier());
   },
 
-  cofanie() {
-    PVP.x = GAME.char_data.x;
-    if (PVP.x >= 7) {
-      this.go_down();
-    } else {
-      GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
-      window.setTimeout(() => this.cofanie(), this.scaleDelay(150, 30, 200));
+  // Direction → expected delta(x,y). Matches bigcode dir codes.
+  // 1=down 2=up 3=down-right 5=up-right 7=right 8=left
+  _moveDelta(dir) {
+    switch (dir) {
+      case 1: return { dx: 0, dy: 1 };
+      case 2: return { dx: 0, dy: -1 };
+      case 3: return { dx: 1, dy: 1 };
+      case 5: return { dx: 1, dy: -1 };
+      case 7: return { dx: 1, dy: 0 };
+      case 8: return { dx: -1, dy: 0 };
+      default: return { dx: 0, dy: 0 };
     }
   },
 
-  prawodol() {
-    GAME.emitOrder({ a: 4, dir: 3, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
-  },
+  // Movement cadence. Bigcode move_speed=250 is the animation duration, not a
+  // hard rate limit — empirically the server accepts same-direction emits at
+  // ~30ms intervals (observed: 5 tiles in 282ms). What actually gets dropped is
+  // a *direction change* sent too soon after another emit (manifested as the
+  // y=11 loop: dir=7 spam landed, follow-up dir=1 was emitted ~32ms later and
+  // ignored). So we use two cooldowns:
+  //   - TURN: 250ms when the new direction differs from the previous emit.
+  //   - SAME: scales with the speed slider (60-250ms) so it actually does
+  //     something — was the bug user reported after the first fix.
+  MOVE_COOLDOWN_TURN_MS: 250,
+  MOVE_COOLDOWN_SAME_BASE_MS: 250,
+  MOVE_COOLDOWN_SAME_MIN_MS: 60,
 
-  prawogora() {
-    GAME.emitOrder({ a: 4, dir: 5, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
-  },
-
-  go_up() {
-    GAME.emitOrder({ a: 4, dir: 2, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
-  },
-
-  go_down() {
-    GAME.emitOrder({ a: 4, dir: 1, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
-  },
-
-  go_left() {
-    GAME.emitOrder({ a: 4, dir: 8, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
-  },
-
-  go_right() {
-    GAME.emitOrder({ a: 4, dir: 7, vo: GAME.map_options.vo });
-    this.waitForLoad(() => this.start());
+  getMoveCooldown(dir) {
+    const lastDir = PVP._lastMoveDir;
+    if (lastDir !== undefined && lastDir !== dir) return this.MOVE_COOLDOWN_TURN_MS;
+    const mul = this.getSpeedMultiplier(); // speed/50
+    return Math.min(
+      this.MOVE_COOLDOWN_TURN_MS,
+      Math.max(this.MOVE_COOLDOWN_SAME_MIN_MS, Math.round(this.MOVE_COOLDOWN_SAME_BASE_MS / mul))
+    );
   },
 
   /**
-   * Wait for game loading to complete before executing callback
-   * Speed affects how long to wait after loading (walking speed)
+   * Emit one movement and wait for char_data to actually update (not just for
+   * #loader to vanish). Eliminates the race where go()/cofanie() re-reads stale
+   * char_data and re-issues the same direction.
+   *
+   * Respects MOVE_COOLDOWN_MS — if previous emit was less than that ago, we
+   * defer this one. Polls every 15ms up to 600ms after emit; calls cb once
+   * position changes or budget expires.
+   */
+  moveAndVerify(dir, cb) {
+    if (PVP.stop) return;
+
+    // Defer if previous emit was too recent. Cooldown depends on whether this
+    // is a direction change (sticky 250ms) or continuation (speed-scaled).
+    const requiredCd = this.getMoveCooldown(dir);
+    const now = performance.now();
+    const since = now - (PVP._lastMoveT || 0);
+    if (since < requiredCd) {
+      window.setTimeout(() => this.moveAndVerify(dir, cb), requiredCd - since);
+      return;
+    }
+
+    const startX = GAME.char_data.x;
+    const startY = GAME.char_data.y;
+    const { dx, dy } = this._moveDelta(dir);
+    const targetX = startX + dx;
+    const targetY = startY + dy;
+
+    PVP._lastMoveT = now;
+    PVP._lastMoveDir = dir;
+    GAME.emitOrder({ a: 4, dir: dir, vo: GAME.map_options.vo });
+
+    const t0 = now;
+    const TIMEOUT_MS = 600;
+    const poll = () => {
+      if (PVP.stop) return;
+      const cx = GAME.char_data.x;
+      const cy = GAME.char_data.y;
+      if (cx === targetX && cy === targetY) {
+        // Tiny settle delay so subsequent DOM (player_list) is fresh.
+        window.setTimeout(cb, 10);
+        return;
+      }
+      if (cx !== startX || cy !== startY) {
+        // Combat push / unexpected — exit, let go() re-evaluate.
+        window.setTimeout(cb, 10);
+        return;
+      }
+      if (performance.now() - t0 > TIMEOUT_MS) {
+        cb();
+        return;
+      }
+      window.setTimeout(poll, 15);
+    };
+    window.setTimeout(poll, 15);
+  },
+
+  /**
+   * Cofanie — z 2|11 wracamy w prawo aż do x=7, potem schodzimy w dół.
+   * Każdy krok czeka na faktyczną zmianę char_data.x (brak spamu emitów).
+   */
+  cofanie() {
+    if (PVP.stop) return;
+    PVP.x = GAME.char_data.x;
+    if (PVP.x >= 7) {
+      this.go_down();
+      return;
+    }
+    this.moveAndVerify(7, () => this.cofanie());
+  },
+
+  prawodol() {
+    this.moveAndVerify(3, () => this.start());
+  },
+
+  prawogora() {
+    this.moveAndVerify(5, () => this.start());
+  },
+
+  go_up() {
+    this.moveAndVerify(2, () => this.start());
+  },
+
+  go_down() {
+    this.moveAndVerify(1, () => this.start());
+  },
+
+  go_left() {
+    this.moveAndVerify(8, () => this.start());
+  },
+
+  go_right() {
+    this.moveAndVerify(7, () => this.start());
+  },
+
+  /**
+   * Legacy fallback. Kept for any callers that still use it (none in current pvp.js,
+   * but glebia.js / other modules may share the file).
    */
   waitForLoad(callback) {
     if (PVP.stop) return;
@@ -524,7 +646,6 @@ const AFO_PVP = {
     if (GAME.is_loading || $("#loader").is(":visible")) {
       window.setTimeout(() => this.waitForLoad(callback), 50);
     } else {
-      // Speed affects walking delay: higher speed = shorter delay = faster walking
       const walkDelay = Math.max(20, 200 / this.getSpeedMultiplier());
       window.setTimeout(callback, walkDelay);
     }
@@ -615,13 +736,24 @@ const AFO_PVP = {
     return (PVP.speed || 50) >= 150;
   },
 
-  // Idempotent socket listener for fight responses (a:7).
-  // Sets _awaitingFight=false so attackLoop can fire next attack without fixed delay.
+  // Idempotent socket listener for fight responses (a:7) and ghost detection.
+  // - a:7 → flip _awaitingFight so attackLoop can fire next attack without fixed delay.
+  // - error 55 ("player not on tile") → mark last target as ghost so the next
+  //   attackLoop pass skips them and tries the rest of the tile instead of
+  //   burning 20 retries on a player who already walked off.
   _bindGrListener() {
     if (PVP._grBound || !GAME || !GAME.socket) return;
     PVP._grBound = true;
     GAME.socket.on('gr', (res) => {
-      if (res && res.a === 7 && !res.game_progress) {
+      if (!res) return;
+      // Ghost detection — error 55 can land in either field depending on flow.
+      if ((res.e === 55 || res.me === 55) && PVP._lastAttackTarget) {
+        if (!PVP._tileGhosts) PVP._tileGhosts = new Set();
+        PVP._tileGhosts.add(PVP._lastAttackTarget);
+        PVP._awaitingFight = false;
+        return;
+      }
+      if (res.a === 7 && !res.game_progress) {
         PVP._awaitingFight = false;
         PVP._lastFightRes = res;
       }

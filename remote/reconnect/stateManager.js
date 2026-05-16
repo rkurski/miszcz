@@ -46,7 +46,7 @@ const AFO_STATE_MANAGER = {
 
     // GLEBIA (Głębia)
     GLEBIA: [
-      'stop', 'code', 'kontoTP', 'speed'
+      'stop', 'code', 'kontoTP', 'speed', 'rajskaSala'
     ],
 
     // CODE (Kody/Trening)
@@ -468,6 +468,8 @@ const AFO_STATE_MANAGER = {
 
       setStatus('.glebia_code .glebia_status', glebia.code);
       setStatus('.glebia_konto .glebia_status', glebia.kontoTP);
+      // Rajska Sala defaults to true if missing from older state snapshots.
+      setStatus('.glebia_sala .glebia_status', glebia.rajskaSala !== false);
 
       // Code -> konto visibility
       if (glebia.code) {
