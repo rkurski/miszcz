@@ -50,7 +50,8 @@ const AFO_SOUL_CARD_SETS = {
       33, // Dyspo
       45, // Vados
       44, // Whis
-      46 // Kapłan
+      46, // Kapłan
+      55 // Ro Kaioshin
     ],
     'Trening': [
       2, // Vegeta
@@ -61,7 +62,8 @@ const AFO_SOUL_CARD_SETS = {
       20, // Cheelai
       21, // Beerus
       40, // Champa
-      45 // Vados
+      45, // Vados
+      55 // Ro Kaioshin
     ],
     'Senzu': [
       40, // Champa
@@ -72,7 +74,8 @@ const AFO_SOUL_CARD_SETS = {
       14, // Videl
       7, // Gohan
       8, // Pan
-      44 // Whis
+      44, // Whis
+      53 // Shin
     ],
     'Kryształy': [
       41, // Yamcha
@@ -80,7 +83,8 @@ const AFO_SOUL_CARD_SETS = {
       17, // Brolly DBS
       20, // Cheelai
       9, // Trunks
-      45 // Vados
+      45, // Vados
+      50 // Kale
     ],
     'Exp': [
       31, // Toppo
@@ -91,7 +95,8 @@ const AFO_SOUL_CARD_SETS = {
       12, // Roshi
       44, // Whis
       45, // Vados
-      46 // Kapłan
+      46, // Kapłan
+      50 // Kale
     ],
     'Moc': [
       32, // Jiren
@@ -102,7 +107,8 @@ const AFO_SOUL_CARD_SETS = {
       22, // Hit
       44, // Whis
       45, // Vados
-      46 // Kapłan
+      46, // Kapłan
+      48 // Cabba
     ],
     'PvP': [
       1, // Goku
@@ -114,6 +120,7 @@ const AFO_SOUL_CARD_SETS = {
       45, // Vados
       46, // Kapłan
       24, // Vegito
+      53 // Shin
     ],
     'Zbierajki': [
       10, // Bulma
@@ -122,6 +129,8 @@ const AFO_SOUL_CARD_SETS = {
       31, // Toppo
       33, // Dyspo
       24, // Vegito
+      55, // Ro Kaioshin
+      56 // Kaio
     ],
     'Ulepszanie': [
       37, // Doctor Gero
@@ -134,7 +143,18 @@ const AFO_SOUL_CARD_SETS = {
       10, // Bulma
       44, // Whis
     ],
-    'Smocze kule': [
+    'Mega/Hiper': [
+      55, // Ro Kaioshin
+      53, // Shin
+      56, // Kaio
+      54, // Kibito
+      44, // Whis
+      40, // Champa
+      21, // Berus
+      37, // Doctor Gero
+      38 // Decotr Myu
+    ],
+    'Nagrody PSK/SK': [
       26, // Dende
       10, // Bulma
       1, // Goku
@@ -144,6 +164,7 @@ const AFO_SOUL_CARD_SETS = {
       41, // Yamcha
       25, // Freezer
       23, // Teen Gohan
+      53 // Shin
     ]
   },
 
@@ -235,7 +256,7 @@ const AFO_SOUL_CARD_SETS = {
 
     if (!hasSlotClass) {
       console.log('[SoulCardSets] Cards page not loaded, fetching data...');
-      GAME.emitOrder({a: 58, type: 0});
+      GAME.emitOrder({ a: 58, type: 0 });
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },
