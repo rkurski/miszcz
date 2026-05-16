@@ -32,6 +32,9 @@ const AFO_SOUL_CARD_SETS = {
   // Max retry dla weryfikacji założenia karty
   MAX_EQUIP_RETRIES: 3,
 
+  // Max retry dla pełnego wyczyszczenia slotów
+  MAX_CLEAR_RETRIES: 4,
+
   // ============================================
   // ZESTAWY KART - EDYTUJ TUTAJ
   // ============================================
@@ -50,7 +53,8 @@ const AFO_SOUL_CARD_SETS = {
       33, // Dyspo
       45, // Vados
       44, // Whis
-      46 // Kapłan
+      46, // Kapłan
+      55 // Ro Kaioshin
     ],
     'Trening': [
       2, // Vegeta
@@ -61,7 +65,8 @@ const AFO_SOUL_CARD_SETS = {
       20, // Cheelai
       21, // Beerus
       40, // Champa
-      45 // Vados
+      45, // Vados
+      55 // Ro Kaioshin
     ],
     'Senzu': [
       40, // Champa
@@ -72,7 +77,8 @@ const AFO_SOUL_CARD_SETS = {
       14, // Videl
       7, // Gohan
       8, // Pan
-      44 // Whis
+      44, // Whis
+      53 // Shin
     ],
     'Kryształy': [
       41, // Yamcha
@@ -80,7 +86,8 @@ const AFO_SOUL_CARD_SETS = {
       17, // Brolly DBS
       20, // Cheelai
       9, // Trunks
-      45 // Vados
+      45, // Vados
+      50 // Kale
     ],
     'Exp': [
       31, // Toppo
@@ -91,7 +98,8 @@ const AFO_SOUL_CARD_SETS = {
       12, // Roshi
       44, // Whis
       45, // Vados
-      46 // Kapłan
+      46, // Kapłan
+      50 // Kale
     ],
     'Moc': [
       32, // Jiren
@@ -102,7 +110,8 @@ const AFO_SOUL_CARD_SETS = {
       22, // Hit
       44, // Whis
       45, // Vados
-      46 // Kapłan
+      46, // Kapłan
+      48 // Cabba
     ],
     'PvP': [
       1, // Goku
@@ -114,6 +123,7 @@ const AFO_SOUL_CARD_SETS = {
       45, // Vados
       46, // Kapłan
       24, // Vegito
+      53 // Shin
     ],
     'Zbierajki': [
       10, // Bulma
@@ -122,6 +132,8 @@ const AFO_SOUL_CARD_SETS = {
       31, // Toppo
       33, // Dyspo
       24, // Vegito
+      55, // Ro Kaioshin
+      56 // Kaio
     ],
     'Ulepszanie': [
       37, // Doctor Gero
@@ -134,7 +146,18 @@ const AFO_SOUL_CARD_SETS = {
       10, // Bulma
       44, // Whis
     ],
-    'Smocze kule': [
+    'Mega/Hiper': [
+      55, // Ro Kaioshin
+      53, // Shin
+      56, // Kaio
+      54, // Kibito
+      44, // Whis
+      40, // Champa
+      21, // Berus
+      37, // Doctor Gero
+      38 // Decotr Myu
+    ],
+    'Nagrody PSK/SK': [
       26, // Dende
       10, // Bulma
       1, // Goku
@@ -144,6 +167,7 @@ const AFO_SOUL_CARD_SETS = {
       41, // Yamcha
       25, // Freezer
       23, // Teen Gohan
+      53 // Shin
     ]
   },
 
@@ -235,7 +259,7 @@ const AFO_SOUL_CARD_SETS = {
 
     if (!hasSlotClass) {
       console.log('[SoulCardSets] Cards page not loaded, fetching data...');
-      GAME.emitOrder({a: 58, type: 0});
+      GAME.emitOrder({ a: 58, type: 0 });
       await this.delay(this.DELAY_PAGE_SWITCH);
     }
   },
@@ -257,24 +281,61 @@ const AFO_SOUL_CARD_SETS = {
   },
 
   /**
-   * Czyści wszystkie sloty
+   * Liczy ile slotów wciąż ma założoną kartę
+   * @param {number} slotCount
+   * @returns {number}
+   */
+  countOccupiedSlots(slotCount) {
+    let count = 0;
+    for (let slot = 1; slot <= slotCount; slot++) {
+      if ($(`#card_slot${slot}`).find('.small_card').length > 0) {
+        count++;
+      }
+    }
+    return count;
+  },
+
+  /**
+   * Czyści wszystkie sloty z retry — gwarantuje że WSZYSTKIE karty zostaną zdjęte
+   * przed zakończeniem (lub rzuca błąd jeśli się nie da).
    * @param {number} slotCount - Liczba slotów do wyczyszczenia
    */
   async clearAllSlots(slotCount) {
     console.log(`[SoulCardSets] Clearing ${slotCount} slots...`);
 
-    for (let slot = 1; slot <= slotCount; slot++) {
-      const slotElement = $(`#card_slot${slot}`);
+    for (let attempt = 1; attempt <= this.MAX_CLEAR_RETRIES; attempt++) {
+      let requestsSent = 0;
 
-      // Sprawdź czy slot ma założoną kartę
-      if (slotElement.find('.small_card').length > 0) {
-        GAME.emitOrder({ a: 58, type: 2, slot: slot });
-        await this.delay(this.DELAY_BETWEEN_ACTIONS);
+      for (let slot = 1; slot <= slotCount; slot++) {
+        if ($(`#card_slot${slot}`).find('.small_card').length > 0) {
+          GAME.emitOrder({ a: 58, type: 2, slot: slot });
+          requestsSent++;
+          await this.delay(this.DELAY_BETWEEN_ACTIONS);
+        }
       }
+
+      // Nic do zdjęcia — wszystkie sloty już puste
+      if (requestsSent === 0) {
+        console.log(`[SoulCardSets] All slots clear (attempt ${attempt})`);
+        return;
+      }
+
+      // Daj serwerowi/DOM-owi czas na zsynchronizowanie się po batchu zdjęć
+      await this.delay(this.DELAY_BETWEEN_ACTIONS * 3);
+
+      const remaining = this.countOccupiedSlots(slotCount);
+      if (remaining === 0) {
+        console.log(`[SoulCardSets] All slots cleared after attempt ${attempt}`);
+        return;
+      }
+
+      console.warn(`[SoulCardSets] ${remaining} slot(s) still occupied after attempt ${attempt}, retrying...`);
     }
 
-    // Poczekaj chwilę na synchronizację
-    await this.delay(this.DELAY_BETWEEN_ACTIONS);
+    const stillOccupied = this.countOccupiedSlots(slotCount);
+    if (stillOccupied > 0) {
+      throw new Error(`Nie udało się zdjąć wszystkich kart (zostało ${stillOccupied})`);
+    }
   },
 
   /**

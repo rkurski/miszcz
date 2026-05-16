@@ -40,6 +40,7 @@ const GLEBIA = {
   // Options
   code: false,
   kontoTP: false,
+  rajskaSala: true,  // ON by default — obij also Głębia Rajskiej Sali
   speed: 50
 };
 
@@ -118,6 +119,18 @@ const AFO_GLEBIA = {
       }
     });
 
+    // Rajska Sala toggle — when OFF, bot stays in Głębia and skips the loc=2 transit.
+    $('#glebia_Panel .glebia_sala').click(() => {
+      if (GLEBIA.rajskaSala) {
+        $(".glebia_sala .glebia_status").removeClass("green").addClass("red").html("Off");
+        GLEBIA.rajskaSala = false;
+      } else {
+        $(".glebia_sala .glebia_status").removeClass("red").addClass("green").html("On");
+        GLEBIA.rajskaSala = true;
+      }
+      this.saveRajskaSala();
+    });
+
     // Speed input handler
     $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
       GLEBIA.speed = parseInt($(e.target).val()) || 50;
@@ -127,11 +140,27 @@ const AFO_GLEBIA = {
     // Initially hide konto button
     $('#glebia_Panel .glebia_konto').hide();
 
-    // Load saved speed
+    // Load saved speed + sala toggle state
     this.loadSpeed();
+    this.loadRajskaSala();
     $('#glebia_Panel input[name=glebia_speed]').val(GLEBIA.speed);
+    // Reflect sala toggle on the panel
+    if (GLEBIA.rajskaSala) {
+      $(".glebia_sala .glebia_status").removeClass("red").addClass("green").html("On");
+    } else {
+      $(".glebia_sala .glebia_status").removeClass("green").addClass("red").html("Off");
+    }
 
     console.log('[AFO_GLEBIA] Handlers bound');
+  },
+
+  saveRajskaSala() {
+    localStorage.setItem('glebia_rajska_sala', GLEBIA.rajskaSala ? '1' : '0');
+  },
+
+  loadRajskaSala() {
+    const saved = localStorage.getItem('glebia_rajska_sala');
+    if (saved !== null) GLEBIA.rajskaSala = saved === '1';
   },
 
   // ============================================
@@ -174,18 +203,91 @@ const AFO_GLEBIA = {
     return (GLEBIA.speed || 50) >= 150;
   },
 
-  // Idempotent socket listener for fight responses (a:7).
-  // Sets _awaitingFight=false so attackLoop can fire next attack without fixed delay.
+  // === Move cooldown machinery (mirror of AFO_PVP — see pvp.js for rationale) ===
+  MOVE_COOLDOWN_TURN_MS: 250,
+  MOVE_COOLDOWN_SAME_BASE_MS: 250,
+  MOVE_COOLDOWN_SAME_MIN_MS: 60,
+
+  getMoveCooldown(dir) {
+    const lastDir = GLEBIA._lastMoveDir;
+    if (lastDir !== undefined && lastDir !== dir) return this.MOVE_COOLDOWN_TURN_MS;
+    const mul = this.getSpeedMultiplier();
+    return Math.min(
+      this.MOVE_COOLDOWN_TURN_MS,
+      Math.max(this.MOVE_COOLDOWN_SAME_MIN_MS, Math.round(this.MOVE_COOLDOWN_SAME_BASE_MS / mul))
+    );
+  },
+
+  _moveDelta(dir) {
+    switch (dir) {
+      case 1: return { dx: 0, dy: 1 };
+      case 2: return { dx: 0, dy: -1 };
+      case 3: return { dx: 1, dy: 1 };
+      case 4: return { dx: -1, dy: 1 };
+      case 5: return { dx: 1, dy: -1 };
+      case 6: return { dx: -1, dy: -1 };
+      case 7: return { dx: 1, dy: 0 };
+      case 8: return { dx: -1, dy: 0 };
+      default: return { dx: 0, dy: 0 };
+    }
+  },
+
+  moveAndVerify(dir, cb) {
+    if (GLEBIA.stop) return;
+    const requiredCd = this.getMoveCooldown(dir);
+    const now = performance.now();
+    const since = now - (GLEBIA._lastMoveT || 0);
+    if (since < requiredCd) {
+      setTimeout(() => this.moveAndVerify(dir, cb), requiredCd - since);
+      return;
+    }
+
+    const startX = GAME.char_data.x;
+    const startY = GAME.char_data.y;
+    const { dx, dy } = this._moveDelta(dir);
+    const targetX = startX + dx;
+    const targetY = startY + dy;
+
+    GLEBIA._lastMoveT = now;
+    GLEBIA._lastMoveDir = dir;
+    GAME.emitOrder({ a: 4, dir: dir, vo: GAME.map_options.vo });
+
+    const t0 = now;
+    const TIMEOUT_MS = 600;
+    const poll = () => {
+      if (GLEBIA.stop) return;
+      const cx = GAME.char_data.x;
+      const cy = GAME.char_data.y;
+      if (cx === targetX && cy === targetY) { setTimeout(cb, 10); return; }
+      if (cx !== startX || cy !== startY) { setTimeout(cb, 10); return; }
+      if (performance.now() - t0 > TIMEOUT_MS) { cb(); return; }
+      setTimeout(poll, 15);
+    };
+    setTimeout(poll, 15);
+  },
+
+  // Idempotent socket listener for fight responses (a:7) and ghost detection.
+  // - a:7 → flip _awaitingFight for event-driven attack pacing.
+  // - error 55 ("player not on tile") → mark last target as ghost so we skip
+  //   them on the next attackLoop pass instead of burning 20 retries on a
+  //   player who already walked off (matters on crowded Głębia tiles).
   _bindGrListener() {
     if (GLEBIA._grBound || !GAME || !GAME.socket) return;
     GLEBIA._grBound = true;
     GAME.socket.on('gr', (res) => {
-      if (res && res.a === 7 && !res.game_progress) {
+      if (!res) return;
+      if ((res.e === 55 || res.me === 55) && GLEBIA._lastAttackTarget) {
+        if (!GLEBIA._tileGhosts) GLEBIA._tileGhosts = new Set();
+        GLEBIA._tileGhosts.add(GLEBIA._lastAttackTarget);
+        GLEBIA._awaitingFight = false;
+        return;
+      }
+      if (res.a === 7 && !res.game_progress) {
         GLEBIA._awaitingFight = false;
         GLEBIA._lastFightRes = res;
       }
     });
-    console.log('[AFO_GLEBIA] gr listener bound (event-driven attack)');
+    console.log('[AFO_GLEBIA] gr listener bound (ghost-aware)');
   },
 
   saveSpeed() {
@@ -282,11 +384,19 @@ const AFO_GLEBIA = {
     } else if (x === 15 && y === 15 && GLEBIA.move3 && GLEBIA.loc === 2) {
       this.cofanie();
     } else if (x === 2 && y === 11 && GLEBIA.loc === 1 && GLEBIA.move1) {
-      this.przejdz();
-      setTimeout(() => { this.move(7); }, this.scaleDelay(1000, 150, 1200));
+      // Toggle off — instead of entering Rajska Sala, behave as if we just
+      // returned from the teleport: reset move1 and let the default branch
+      // walk right (move(7) → 3|11 → ... → 10|11 → cofanie2 up). Calling
+      // cofanie2() directly from 2|11 emits dir=2 which is blocked (2|10
+      // unreachable) — server keeps spamming "Ruch niemożliwy".
+      if (GLEBIA.rajskaSala === false) {
+        GLEBIA.move1 = false;
+        setTimeout(() => this.start(), GLEBIA.wait);
+        return;
+      }
+      this.przejdzWithRetry();
     } else if (x === 1 && y === 1 && GLEBIA.loc === 2 && GLEBIA.move3) {
-      this.przejdz();
-      setTimeout(() => { this.move(7); }, this.scaleDelay(1000, 150, 1200));
+      this.przejdzWithRetry();
     } else if (((x === 7 && y === 7) && GLEBIA.loc === 2 && GLEBIA.move2) ||
       (x === 9 && y === 7 && GLEBIA.loc === 2 && GLEBIA.move2)) {
       this.move(3);
@@ -352,59 +462,110 @@ const AFO_GLEBIA = {
   },
 
   cofanie() {
+    if (GLEBIA.stop) return;
     const y = GAME.char_data.y;
     if (y <= 1) {
       setTimeout(() => this.start(), GLEBIA.wait);
-    } else {
-      GAME.emitOrder({ a: 4, dir: 6, vo: GAME.map_options.vo });
-      setTimeout(() => { this.cofanie(); }, this.scaleDelay(50, 15, 80));
+      return;
     }
+    this.moveAndVerify(6, () => this.cofanie());
   },
 
   cofanie2() {
+    if (GLEBIA.stop) return;
     const y = GAME.char_data.y;
     if (y <= 2) {
       setTimeout(() => this.start(), GLEBIA.wait);
-    } else {
-      GAME.emitOrder({ a: 4, dir: 2, vo: GAME.map_options.vo });
-      GLEBIA.move1 = true;
-      setTimeout(() => { this.cofanie2(); }, this.scaleDelay(50, 15, 80));
+      return;
     }
+    GLEBIA.move1 = true;
+    this.moveAndVerify(2, () => this.cofanie2());
   },
 
   move(direction) {
-    const valid = [2, 1, 8, 7, 5, 4, 3];
+    const valid = [1, 2, 3, 4, 5, 6, 7, 8];
     if (!valid.includes(direction)) return;
-
-    GAME.emitOrder({ a: 4, dir: direction, vo: GAME.map_options.vo });
-
-    // Wait for map to load before continuing (prevents skipping tiles)
-    this.waitForLoad(() => {
-      setTimeout(() => this.start(), GLEBIA.wait);
-    });
+    this.moveAndVerify(direction, () => setTimeout(() => this.start(), GLEBIA.wait));
   },
 
   /**
-   * Wait for game loading to complete before executing callback
-   * Speed affects how long to wait after loading (walking speed)
+   * Legacy fallback. Kept for any callers that still use it.
    */
   waitForLoad(callback) {
     if (GLEBIA.stop) return;
-
     if (GAME.is_loading || $("#loader").is(":visible")) {
       setTimeout(() => this.waitForLoad(callback), 50);
     } else {
-      // Speed affects walking delay: higher speed = shorter delay = faster walking
-      // Base: 200ms at speed 10, ~20ms at speed 100
       const walkDelay = Math.max(20, 200 / this.getSpeedMultiplier());
       setTimeout(callback, walkDelay);
     }
   },
 
   przejdz() {
+    // Respect MOVE_COOLDOWN_TURN_MS — emit a:6 fired too soon after the
+    // preceding a:4 gets silently dropped by the server.
+    const now = performance.now();
+    const since = now - (GLEBIA._lastMoveT || 0);
+    const cooldown = this.MOVE_COOLDOWN_TURN_MS || 250;
+    if (since < cooldown) {
+      setTimeout(() => this.przejdz(), cooldown - since);
+      return;
+    }
     GAME.emitOrder({ a: 6, tpid: 0 });
     GLEBIA.move3 = false;
     GLEBIA.move1 = false;
+    GLEBIA._lastMoveT = now;
+  },
+
+  /**
+   * Teleport with retry. Empirically the server sometimes responds GR a:6 e=0
+   * (formal success) but never follows up with the a:3 loadMap when the
+   * character is "fresh from combat" — char_data.loc stays the same. Manual
+   * console test always works because the character is idle. Retry up to N
+   * times with a 1s pause; that pause lets any post-fight server state settle.
+   */
+  przejdzWithRetry(retries) {
+    if (GLEBIA.stop) return;
+    if (retries === undefined) retries = 3;
+    const startLoc = GAME.char_data.loc;
+    this.przejdz();
+    this.waitForLocChange(() => {
+      if (GLEBIA.stop) return;
+      if (GAME.char_data.loc !== startLoc) {
+        setTimeout(() => this.start(), GLEBIA.wait);
+        return;
+      }
+      if (retries > 0) {
+        console.log('[GLEBIA] przejdz: loc unchanged, retrying (' + retries + ' left)');
+        setTimeout(() => this.przejdzWithRetry(retries - 1), 500);
+        return;
+      }
+      console.warn('[GLEBIA] przejdz: failed after retries, bailing');
+      setTimeout(() => this.start(), GLEBIA.wait);
+    });
+  },
+
+  /**
+   * Poll char_data.loc until it changes (or timeout). Used after przejdz() —
+   * the teleport ACK is fast but the actual loc change arrives via a separate
+   * a:3 (loadMap) response, normally within ~500ms. 1.5s gives margin without
+   * making retries painful when the server silently drops the teleport.
+   */
+  waitForLocChange(cb) {
+    if (GLEBIA.stop) return;
+    const startLoc = GAME.char_data.loc;
+    const t0 = performance.now();
+    const TIMEOUT_MS = 1500;
+    const poll = () => {
+      if (GLEBIA.stop) return;
+      if (GAME.char_data.loc !== startLoc) {
+        setTimeout(cb, 150);
+        return;
+      }
+      if (performance.now() - t0 > TIMEOUT_MS) { cb(); return; }
+      setTimeout(poll, 30);
+    };
+    setTimeout(poll, 30);
   },
 
   // ============================================
@@ -468,6 +629,7 @@ const AFO_GLEBIA = {
     GLEBIA.lastEnemyCount = -1;
     GLEBIA._cleanupPasses = 0;       // re-check counter for players coming off cooldown
     GLEBIA._myClicksThisCycle = 0;   // count of our own attack clicks on this tile
+    GLEBIA._tileGhosts = new Set();  // char_ids that returned "not on tile" — skip them
 
     this.attackLoop(startX, startY);
   },
@@ -511,29 +673,50 @@ const AFO_GLEBIA = {
     // covers cooldowns present at INITIAL render — cooldowns triggered by our
     // own attacks add a fresh `.timer` but leave the button without that class,
     // so we must filter at the `.player` level to avoid wasted clicks.
+    // Also skip "ghost" players — those whose attack returned error 55 (player
+    // left the tile mid-attack). On crowded Głębia tiles this previously cost
+    // up to 20 retries per ghost.
+    const ghosts = GLEBIA._tileGhosts || new Set();
     let enemies = $("#player_list_con .player").filter(function () {
-      return $(this).find(".timer").length === 0;
+      if ($(this).find(".timer").length !== 0) return false;
+      if (ghosts.size > 0) {
+        const cid = parseInt($(this).find("button[data-quick=1]").attr('data-char_id'), 10);
+        if (ghosts.has(cid)) return false;
+      }
+      return true;
     }).find("button[data-quick=1]:not(.initial_hide_forced)");
     const enemyCount = enemies.length;
 
-    // Cleanup logic — wait only if there are FOREIGN cooldowns left (players we
-    // didn't hit; their cooldown was set by someone else and may be short).
-    // If all remaining cooldowns are OURS (post-attack ~1-2 min), exit immediately.
-    // Up to 3 passes × 800ms = 2.4s budget to catch foreign cooldowns expiring.
+    // Cleanup logic — only wait if SOMEONE'S cooldown is about to expire NOW.
+    // Read data-end from .timer (unix seconds) to find the smallest remaining
+    // cooldown. If it's >5s we just go — no point standing around for a 4-min
+    // foreign cooldown we can't attack anyway.
     if (enemyCount === 0) {
-      const totalPlayers = $("#player_list_con .player").length;
-      const foreignCooldowns = totalPlayers - (GLEBIA._myClicksThisCycle || 0);
-      if (foreignCooldowns > 0 && (GLEBIA._cleanupPasses || 0) < 3) {
+      const now = GAME.getTime();
+      const cooldowns = [];
+      $("#player_list_con .player .timer").each(function () {
+        const end = parseInt($(this).attr('data-end'), 10);
+        if (end > 0) cooldowns.push(end - now);
+      });
+      const minCd = cooldowns.length ? Math.min.apply(null, cooldowns) : 0;
+      const CLEANUP_THRESHOLD_S = 5;
+      const self = this;
+      const moveOn = () => {
+        GLEBIA.attackRetries = 0;
+        GLEBIA.tileRetries = 0;
+        GLEBIA.isAttacking = false;
+        GLEBIA._cleanupPasses = 0;
+        GLEBIA.caseNumber++;
+        setTimeout(() => self.start(), GLEBIA.wait);
+      };
+      if (minCd > CLEANUP_THRESHOLD_S || minCd <= 0) { moveOn(); return; }
+      if ((GLEBIA._cleanupPasses || 0) < 2) {
         GLEBIA._cleanupPasses = (GLEBIA._cleanupPasses || 0) + 1;
-        setTimeout(() => this.attackLoop(startX, startY), 800);
+        const waitMs = Math.min(3000, minCd * 1000 + 200);
+        setTimeout(() => this.attackLoop(startX, startY), waitMs);
         return;
       }
-      GLEBIA.attackRetries = 0;
-      GLEBIA.tileRetries = 0;
-      GLEBIA.isAttacking = false;
-      GLEBIA._cleanupPasses = 0;
-      GLEBIA.caseNumber++;
-      setTimeout(() => this.start(), GLEBIA.wait);
+      moveOn();
       return;
     }
 
@@ -587,9 +770,11 @@ const AFO_GLEBIA = {
     // we re-enter attackLoop in ~5-10ms instead of waiting full getAttackDelay().
     // eq(0) — list is sorted with attackable players on top; rotating index attacks
     // already-attacked players further down (visible cooldown = wasted click).
+    const $btn = enemies.eq(0);
+    GLEBIA._lastAttackTarget = parseInt($btn.attr('data-char_id'), 10) || null;
     GLEBIA._awaitingFight = true;
     GLEBIA._myClicksThisCycle = (GLEBIA._myClicksThisCycle || 0) + 1;
-    enemies.eq(0).click();
+    $btn.click();
 
     const attackDelay = this.getAttackDelay();
     const checkAndContinue = (attempts) => {
