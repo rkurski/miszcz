@@ -30,6 +30,8 @@ const AFO_BALL_SEARCHER = {
   currentBallTarget: null,    // Aktualne koordynaty docelowej kuli
   isMoving: false,            // Czy się poruszamy
   isTeleporting: false,       // Czy teleportujemy
+  _moveWatchdog: null,        // Timeout — wybija bota gdy a:4 response nie przyjdzie
+  _teleportWatchdog: null,    // Timeout — wybija bota gdy teleport response nie przyjdzie
 
   // ============================================
   // INITIALIZATION
@@ -453,6 +455,8 @@ const AFO_BALL_SEARCHER = {
     if (!this.active || this.paused) return;
 
     this.paused = true;
+    // Avoid watchdogs firing recovery while user is intentionally paused.
+    this._clearWatchdogs();
     this.updatePopupStatus('⏸️ Wstrzymano');
     $('#bs_pause_btn').text('WZNÓW');
     $('#bs_paused_banner').show();
@@ -479,6 +483,7 @@ const AFO_BALL_SEARCHER = {
     this.paused = false;
     this.isMoving = false;
     this.isTeleporting = false;
+    this._clearWatchdogs();
 
     this.updatePopupStatus(`Zatrzymano: ${reason}`);
 
@@ -499,6 +504,7 @@ const AFO_BALL_SEARCHER = {
   pauseForManualPickup(ballX, ballY) {
     this.paused = true;
     this.isMoving = false;
+    this._clearWatchdogs();
 
     // Get all balls on this map for display
     const ballCoords = [];
@@ -629,7 +635,10 @@ const AFO_BALL_SEARCHER = {
 
     GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
 
-    // Teleport completion is handled in handleSockets
+    // Teleport completion is handled in handleSockets.
+    // Watchdog: on error (e>0) the success branch is never hit and the bot
+    // would block on isTeleporting=true forever.
+    this._armTeleportWatchdog(locId);
   },
 
   // ============================================
@@ -784,7 +793,46 @@ const AFO_BALL_SEARCHER = {
     }
 
     GAME.socket.emit('ga', { a: 4, dir: dir, vo: GAME.map_options.vo });
-    // Movement completion handled in handleSockets
+    // Movement completion handled in handleSockets.
+    // Watchdog: server may silently reject a move (blocked tile, desync) and
+    // never send case 4 back. Without this, the bot hangs forever.
+    this._armMoveWatchdog();
+  },
+
+  _armMoveWatchdog() {
+    if (this._moveWatchdog) clearTimeout(this._moveWatchdog);
+    this._moveWatchdog = setTimeout(() => {
+      this._moveWatchdog = null;
+      if (!this.active || !this.isMoving) return;
+      console.warn('[BALL_SEARCHER] Move watchdog — brak odpowiedzi a:4 w 5s, recovery');
+      this.isMoving = false;
+      this.Path = [];
+      this.currentBallTarget = null;
+      setTimeout(() => this.checkForBalls(), 500);
+    }, 5000);
+  },
+
+  _armTeleportWatchdog(locId) {
+    if (this._teleportWatchdog) clearTimeout(this._teleportWatchdog);
+    this._teleportWatchdog = setTimeout(() => {
+      this._teleportWatchdog = null;
+      if (!this.active || !this.isTeleporting) return;
+      console.warn('[BALL_SEARCHER] Teleport watchdog — brak odpowiedzi w 8s dla loc', locId);
+      this.isTeleporting = false;
+      this.currentLocationIndex++;
+      setTimeout(() => this.processNextLocation(), 500);
+    }, 8000);
+  },
+
+  _clearWatchdogs() {
+    if (this._moveWatchdog) {
+      clearTimeout(this._moveWatchdog);
+      this._moveWatchdog = null;
+    }
+    if (this._teleportWatchdog) {
+      clearTimeout(this._teleportWatchdog);
+      this._teleportWatchdog = null;
+    }
   },
 
   next() {
@@ -822,7 +870,12 @@ const AFO_BALL_SEARCHER = {
     const pickupButton = $('button.gold_button[data-option="pick_db"][data-id]');
 
     if (pickupButton.length === 0) {
-      console.log('[BALL_SEARCHER] No pickup button found');
+      // field_dball is populated by parseData(5) (case 602) — separate from
+      // a:4 movement response. If it's missing, the field-info update may not
+      // have arrived yet.
+      console.log('[BALL_SEARCHER] No pickup button found at',
+        GAME.char_data.x, GAME.char_data.y,
+        'field_dball=', GAME.field_dball);
       // Maybe ball was taken by someone else, check for more balls
       this.currentBallTarget = null;
       this.checkForBalls();
@@ -870,11 +923,19 @@ const AFO_BALL_SEARCHER = {
 
     // Movement completed
     if (res.a === 4 && res.char_id === GAME.char_id && this.isMoving) {
+      if (this._moveWatchdog) {
+        clearTimeout(this._moveWatchdog);
+        this._moveWatchdog = null;
+      }
       this.next();
     }
 
     // Teleport completed (map loaded)
     if (res.a === 12 && 'show_map' in res && this.isTeleporting) {
+      if (this._teleportWatchdog) {
+        clearTimeout(this._teleportWatchdog);
+        this._teleportWatchdog = null;
+      }
       this.isTeleporting = false;
       console.log('[BALL_SEARCHER] Teleport completed');
       setTimeout(() => this.checkForBalls(), 1200);
@@ -882,12 +943,25 @@ const AFO_BALL_SEARCHER = {
 
     // Ball pickup response
     if (res.a === 33) {
-      if (res.e === 0 || res.success) {
-        // Success
+      // Diagnostic: capture full response shape. Cheap (1 log per pickup, ~60s apart).
+      console.log('[BALL_SEARCHER] a:33 response', {
+        e: res.e,
+        hide_db: res.hide_db,
+        has_dbp: !!res.dbp,
+        success: res.success,
+        cd: res.cd
+      });
+
+      // Per bigcode case 33 (gr handler): server signals successful pickup by
+      // including res.hide_db (the "x_y" key of the collected ball). Keep the
+      // legacy e===0/success checks as defensive fallback.
+      if (res.hide_db || res.e === 0 || res.success) {
         this.handlePickupSuccess();
-      } else if (res.e === 2 || res.e === 3) {
-        // Ball already taken or error
-        console.log('[BALL_SEARCHER] Ball pickup failed, checking for more');
+      } else if (res.e && parseInt(res.e) > 0) {
+        // Any server-side error code — retry through checkForBalls.
+        // Previously only e===2||3 was handled, which missed cooldown (e=56)
+        // and other failures, leaving the bot stuck.
+        console.log('[BALL_SEARCHER] Ball pickup failed, e=', res.e);
         this.currentBallTarget = null;
         setTimeout(() => this.checkForBalls(), 500);
       }
