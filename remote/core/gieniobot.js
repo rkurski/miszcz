@@ -36,7 +36,6 @@
 // DEV_MODE = true  -> uses local files (edit and refresh, no waiting for GitHub)
 // DEV_MODE = false -> uses GitHub (for production/release)
 const GIENIOBOT_DEV_MODE = false;
-
 // Read extension URL from DOM element (set by content_script.js, CSP-safe)
 const configEl = document.getElementById('__gieniobot_config__');
 const GIENIOBOT_LOCAL_URL = configEl ? configEl.dataset.extensionUrl : '';
@@ -1122,7 +1121,7 @@ if (typeof GAME === 'undefined') {
         let pa = parseInt(pats);
         if (!pa || pa <= 0 || pa > 1000 || pa != pats) {
           pa = 1000;
-          $("#kws_spawn input[name=usePaToSpawn]").val(pa);
+          $("#kws_pa_max").val(pa);
         }
         GAME.spawner[0] = pa;
       }
