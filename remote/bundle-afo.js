@@ -9514,6 +9514,31 @@ const AFO_DAILY = {
       DAILY._anielskaTargetLoc = locId;
       GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
 
+      // Fallback: emit fires ~100ms after the last kill so the server can
+      // drop it silently (or return an error response without show_map),
+      // leaving _anielskaReturnTeleporting stuck. Mirrors retry pattern
+      // from onCombatComplete(). Guard: bail if response already handled.
+      setTimeout(() => {
+        if (DAILY.stop || DAILY.paused) return;
+        if (!DAILY._anielskaReturnTeleporting) return;
+
+        if (GAME.char_data.loc === locId) {
+          console.warn('[AFO_DAILY] Anielska: Return teleport response missed, continuing');
+          this.anielskaAfterReturnTeleport();
+          return;
+        }
+
+        console.warn('[AFO_DAILY] Anielska: Return teleport timeout, retrying emit');
+        GAME.socket.emit('ga', { a: 12, type: 18, loc: locId });
+
+        setTimeout(() => {
+          if (DAILY.stop || DAILY.paused) return;
+          if (!DAILY._anielskaReturnTeleporting) return;
+          console.error('[AFO_DAILY] Anielska: Return teleport final fallback');
+          this.anielskaAfterReturnTeleport();
+        }, 5000);
+      }, 5000);
+
       // Wait for teleport confirmation via anielskaAfterReturnTeleport
       // Called from handleSockets when a:12 with show_map is received
       return;
