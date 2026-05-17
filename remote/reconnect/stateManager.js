@@ -127,7 +127,7 @@ const AFO_STATE_MANAGER = {
         state.extra.usePaToSpawn = GAME.spawner[0];
       } else {
         // Fallback: try reading from input
-        const paInput = $('#kws_spawn input[name=usePaToSpawn]').val();
+        const paInput = $('#kws_pa_max').val();
         if (paInput) {
           state.extra.usePaToSpawn = parseInt(paInput, 10) || 1000;
         }
@@ -247,7 +247,7 @@ const AFO_STATE_MANAGER = {
         if (GAME.spawner) {
           GAME.spawner[0] = state.extra.usePaToSpawn;
         }
-        $('#kws_spawn input[name=usePaToSpawn]').val(state.extra.usePaToSpawn);
+        $('#kws_pa_max').val(state.extra.usePaToSpawn);
         console.log('[AFO_STATE_MANAGER] usePaToSpawn restored:', state.extra.usePaToSpawn);
       }
     }
