@@ -41,6 +41,11 @@
       { page: 10, page2: 1, page3: 2 }
     ];
 
+    // Track server-confirmed ekw page state (independent of GAME.ekw_page,
+    // which we set optimistically before the response lands and can desync).
+    let _lastEkwPage = null;
+    const _ekwWaiters = {};  // { page: [callback(success), ...] }
+
     // ============================================
     // CSS
     // ============================================
@@ -161,53 +166,135 @@
     }
 
     // ============================================
+    // EKW PAGE FETCH (parseData(15)-driven, replaces optimistic GAME.ekw_page)
+    // ============================================
+
+    // Hook parseData(case 15) to track which ekw page the server actually
+    // confirmed loading into #ekw_page_items. Without this, we relied on
+    // GAME.ekw_page (which we set BEFORE the response lands), so a stuck
+    // response or fast retry could leave us reading stale DOM → "Brak!".
+    function hookParseDataForEkw() {
+      if (!GAME.parseData) {
+        setTimeout(hookParseDataForEkw, 500);
+        return;
+      }
+      if (GAME._trainBlessPDHooked) return;
+      GAME._trainBlessPDHooked = true;
+
+      const origPD = GAME.parseData.bind(GAME);
+      GAME.parseData = function (type, res) {
+        origPD(type, res);
+        if (type === 15 && res && res.page !== undefined) {
+          _lastEkwPage = res.page;
+          const callbacks = _ekwWaiters[res.page];
+          if (callbacks && callbacks.length) {
+            _ekwWaiters[res.page] = [];
+            callbacks.forEach(cb => cb(true));
+          }
+        }
+      };
+      console.log('[TrainBless] Hooked into GAME.parseData (case 15)');
+    }
+
+    // Ensure #ekw_page_items currently contains items from the given page,
+    // emitting a:12 if needed. Resolves callback with success=true when the
+    // server's parseData(15) lands; false on 3s timeout.
+    //
+    // extraParams (e.g. page2/page3 for sub-categories) force a fresh emit
+    // because _lastEkwPage cache only tracks the top-level page id.
+    function ensureEkwPage(page, extraParams, cb) {
+      if (_lastEkwPage === page && !extraParams) {
+        cb(true);
+        return;
+      }
+
+      if (!_ekwWaiters[page]) _ekwWaiters[page] = [];
+      let fired = false;
+      const wrappedCb = (success) => {
+        if (fired) return;
+        fired = true;
+        clearTimeout(timeoutId);
+        cb(success);
+      };
+      _ekwWaiters[page].push(wrappedCb);
+
+      const timeoutId = setTimeout(() => {
+        const idx = _ekwWaiters[page].indexOf(wrappedCb);
+        if (idx >= 0) _ekwWaiters[page].splice(idx, 1);
+        wrappedCb(false);
+      }, 3000);
+
+      GAME.ekw_page = page;
+      const emitData = { a: 12, page: page, used: 1 };
+      if (extraParams) Object.assign(emitData, extraParams);
+      GAME.socket.emit('ga', emitData);
+    }
+
+    // ============================================
     // USE BLESSING (wzorzec z respawn.js:check_bless)
     // ============================================
 
-    function useBless(baseItemId, buffId, btnElement, fallbackIdx) {
-      // Find blessing config
+    function showNoItem(btnElement) {
+      const label = btnElement.querySelector('.bless-label');
+      const origText = label.textContent;
+      label.textContent = 'Brak!';
+      btnElement.classList.add('bless-no-item');
+      setTimeout(() => {
+        label.textContent = origText;
+        btnElement.classList.remove('bless-no-item');
+      }, 1500);
+    }
+
+    function findItemId(baseItemId) {
+      return $(`#ekw_page_items`).find(`div[data-base_item_id=${baseItemId}]`).attr('data-item_id');
+    }
+
+    function useBless(baseItemId, buffId, btnElement) {
+      // Per-button reentry guard — protects against rapid clicks consuming
+      // multiple items before the first use completes.
+      if (btnElement._afoBlessBusy) return;
+      btnElement._afoBlessBusy = true;
+      const finish = () => { btnElement._afoBlessBusy = false; };
+
       const bless = BLESSINGS.find(b => b.baseItemId === baseItemId);
-      const targetPage = bless ? bless.page : 10;
-      fallbackIdx = fallbackIdx || 0;
+      if (!bless) { finish(); return; }
 
-      // Krok 1: Upewnij się że ekw jest na właściwej stronie (respawn.js:267-270)
-      if (GAME.ekw_page != targetPage) {
-        GAME.ekw_page = targetPage;
-        GAME.socket.emit('ga', { a: 12, page: targetPage, used: 1 });
-        setTimeout(() => useBless(baseItemId, buffId, btnElement, fallbackIdx), 600);
-        return;
-      }
+      const fireUse = (itemId) => {
+        GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: GAME.ekw_page });
+        setTimeout(refreshTimers, 1000);
+        finish();
+      };
 
-      // Krok 2: Znajdź item po base_item_id (respawn.js:276)
-      let itemId = $(`#ekw_page_items`).find(`div[data-base_item_id=${baseItemId}]`).attr('data-item_id');
+      // Step 1: fetch the bless's primary page; wait for server confirmation.
+      ensureEkwPage(bless.page, null, (success) => {
+        if (!success) { showNoItem(btnElement); finish(); return; }
 
-      // x3 Rate fallback — try alternate page combos if item not found
-      if (!itemId && bless && bless.page === 1 && fallbackIdx < RATE_FALLBACKS.length) {
-        const fb = RATE_FALLBACKS[fallbackIdx];
-        GAME.ekw_page = fb.page;
-        GAME.socket.emit('ga', { a: 12, page: fb.page, used: 1, page2: fb.page2, ...(fb.page3 !== undefined && { page3: fb.page3 }) });
-        setTimeout(() => useBless(baseItemId, buffId, btnElement, fallbackIdx + 1), 600);
-        return;
-      }
+        const itemId = findItemId(baseItemId);
+        if (itemId) { fireUse(itemId); return; }
 
-      if (!itemId) {
-        // Brak itema w ekwipunku
-        const label = btnElement.querySelector('.bless-label');
-        const origText = label.textContent;
-        label.textContent = 'Brak!';
-        btnElement.classList.add('bless-no-item');
-        setTimeout(() => {
-          label.textContent = origText;
-          btnElement.classList.remove('bless-no-item');
-        }, 1500);
-        return;
-      }
+        // Step 2 (x3 Rate only): walk fallback page combos until item found
+        // or list exhausted.
+        if (bless.page !== 1 || RATE_FALLBACKS.length === 0) {
+          showNoItem(btnElement); finish(); return;
+        }
 
-      // Krok 3: Użyj blessa (respawn.js:283)
-      GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: GAME.ekw_page });
-
-      // Odśwież timery po chwili (daj czas na response serwera)
-      setTimeout(() => refreshTimers(), 1000);
+        let fbIdx = 0;
+        const tryFallback = () => {
+          if (fbIdx >= RATE_FALLBACKS.length) {
+            showNoItem(btnElement); finish(); return;
+          }
+          const fb = RATE_FALLBACKS[fbIdx++];
+          const params = { page2: fb.page2 };
+          if (fb.page3 !== undefined) params.page3 = fb.page3;
+          ensureEkwPage(fb.page, params, (ok) => {
+            if (!ok) { tryFallback(); return; }
+            const id = findItemId(baseItemId);
+            if (id) { fireUse(id); return; }
+            tryFallback();
+          });
+        };
+        tryFallback();
+      });
     }
 
     // ============================================
@@ -243,6 +330,7 @@
 
     injectCSS();
     hookPageSwitch();
+    hookParseDataForEkw();
 
     // If already on train page, inject immediately
     if ($('#page_game_train').is(':visible')) {
