@@ -78,6 +78,9 @@ const AFO_PVP = {
   },
 
   start() {
+    // Heartbeat for watchdog — proves chain is alive.
+    PVP._lastTick = Date.now();
+
     // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
     if (PVP._startCallCount === undefined) PVP._startCallCount = 0;
     PVP._startCallCount++;
@@ -212,12 +215,28 @@ const AFO_PVP = {
     // Check if stopped
     if (PVP.stop) return;
 
+    // Heartbeat for watchdog — proves chain is alive.
+    PVP._lastTick = Date.now();
+
     // If game is loading, wait briefly but don't block too long.
     // High-speed bypass: at speed >= 150 we don't wait for is_loading.
     if ((GAME.is_loading || $("#loader").is(":visible")) && !this.shouldBypassLoading()) {
+      // Cap retries — mirrors start()'s _isLoadingRetries pattern. Without this,
+      // a stuck is_loading (e.g. dropped gr response after socket hiccup) silently
+      // freezes attackLoop forever. After ~5-8s, bail back to start() which can
+      // re-evaluate position and reset the state machine.
+      PVP._attackLoadingRetries = (PVP._attackLoadingRetries || 0) + 1;
+      if (PVP._attackLoadingRetries > 100) {
+        console.warn('[AFO_PVP:attackLoop] is_loading stuck for >5s, bailing to start()');
+        PVP._attackLoadingRetries = 0;
+        PVP._awaitingFight = false;
+        window.setTimeout(() => this.start(), PVP.wait);
+        return;
+      }
       window.setTimeout(() => this.attackLoop(), this.getLoadingWait());
       return;
     }
+    PVP._attackLoadingRetries = 0;
 
     const currentX = GAME.char_data.x;
     const currentY = GAME.char_data.y;
@@ -741,9 +760,14 @@ const AFO_PVP = {
   // - error 55 ("player not on tile") → mark last target as ghost so the next
   //   attackLoop pass skips them and tries the rest of the tile instead of
   //   burning 20 retries on a player who already walked off.
+  //
+  // Re-binds when GAME.socket reference changes (socket.io reconnect creates a
+  // new manager/socket object). Otherwise after a reconnect the listener wires
+  // up to the dead socket and _awaitingFight never clears → wasted attack ticks.
   _bindGrListener() {
-    if (PVP._grBound || !GAME || !GAME.socket) return;
-    PVP._grBound = true;
+    if (!GAME || !GAME.socket) return;
+    if (PVP._grBoundSocket === GAME.socket) return;
+    PVP._grBoundSocket = GAME.socket;
     GAME.socket.on('gr', (res) => {
       if (!res) return;
       // Ghost detection — error 55 can land in either field depending on flow.
@@ -772,6 +796,8 @@ const AFO_PVP = {
         PVP.stop = false;
         PVP._startCallCount = 0; // reset diagnostic counter for new ON cycle
         PVP._isLoadingRetries = 0;
+        PVP._attackLoadingRetries = 0;
+        PVP._lastTick = Date.now(); // prime watchdog
         this.start();
         // Stop other modules
         RESP.stop = true; RES.stop = true; LPVM.Stop = true; CODE.stop = true;
@@ -870,7 +896,77 @@ const AFO_PVP = {
     $("#pvp_Panel input[name=pvp_capt]").val(PVP.clan_list);
     $("#pvp_Panel input[name=speed_capt]").val(PVP.speed);
 
+    this._startWatchdog();
+
     console.log('[AFO_PVP] Handlers bound');
+  },
+
+  // Watchdog — detects silent freeze (chain died without exception/log) and
+  // recovers by flipping PVP.stop briefly so any zombie setTimeout exits via
+  // the existing `if (PVP.stop) return;` guards, then restarting cleanly.
+  //
+  // Threshold (60s) is intentionally very conservative: max legitimate delay
+  // anywhere in pvp.js is ~3s (cooldown wait), and start() ticks at sub-second
+  // intervals normally. 60s without a tick is genuinely broken.
+  //
+  // Restart only proceeds if the UI is still showing "On" — guards against
+  // user toggling off during the 1s recovery gap (in which case we leave it off).
+  _startWatchdog() {
+    if (PVP._watchdogInterval) clearInterval(PVP._watchdogInterval);
+    PVP._watchdogInterval = setInterval(() => {
+      if (PVP.stop) return;
+      const last = PVP._lastTick || 0;
+      if (!last) return;
+      const staleMs = Date.now() - last;
+      if (staleMs < 60000) return;
+
+      console.warn('[AFO_PVP:watchdog] freeze detected — restarting', {
+        staleMs,
+        case: PVP.caseNumber,
+        awaiting: PVP._awaitingFight,
+        attackRetries: PVP.attackRetries,
+        tileRetries: PVP.tileRetries,
+        isLoadingRetries: PVP._isLoadingRetries,
+        attackLoadingRetries: PVP._attackLoadingRetries,
+        is_loading: typeof GAME !== 'undefined' ? GAME.is_loading : undefined,
+        loaderVisible: $("#loader").is(":visible"),
+        x: typeof GAME !== 'undefined' && GAME.char_data ? GAME.char_data.x : undefined,
+        y: typeof GAME !== 'undefined' && GAME.char_data ? GAME.char_data.y : undefined,
+        loc: typeof GAME !== 'undefined' && GAME.char_data ? GAME.char_data.loc : undefined,
+        socketConnected: typeof GAME !== 'undefined' && GAME.socket ? GAME.socket.connected : undefined
+      });
+
+      // Reset _lastTick first to prevent immediate re-trigger on next interval.
+      PVP._lastTick = Date.now();
+
+      // Stop-flip restart — zombie setTimeouts will exit via PVP.stop guard
+      // during the 1s gap. Then we reset per-cycle state and restart.
+      PVP.stop = true;
+      window.setTimeout(() => {
+        // Only restart if user still wants it on (UI shows green "On").
+        if (!$('#pvp_Panel .pvp_pvp .pvp_status').hasClass('green')) {
+          console.warn('[AFO_PVP:watchdog] UI off, not restarting');
+          return;
+        }
+        // Reset chain state — start clean.
+        PVP.caseNumber = 0;
+        PVP._awaitingFight = false;
+        PVP.attackRetries = 0;
+        PVP.tileRetries = 0;
+        PVP.lastEnemyCount = -1;
+        PVP._isLoadingRetries = 0;
+        PVP._attackLoadingRetries = 0;
+        PVP._cleanupPasses = 0;
+        PVP._myClicksThisCycle = 0;
+        PVP._tileGhosts = new Set();
+        PVP._startCallCount = 0;
+        PVP.stop = false;
+        PVP._lastTick = Date.now();
+        AFO_PVP.start();
+        console.warn('[AFO_PVP:watchdog] restarted');
+      }, 1000);
+    }, 10000);
+    console.log('[AFO_PVP] watchdog started (60s freeze threshold)');
   }
 };
 

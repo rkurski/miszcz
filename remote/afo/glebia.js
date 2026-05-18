@@ -41,6 +41,7 @@ const GLEBIA = {
   code: false,
   kontoTP: false,
   rajskaSala: true,  // ON by default — obij also Głębia Rajskiej Sali
+  higherRebornAvoid: false,
   speed: 50
 };
 
@@ -129,6 +130,17 @@ const AFO_GLEBIA = {
         GLEBIA.rajskaSala = true;
       }
       this.saveRajskaSala();
+    });
+
+    // Unikaj borny toggle — hide higher-reborn players from attack list (>3 only).
+    $('#glebia_Panel .glebia_rb_avoid').click(() => {
+      if (GLEBIA.higherRebornAvoid) {
+        $(".glebia_rb_avoid .glebia_status").removeClass("green").addClass("red").html("Off");
+        GLEBIA.higherRebornAvoid = false;
+      } else {
+        $(".glebia_rb_avoid .glebia_status").removeClass("red").addClass("green").html("On");
+        GLEBIA.higherRebornAvoid = true;
+      }
     });
 
     // Speed input handler

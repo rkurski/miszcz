@@ -283,12 +283,23 @@ const AFO = {
       });
     })();
 
-    // Override player list parsing for low level filter
+    // Override player list parsing for low-level + higher-reborn filters.
+    // Reborn rule: hide targets whose reborn is higher than mine AND > 3
+    // (so born 1-3 are always visible — never filter low-reborn alts).
+    // Filter applies when either PVP or GLEBIA has its higherRebornAvoid flag set.
+    const isHigherRebornBlocked = (pd) => {
+      const pvpOn = typeof PVP !== 'undefined' && PVP.higherRebornAvoid;
+      const glebiaOn = typeof GLEBIA !== 'undefined' && GLEBIA.higherRebornAvoid;
+      if (!pvpOn && !glebiaOn) return false;
+      return pd.reborn > GAME.char_data.reborn && pd.reborn > 3;
+    };
+
     if (!GAME.parseListPlayer_o) {
       GAME.parseListPlayer_o = GAME.parseListPlayer;
       GAME.parseListPlayer = function (entry, pvp_master) {
         if (entry && entry.data) {
           let pd = entry.data;
+          if (isHigherRebornBlocked(pd)) return '';
           if (!LOWLVL.stop && (pd.level < GAME.char_data.level)) {
             return '';
           }
@@ -300,8 +311,10 @@ const AFO = {
     if (!GAME.parsePlayerShadow_o) {
       GAME.parsePlayerShadow_o = GAME.parsePlayerShadow;
       GAME.parsePlayerShadow = function (data, pvp_master) {
-        if (data && data.pd) {
-          let pd = data.pd;
+        // Shadow entries wrap real data: bigcode does `entry = data.data; pd = entry.data`.
+        let pd = data && data.data && data.data.data ? data.data.data : (data && data.pd ? data.pd : null);
+        if (pd) {
+          if (isHigherRebornBlocked(pd)) return '';
           if (!LOWLVL.stop && (pd.level < GAME.char_data.level)) {
             return '';
           }
