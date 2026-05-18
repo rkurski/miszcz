@@ -765,6 +765,10 @@ const AFO_Templates = {
             <span>🏛️ Rajska Sala</span>
             <b class='glebia_status green'>On</b>
           </div>
+          <div class='afo-button glebia_button glebia_rb_avoid'>
+            <span>🛡️ Unikaj borny</span>
+            <b class='glebia_status red'>Off</b>
+          </div>
           <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
         </div>
       </div>
