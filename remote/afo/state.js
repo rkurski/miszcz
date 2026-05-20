@@ -127,7 +127,15 @@ var LPVM = {
   limit: false,
   Killed: false,
   wait: 40,
-  limit2: 60
+  limit2: 60,
+  // Blocked tiles learned at runtime: { [mapId]: { 'x_y': {to:{x,y}} } }
+  // Persisted globally via AFO_STORAGE under key 'lpvm_blocked_tiles'.
+  blockedTiles: {},
+  _expected: null,
+  // Multi-leg plan when path requires teleports.
+  // Plan = { legs: [{walk:[{x,y}...], tpIndex?, tp?}, ...], curLeg: 0 }
+  Plan: null,
+  _teleporting: false
 };
 
 // ============================================
@@ -151,7 +159,11 @@ var RES = {
   first_mine: [],
   loc: 0,
   cdt: null,
-  finder: null
+  finder: null,
+  // 15% szybciej zbieranie (stat 148, buff 76, base item 1747 — bh17 w RESP)
+  buff_speed: false,
+  // 15% szansa na pomyślne zebranie (stat 149, buff 75, base item 1746 — bh18 w RESP)
+  buff_chance: false
 };
 
 // ============================================

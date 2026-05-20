@@ -128,7 +128,15 @@ var LPVM = {
   limit: false,
   Killed: false,
   wait: 40,
-  limit2: 60
+  limit2: 60,
+  // Blocked tiles learned at runtime: { [mapId]: { 'x_y': {to:{x,y}} } }
+  // Persisted globally via AFO_STORAGE under key 'lpvm_blocked_tiles'.
+  blockedTiles: {},
+  _expected: null,
+  // Multi-leg plan when path requires teleports.
+  // Plan = { legs: [{walk:[{x,y}...], tpIndex?, tp?}, ...], curLeg: 0 }
+  Plan: null,
+  _teleporting: false
 };
 
 // ============================================
@@ -152,7 +160,11 @@ var RES = {
   first_mine: [],
   loc: 0,
   cdt: null,
-  finder: null
+  finder: null,
+  // 15% szybciej zbieranie (stat 148, buff 76, base item 1747 — bh17 w RESP)
+  buff_speed: false,
+  // 15% szansa na pomyślne zebranie (stat 149, buff 75, base item 1746 — bh18 w RESP)
+  buff_chance: false
 };
 
 // ============================================
@@ -753,7 +765,7 @@ const AFO_Templates = {
             <b class='pvp_status red'>Off</b>
           </div>
           <input class='afo-input' type='text' placeholder="Lista wojen" name='pvp_capt' value='' />
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='speed_capt' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='speed_capt' value='50' />
         </div>
       </div>
     `,
@@ -978,6 +990,14 @@ const AFO_Templates = {
             <span>⛏️ ZBIERAJ</span>
             <b class="res_status red">Off</b>
           </div>
+          <div class="afo-button res_button res_buff_speed">
+            <span>⚡ 15% szybciej</span>
+            <b class="res_status red">Off</b>
+          </div>
+          <div class="afo-button res_button res_buff_chance">
+            <span>🍀 15% szansa</span>
+            <b class="res_status red">Off</b>
+          </div>
           <div class="res-info bt_cool"></div>
           <ul></ul>
         </div>
@@ -1046,7 +1066,7 @@ const AFO_Templates = {
             <span>🛡️ Unikaj borny</span>
             <b class='glebia_status red'>Off</b>
           </div>
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='glebia_speed' value='50' />
         </div>
       </div>
     `,
@@ -1941,8 +1961,11 @@ const AFO_PVP = {
   loadSpeed() {
     const saved = localStorage.getItem('pvp_speed');
     if (saved) {
-      PVP.speed = parseInt(saved) || 50;
-      PVP.speedMultiplier = PVP.speed;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      PVP.speed = val;
+      PVP.speedMultiplier = val;
     }
   },
 
@@ -2107,9 +2130,12 @@ const AFO_PVP = {
       });
     }
 
-    // Speed input handler - sync PVP.speed and save to localStorage
+    // Speed input handler - sync PVP.speed, clamp to 10-500, persist.
     $('#pvp_Panel input[name=speed_capt]').on('input change', (e) => {
-      const val = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
       PVP.speed = val;
       PVP.speedMultiplier = val;
       this.saveSpeed();
@@ -2821,6 +2847,120 @@ const AFO_LPVM = {
     this.bindSocketHandler();
     this.injectTPPDisplay();
     this.startTPPUpdater();
+    this.loadBlockedTiles();
+  },
+
+  // ============================================
+  // BLOCKED TILES (sliders / impassable squares)
+  // ============================================
+  // Server pushes you back if you step on a slider. We detect this by
+  // comparing the position we asked for (a:4 dir) against the position
+  // the server reports back. Mismatch -> the target tile is unwalkable.
+  // Persisted globally so other characters/sessions reuse the knowledge.
+
+  STORAGE_KEY: 'lpvm_blocked_tiles',
+
+  async loadBlockedTiles() {
+    try {
+      const data = await AFO_STORAGE.get(this.STORAGE_KEY);
+      LPVM.blockedTiles = data[this.STORAGE_KEY] || {};
+      const count = Object.values(LPVM.blockedTiles).reduce((s, m) => s + Object.keys(m).length, 0);
+      console.log('[AFO_LPVM] Loaded blocked tiles:', count, 'across', Object.keys(LPVM.blockedTiles).length, 'maps');
+    } catch (e) {
+      console.warn('[AFO_LPVM] Failed to load blocked tiles:', e);
+      LPVM.blockedTiles = {};
+    }
+  },
+
+  saveBlockedTiles() {
+    AFO_STORAGE.set({ [this.STORAGE_KEY]: LPVM.blockedTiles })
+      .catch(e => console.warn('[AFO_LPVM] Failed to persist blocked tiles:', e));
+  },
+
+  markBlocked(mapId, x, y, toX, toY) {
+    if (!mapId) return;
+    if (!LPVM.blockedTiles[mapId]) LPVM.blockedTiles[mapId] = {};
+    const key = x + '_' + y;
+    if (LPVM.blockedTiles[mapId][key]) return; // already known
+    LPVM.blockedTiles[mapId][key] = { to: { x: toX, y: toY } };
+    console.log('[AFO_LPVM] Learned blocker on map', mapId, 'at', key, '-> pushes to', toX + '_' + toY);
+    this.saveBlockedTiles();
+  },
+
+  // ============================================
+  // WATCHDOG + BORN DEGRADATION
+  // ============================================
+  // If 90s pass without a kill, drop to the next Born tier (M->H->S->U->G).
+  // Same trigger on error34 (can't reach target loc). No auto-restore; the
+  // UI is updated to mirror manual Born selection so the user sees the state.
+
+  BORN_KEYS: { 2: 'g', 3: 'u', 4: 's', 5: 'h', 6: 'm' },
+  STUCK_TIMEOUT_MS: 20000,
+
+  startWatchdog() {
+    LPVM._lastKilledAt = Date.now();
+    LPVM._lastKilledCount = LPVM.pvm_killed;
+    if (this._watchdogId) return;
+    this._watchdogId = setInterval(() => {
+      if (LPVM.Stop) return;
+      if (LPVM.pvm_killed !== LPVM._lastKilledCount) {
+        LPVM._lastKilledCount = LPVM.pvm_killed;
+        LPVM._lastKilledAt = Date.now();
+        return;
+      }
+      if (Date.now() - LPVM._lastKilledAt > this.STUCK_TIMEOUT_MS) {
+        console.warn('[AFO_LPVM] Stuck for', this.STUCK_TIMEOUT_MS / 1000, 's at Born', LPVM.Born, '— degrading');
+        LPVM._lastKilledAt = Date.now(); // reset so we don't fire every tick
+        this.degradeBorn();
+      }
+    }, 5000);
+  },
+
+  stopWatchdog() {
+    if (this._watchdogId) {
+      clearInterval(this._watchdogId);
+      this._watchdogId = null;
+    }
+  },
+
+  setBornUI(born) {
+    const map = this.BORN_KEYS;
+    Object.entries(map).forEach(([val, key]) => {
+      const $row = $('#lpvm_Panel .lpvm_' + key);
+      const $status = $row.find('.lpvm_status');
+      if (parseInt(val) === born) {
+        $row.show();
+        $status.removeClass('red').addClass('green').html('On');
+      } else {
+        $row.hide();
+        $status.removeClass('green').addClass('red').html('Off');
+      }
+    });
+  },
+
+  degradeBorn() {
+    const next = LPVM.Born - 1;
+    if (!this.BORN_KEYS[next]) {
+      console.warn('[AFO_LPVM] Cannot degrade below G-Born, stopping module');
+      LPVM.Stop = true;
+      $('.lpvm_lpvm .lpvm_status').removeClass('green').addClass('red').html('Off');
+      // Restore visible Born options for manual reselection.
+      Object.values(this.BORN_KEYS).forEach(k => $('#lpvm_Panel .lpvm_' + k).show());
+      this.stopWatchdog();
+      return;
+    }
+    LPVM.Born = next;
+    this.setBornUI(next);
+    console.log('[AFO_LPVM] Degraded to Born', next, '(' + this.BORN_KEYS[next].toUpperCase() + ')');
+    // Clear stale state and re-enter the loop with fresh list.
+    LPVM.Plan = null;
+    LPVM.Path = [];
+    LPVM._expected = null;
+    LPVM._teleporting = false;
+    LPVM._pathRetries = 0;
+    LPVM._lastKilledCount = LPVM.pvm_killed;
+    LPVM._lastKilledAt = Date.now();
+    setTimeout(() => this.LoadPVM(), 250);
   },
 
   startTPPUpdater() {
@@ -2883,6 +3023,10 @@ const AFO_LPVM = {
   },
 
   Start() {
+    LPVM._expected = null;
+    LPVM._teleporting = false;
+    LPVM.Plan = null;
+    this.startWatchdog();
     // Throttled diagnostic logs — only first 5 calls per ON, set in bindHandlers.
     if (LPVM._startCallCount === undefined) LPVM._startCallCount = 0;
     LPVM._startCallCount++;
@@ -2909,11 +3053,14 @@ const AFO_LPVM = {
       return false;
     }
 
+    const mapId = GAME.char_data.loc;
+    const blocked = (LPVM.blockedTiles && LPVM.blockedTiles[mapId]) || {};
+
     for (let i = 0; i < parseInt(GAME.map.max_y); i++) {
       LPVM.Matrix[i] = [];
       for (let j = 0; j < parseInt(GAME.map.max_x); j++) {
         let key = (j + 1) + '_' + (i + 1);
-        if (LPVM.Map[key] && LPVM.Map[key].m == 1) {
+        if (LPVM.Map[key] && LPVM.Map[key].m == 1 && !blocked[key]) {
           LPVM.Matrix[i][j] = 1;
         } else {
           LPVM.Matrix[i][j] = 0;
@@ -2924,18 +3071,18 @@ const AFO_LPVM = {
   },
 
   LoadPVM() {
-    GAME.socket.emit('ga', { a: 32, type: 0 });
+    GAME.emitOrder( { a: 32, type: 0 });
   },
 
   KillWanted() {
     if (document.getElementById("special_list_con").childElementCount) {
       LPVM.Killed = true;
-      GAME.socket.emit('ga', { a: 32, type: 1, wanted_id: LPVM.Born, quick: 1 });
+      GAME.emitOrder( { a: 32, type: 1, wanted_id: LPVM.Born, quick: 1 });
     }
   },
 
   Collect() {
-    GAME.socket.emit('ga', { a: 32, type: 2, wanted: LPVM.Born });
+    GAME.emitOrder( { a: 32, type: 2, wanted: LPVM.Born });
     LPVM.pvm_killed++;
     this.UpdateKilledCounter(LPVM.pvm_killed);
 
@@ -2946,55 +3093,202 @@ const AFO_LPVM = {
   },
 
   Teleport() {
+    LPVM._expected = null;
+    LPVM._teleporting = false;
+    LPVM.Plan = null;
     let loc = parseInt($("#wanted_list .green.option").eq(LPVM.Born).attr("data-loc"));
     if ((LPVM.pvm_killed >= parseInt(LPVM.limit2)) && LPVM.limit) {
       $(".lpvm_lpvm .lpvm_status").removeClass("green").addClass("red").html("Off");
       LPVM.Stop = true;
     } else if (GAME.char_data.loc != loc) {
-      GAME.socket.emit('ga', { a: 12, type: 18, loc: loc });
+      GAME.emitOrder( { a: 12, type: 18, loc: loc });
     } else {
       this.Go();
     }
   },
 
-  Go() {
-    this.CreateMatrix();
-    this.Finder.setGrid(LPVM.Matrix);
-    this.Finder.findPath(
-      GAME.char_data.x - 1,
-      GAME.char_data.y - 1,
-      parseInt(GAME.map_wanteds.x) - 1,
-      parseInt(GAME.map_wanteds.y) - 1,
-      (path) => {
-        if (path !== null && path.length > 0) {
-          LPVM._pathRetries = 0;
-          if (path[0].x == GAME.char_data.x - 1 && path[0].y == GAME.char_data.y - 1) {
-            path.shift();
-          }
-          if (path.length > 0) {
-            LPVM.Path = path;
-            setTimeout(() => this.Move(), LPVM.wait);
-          } else {
-            // Path empty after shift - already at target, try kill
-            setTimeout(() => this.KillWanted(), 500);
-          }
-        } else {
-          LPVM._pathRetries = (LPVM._pathRetries || 0) + 1;
-          console.warn('[AFO_LPVM] No path found, attempt', LPVM._pathRetries);
+  // Promise wrapper around EasyStar.findPath
+  findPathPromise(fromX, fromY, toX, toY) {
+    return new Promise((resolve) => {
+      this.Finder.findPath(fromX, fromY, toX, toY, (p) => resolve(p));
+      this.Finder.calculate();
+    });
+  },
 
-          if (LPVM._pathRetries >= 5) {
-            // After 5 failed attempts, force re-teleport to refresh location
-            console.warn('[AFO_LPVM] Max retries reached, forcing re-teleport...');
-            LPVM._pathRetries = 0;
-            let loc = parseInt($("#wanted_list .green.option").eq(LPVM.Born).attr("data-loc"));
-            GAME.socket.emit('ga', { a: 12, type: 18, loc: loc });
-          } else {
-            setTimeout(() => this.Go(), 1500);
-          }
+  // Multi-hop pathfinder. Tries direct EasyStar; if blocked, BFS through TPs.
+  // Returns { legs: [{walk:[{x,y}...], tpIndex?, tp?}, ...] } or null.
+  async findPathWithTPs(startX, startY, goalX, goalY) {
+    const direct = await this.findPathPromise(startX, startY, goalX, goalY);
+    if (direct && direct.length > 0) {
+      return { legs: [{ walk: direct }] };
+    }
+    const tps = GAME.tps || [];
+    if (!tps.length) return null;
+
+    // BFS by leg count
+    const queue = [{ x: startX, y: startY, legs: [], used: new Set() }];
+    let safety = 64;
+    while (queue.length && safety-- > 0) {
+      queue.sort((a, b) => a.legs.length - b.legs.length);
+      const cur = queue.shift();
+
+      const reach = await this.findPathPromise(cur.x, cur.y, goalX, goalY);
+      if (reach && reach.length > 0) {
+        return { legs: [...cur.legs, { walk: reach }] };
+      }
+
+      for (let i = 0; i < tps.length; i++) {
+        if (cur.used.has(i)) continue;
+        const tp = tps[i];
+        const tpX = tp.x - 1, tpY = tp.y - 1;
+        const toTP = await this.findPathPromise(cur.x, cur.y, tpX, tpY);
+        if (toTP && toTP.length > 0) {
+          const used = new Set(cur.used); used.add(i);
+          queue.push({
+            x: tp.target_x - 1,
+            y: tp.target_y - 1,
+            legs: [...cur.legs, { walk: toTP, tpIndex: i, tp }],
+            used
+          });
         }
       }
-    );
-    this.Finder.calculate();
+    }
+    return null;
+  },
+
+  async Go() {
+    this.CreateMatrix();
+    this.Finder.setGrid(LPVM.Matrix);
+
+    const sx = GAME.char_data.x - 1, sy = GAME.char_data.y - 1;
+    const gx = parseInt(GAME.map_wanteds.x) - 1, gy = parseInt(GAME.map_wanteds.y) - 1;
+
+    const plan = await this.findPathWithTPs(sx, sy, gx, gy);
+
+    if (plan) {
+      LPVM._pathRetries = 0;
+      LPVM.Plan = { legs: plan.legs, curLeg: 0 };
+      const tpCount = plan.legs.filter(l => l.tpIndex !== undefined).length;
+      if (tpCount > 0) console.log('[AFO_LPVM] Plan uses', tpCount, 'TP hop(s)');
+      this.startLeg();
+      return;
+    }
+
+    LPVM._pathRetries = (LPVM._pathRetries || 0) + 1;
+    console.warn('[AFO_LPVM] No path found (incl. TPs), attempt', LPVM._pathRetries);
+
+    if (LPVM._pathRetries >= 5) {
+      // Stuck on this map / wanted — let watchdog handle it via Born degradation.
+      console.warn('[AFO_LPVM] Max retries reached, forcing re-teleport...');
+      LPVM._pathRetries = 0;
+      const loc = parseInt($("#wanted_list .green.option").eq(LPVM.Born).attr("data-loc"));
+      GAME.emitOrder( { a: 12, type: 18, loc: loc });
+    } else {
+      setTimeout(() => this.Go(), 1500);
+    }
+  },
+
+  // Set up Path[] for the current leg, dropping leading tile if we're already on it.
+  startLeg() {
+    const leg = LPVM.Plan?.legs[LPVM.Plan.curLeg];
+    if (!leg) return;
+    const path = leg.walk.slice();
+    const cx = GAME.char_data.x - 1, cy = GAME.char_data.y - 1;
+    if (path.length && path[0].x === cx && path[0].y === cy) path.shift();
+    LPVM.Path = path;
+    if (path.length === 0) {
+      // Already at end of this leg
+      this.advanceLeg();
+    } else {
+      setTimeout(() => this.Move(), LPVM.wait);
+    }
+  },
+
+  // Finished walking the current leg. If it ends at a TP, use it; otherwise kill wanted.
+  advanceLeg() {
+    const leg = LPVM.Plan?.legs[LPVM.Plan.curLeg];
+    if (!leg) {
+      setTimeout(() => this.KillWanted(), 500);
+      return;
+    }
+    if (leg.tpIndex !== undefined) {
+      console.log('[AFO_LPVM] Using TP', leg.tp.x + '_' + leg.tp.y, '->', leg.tp.target_x + '_' + leg.tp.target_y);
+      this.useTPWithRetry();
+      return;
+    }
+    // No more TPs — final leg done, kill the wanted.
+    setTimeout(() => this.KillWanted(), 500);
+  },
+
+  // ============================================
+  // TP USAGE (pattern stolen from glebia.js)
+  // ============================================
+  // Server silently drops a:6 if fired too soon after a:4 (cooldown ~250ms)
+  // or right after combat ("fresh from combat"). Uses emitOrder (load_start
+  // gated) + polls for position change + retries up to 3 times.
+
+  MOVE_COOLDOWN_TURN_MS: 250,
+
+  useTP() {
+    const now = performance.now();
+    const since = now - (LPVM._lastMoveT || 0);
+    const cd = this.MOVE_COOLDOWN_TURN_MS;
+    if (since < cd) {
+      setTimeout(() => this.useTP(), cd - since);
+      return;
+    }
+    LPVM._teleporting = true;
+    LPVM._expected = null;
+    GAME.emitOrder({ a: 6, tpid: 0 });
+    LPVM._lastMoveT = now;
+  },
+
+  useTPWithRetry(retries) {
+    if (LPVM.Stop) return;
+    if (retries === undefined) retries = 3;
+    const startLoc = GAME.char_data.loc;
+    const startX = GAME.char_data.x, startY = GAME.char_data.y;
+    this.useTP();
+    this.waitForPosChange(startLoc, startX, startY, (changed) => {
+      if (LPVM.Stop) return;
+      if (changed) {
+        // We moved — discard plan, replan from new pos.
+        LPVM._teleporting = false;
+        LPVM.Plan = null;
+        LPVM.Path = [];
+        setTimeout(() => this.Go(), LPVM.wait);
+        return;
+      }
+      if (retries > 0) {
+        console.log('[AFO_LPVM] useTP: pos unchanged, retrying (' + retries + ' left)');
+        setTimeout(() => this.useTPWithRetry(retries - 1), 500);
+        return;
+      }
+      console.warn('[AFO_LPVM] useTP: failed after retries, replanning');
+      LPVM._teleporting = false;
+      LPVM.Plan = null;
+      LPVM.Path = [];
+      setTimeout(() => this.Go(), 500);
+    });
+  },
+
+  // Poll char_data until loc OR (x,y) differs from start. Intra-map TPs keep
+  // loc the same but change x/y, cross-map TPs change loc.
+  waitForPosChange(startLoc, startX, startY, cb) {
+    if (LPVM.Stop) return;
+    const t0 = performance.now();
+    const TIMEOUT_MS = 1500;
+    const poll = () => {
+      if (LPVM.Stop) return;
+      const cd = GAME.char_data;
+      if (cd.loc !== startLoc || cd.x !== startX || cd.y !== startY) {
+        setTimeout(() => cb(true), 150);
+        return;
+      }
+      if (performance.now() - t0 > TIMEOUT_MS) { cb(false); return; }
+      setTimeout(poll, 30);
+    };
+    setTimeout(poll, 30);
   },
 
   Move() {
@@ -3026,7 +3320,10 @@ const AFO_LPVM = {
       return;
     }
 
-    GAME.socket.emit('ga', { a: 4, dir: dir, vo: GAME.map_options.vo });
+    // Remember where we expect to land (1-based, matches res.x/res.y from server)
+    LPVM._expected = { x: target.x + 1, y: target.y + 1 };
+    LPVM._lastMoveT = performance.now();
+    GAME.emitOrder({ a: 4, dir: dir, vo: GAME.map_options.vo });
   },
 
   Next() {
@@ -3034,18 +3331,37 @@ const AFO_LPVM = {
       LPVM.Path.shift();
       setTimeout(() => this.Move(), LPVM.wait);
     } else {
-      setTimeout(() => this.KillWanted(), 500);
+      // Finished walking the current leg — use TP or kill wanted.
+      this.advanceLeg();
     }
   },
 
   HandleSockets(res) {
     if (LPVM.Stop) return;
 
+    // error34: "Nie możesz udać się do docelowej lokacji!" — wanted's loc is unreachable
+    // (e.g. quest-gated). Degrade Born and retry from the new list.
+    if (res.e === 34) {
+      console.warn('[AFO_LPVM] error34: cannot reach target location, degrading Born');
+      this.degradeBorn();
+      return;
+    }
+
     if (res.a === 4 && res.char_id === GAME.char_id) {
+      const exp = LPVM._expected;
+      LPVM._expected = null;
+      if (exp && (exp.x !== res.x || exp.y !== res.y)) {
+        // Slider / blocker: server placed us somewhere other than requested.
+        this.markBlocked(GAME.char_data.loc, exp.x, exp.y, res.x, res.y);
+        LPVM.Path = [];
+        LPVM.Plan = null;
+        setTimeout(() => this.Go(), LPVM.wait);
+        return;
+      }
       this.Next();
     } else if (res.a === 32 && res.e == 0) {
       if ($('button[data-wanted="' + LPVM.Born + '"]').html()) {
-        setTimeout(() => GAME.socket.emit('ga', { a: 32, type: 2, wanted: LPVM.Born }), 150);
+        setTimeout(() => GAME.emitOrder( { a: 32, type: 2, wanted: LPVM.Born }), 150);
       } else {
         setTimeout(() => this.Teleport(), 150);
       }
@@ -3062,7 +3378,7 @@ const AFO_LPVM = {
           setTimeout(() => this.Go(), 1000);
         }
       } else {
-        setTimeout(() => GAME.socket.emit('ga', { a: 32, type: 0 }), 100);
+        setTimeout(() => GAME.emitOrder( { a: 32, type: 0 }), 100);
       }
     } else if (res.a === undefined) {
       setTimeout(() => this.Go(), 500);
@@ -3231,8 +3547,14 @@ const AFO_RES = {
   },
 
   Action() {
-    RES.stop = false;
+    if (RES.stop) return;
     if (!RES.processing) {
+      // Activate gathering buffs if enabled and missing. Yield while server
+      // processes the bless use; loop re-enters Action via setTimeout.
+      if (this.checkResBuffs()) {
+        setTimeout(() => this.Action(), 1200);
+        return;
+      }
       this.Go();
     } else {
       setTimeout(() => this.Action(), 1200);
@@ -3281,22 +3603,73 @@ const AFO_RES = {
   },
 
   listMines() {
-    let html = "";
     let mdt = Object.entries(GAME.map_mines.mine_data);
-    for (let i = 0; i < mdt.length; i++) {
-      if (i == 0) {
-        RES.mined_id.push(mdt[i][1].id);
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' checked='true' value='${mdt[i][1].id}' ${mdt.length == 1 ? "disabled" : ""}> ${mdt[i][1].name}</div>`;
-      } else {
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' value='${mdt[i][1].id}'> ${mdt[i][1].name}</div>`;
-      }
-    }
-    $("#res_Panel ul").html(html);
     if (mdt.length == 0) {
       $("#res_Panel ul").html("Brak zasobów");
+      return;
     }
+    // If nothing selected, or the previously selected id isn't on this map,
+    // default to the first available mine.
+    const availableIds = mdt.map(e => e[1].id);
+    if (RES.mined_id.length === 0 || !availableIds.includes(RES.mined_id[0])) {
+      RES.mined_id = [mdt[0][1].id];
+    }
+    this.renderMines();
+  },
+
+  // Render mine checkboxes — single-select. If one is selected, others are disabled.
+  renderMines() {
+    let mdt = Object.entries(GAME.map_mines.mine_data);
+    let html = "";
+    const selectedId = RES.mined_id[0];
+    for (let i = 0; i < mdt.length; i++) {
+      const id = mdt[i][1].id;
+      const checked = selectedId === id ? "checked" : "";
+      // Disable everything except the selected one when something is selected.
+      const disabled = (selectedId !== undefined && selectedId !== id) ? "disabled" : "";
+      html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
+        <input class='select_mine' type='checkbox' value='${id}' ${checked} ${disabled}> ${mdt[i][1].name}</div>`;
+    }
+    $("#res_Panel ul").html(html);
+  },
+
+  // ============================================
+  // RESOURCE BUFFS (15% speed / 15% chance)
+  // ============================================
+  // Matches RESP's check_bless pattern. base item IDs:
+  //   1747 (buff 76) — szybsze zbieranie zasobów  (stat 148)
+  //   1746 (buff 75) — szansa na zebranie zasobu  (stat 149)
+  // Returns true if a buff request was emitted (caller should yield and retry).
+
+  RES_BUFFS: [
+    { flag: 'buff_speed',  base: 1747, buff: 76 },
+    { flag: 'buff_chance', base: 1746, buff: 75 }
+  ],
+
+  checkResBuffs() {
+    const needed = this.RES_BUFFS.filter(b => RES[b.flag]);
+    if (!needed.length) return false;
+
+    // Only check on ekw page 10 (consumables/blessings).
+    if (GAME.ekw_page != 10) {
+      GAME.ekw_page = 10;
+      GAME.socket.emit('ga', { a: 12, page: 10, used: 1 });
+      return true;
+    }
+
+    for (const item of needed) {
+      const $buff = $(`#char_buffs`).find(`[data-buff=${item.buff}]`);
+      const hasBuff = $buff.length === 1;
+      const expiring = hasBuff && $buff.find(".timer").text() <= '00:00:04';
+      if (hasBuff && !expiring) continue;
+
+      const itemId = $(`#ekw_page_items`).find(`div[data-base_item_id=${item.base}]`).attr("data-item_id");
+      if (!itemId) continue;
+
+      GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: 10 });
+      return true;
+    }
+    return false;
   },
 
   CreateMatrix() {
@@ -3463,17 +3836,26 @@ const AFO_RES = {
       }
     });
 
-    // Mine checkbox selection
+    // Mine checkbox selection — single-select. Only one mine type active at a time.
     $(document).on('change', '.select_mine', (e) => {
-      let val = parseInt($(e.target).val());
+      const val = parseInt($(e.target).val());
       if ($(e.target).is(':checked')) {
-        if (!RES.mined_id.includes(val)) {
-          RES.mined_id.push(val);
-        }
+        RES.mined_id = [val];
       } else {
-        RES.mined_id = RES.mined_id.filter(id => id !== val);
+        RES.mined_id = [];
       }
       RES.refresh_mines = true;
+      this.renderMines();
+    });
+
+    // Buff toggles
+    $('#res_Panel .res_buff_speed').click(() => {
+      RES.buff_speed = !RES.buff_speed;
+      $(".res_buff_speed .res_status").toggleClass("green red").html(RES.buff_speed ? "On" : "Off");
+    });
+    $('#res_Panel .res_buff_chance').click(() => {
+      RES.buff_chance = !RES.buff_chance;
+      $(".res_buff_chance .res_status").toggleClass("green red").html(RES.buff_chance ? "On" : "Off");
     });
 
     console.log('[AFO_RES] Handlers bound');
@@ -3881,9 +4263,13 @@ const AFO_GLEBIA = {
       }
     });
 
-    // Speed input handler
+    // Speed input handler — clamp to 10-500, reflect clamped value back to UI.
     $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
-      GLEBIA.speed = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
+      GLEBIA.speed = val;
       this.saveSpeed();
     });
 
@@ -4047,7 +4433,10 @@ const AFO_GLEBIA = {
   loadSpeed() {
     const saved = localStorage.getItem('glebia_speed');
     if (saved) {
-      GLEBIA.speed = parseInt(saved) || 50;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      GLEBIA.speed = val;
     }
   },
 

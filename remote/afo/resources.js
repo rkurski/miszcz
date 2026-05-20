@@ -85,8 +85,14 @@ const AFO_RES = {
   },
 
   Action() {
-    RES.stop = false;
+    if (RES.stop) return;
     if (!RES.processing) {
+      // Activate gathering buffs if enabled and missing. Yield while server
+      // processes the bless use; loop re-enters Action via setTimeout.
+      if (this.checkResBuffs()) {
+        setTimeout(() => this.Action(), 1200);
+        return;
+      }
       this.Go();
     } else {
       setTimeout(() => this.Action(), 1200);
@@ -135,22 +141,73 @@ const AFO_RES = {
   },
 
   listMines() {
-    let html = "";
     let mdt = Object.entries(GAME.map_mines.mine_data);
-    for (let i = 0; i < mdt.length; i++) {
-      if (i == 0) {
-        RES.mined_id.push(mdt[i][1].id);
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' checked='true' value='${mdt[i][1].id}' ${mdt.length == 1 ? "disabled" : ""}> ${mdt[i][1].name}</div>`;
-      } else {
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' value='${mdt[i][1].id}'> ${mdt[i][1].name}</div>`;
-      }
-    }
-    $("#res_Panel ul").html(html);
     if (mdt.length == 0) {
       $("#res_Panel ul").html("Brak zasobów");
+      return;
     }
+    // If nothing selected, or the previously selected id isn't on this map,
+    // default to the first available mine.
+    const availableIds = mdt.map(e => e[1].id);
+    if (RES.mined_id.length === 0 || !availableIds.includes(RES.mined_id[0])) {
+      RES.mined_id = [mdt[0][1].id];
+    }
+    this.renderMines();
+  },
+
+  // Render mine checkboxes — single-select. If one is selected, others are disabled.
+  renderMines() {
+    let mdt = Object.entries(GAME.map_mines.mine_data);
+    let html = "";
+    const selectedId = RES.mined_id[0];
+    for (let i = 0; i < mdt.length; i++) {
+      const id = mdt[i][1].id;
+      const checked = selectedId === id ? "checked" : "";
+      // Disable everything except the selected one when something is selected.
+      const disabled = (selectedId !== undefined && selectedId !== id) ? "disabled" : "";
+      html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
+        <input class='select_mine' type='checkbox' value='${id}' ${checked} ${disabled}> ${mdt[i][1].name}</div>`;
+    }
+    $("#res_Panel ul").html(html);
+  },
+
+  // ============================================
+  // RESOURCE BUFFS (15% speed / 15% chance)
+  // ============================================
+  // Matches RESP's check_bless pattern. base item IDs:
+  //   1747 (buff 76) — szybsze zbieranie zasobów  (stat 148)
+  //   1746 (buff 75) — szansa na zebranie zasobu  (stat 149)
+  // Returns true if a buff request was emitted (caller should yield and retry).
+
+  RES_BUFFS: [
+    { flag: 'buff_speed',  base: 1747, buff: 76 },
+    { flag: 'buff_chance', base: 1746, buff: 75 }
+  ],
+
+  checkResBuffs() {
+    const needed = this.RES_BUFFS.filter(b => RES[b.flag]);
+    if (!needed.length) return false;
+
+    // Only check on ekw page 10 (consumables/blessings).
+    if (GAME.ekw_page != 10) {
+      GAME.ekw_page = 10;
+      GAME.socket.emit('ga', { a: 12, page: 10, used: 1 });
+      return true;
+    }
+
+    for (const item of needed) {
+      const $buff = $(`#char_buffs`).find(`[data-buff=${item.buff}]`);
+      const hasBuff = $buff.length === 1;
+      const expiring = hasBuff && $buff.find(".timer").text() <= '00:00:04';
+      if (hasBuff && !expiring) continue;
+
+      const itemId = $(`#ekw_page_items`).find(`div[data-base_item_id=${item.base}]`).attr("data-item_id");
+      if (!itemId) continue;
+
+      GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: 10 });
+      return true;
+    }
+    return false;
   },
 
   CreateMatrix() {
@@ -317,17 +374,26 @@ const AFO_RES = {
       }
     });
 
-    // Mine checkbox selection
+    // Mine checkbox selection — single-select. Only one mine type active at a time.
     $(document).on('change', '.select_mine', (e) => {
-      let val = parseInt($(e.target).val());
+      const val = parseInt($(e.target).val());
       if ($(e.target).is(':checked')) {
-        if (!RES.mined_id.includes(val)) {
-          RES.mined_id.push(val);
-        }
+        RES.mined_id = [val];
       } else {
-        RES.mined_id = RES.mined_id.filter(id => id !== val);
+        RES.mined_id = [];
       }
       RES.refresh_mines = true;
+      this.renderMines();
+    });
+
+    // Buff toggles
+    $('#res_Panel .res_buff_speed').click(() => {
+      RES.buff_speed = !RES.buff_speed;
+      $(".res_buff_speed .res_status").toggleClass("green red").html(RES.buff_speed ? "On" : "Off");
+    });
+    $('#res_Panel .res_buff_chance').click(() => {
+      RES.buff_chance = !RES.buff_chance;
+      $(".res_buff_chance .res_status").toggleClass("green red").html(RES.buff_chance ? "On" : "Off");
     });
 
     console.log('[AFO_RES] Handlers bound');
