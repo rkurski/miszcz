@@ -127,7 +127,15 @@ var LPVM = {
   limit: false,
   Killed: false,
   wait: 40,
-  limit2: 60
+  limit2: 60,
+  // Blocked tiles learned at runtime: { [mapId]: { 'x_y': {to:{x,y}} } }
+  // Persisted globally via AFO_STORAGE under key 'lpvm_blocked_tiles'.
+  blockedTiles: {},
+  _expected: null,
+  // Multi-leg plan when path requires teleports.
+  // Plan = { legs: [{walk:[{x,y}...], tpIndex?, tp?}, ...], curLeg: 0 }
+  Plan: null,
+  _teleporting: false
 };
 
 // ============================================
