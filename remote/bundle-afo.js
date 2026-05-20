@@ -160,7 +160,11 @@ var RES = {
   first_mine: [],
   loc: 0,
   cdt: null,
-  finder: null
+  finder: null,
+  // 15% szybciej zbieranie (stat 148, buff 76, base item 1747 — bh17 w RESP)
+  buff_speed: false,
+  // 15% szansa na pomyślne zebranie (stat 149, buff 75, base item 1746 — bh18 w RESP)
+  buff_chance: false
 };
 
 // ============================================
@@ -761,7 +765,7 @@ const AFO_Templates = {
             <b class='pvp_status red'>Off</b>
           </div>
           <input class='afo-input' type='text' placeholder="Lista wojen" name='pvp_capt' value='' />
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='speed_capt' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='speed_capt' value='50' />
         </div>
       </div>
     `,
@@ -986,6 +990,14 @@ const AFO_Templates = {
             <span>⛏️ ZBIERAJ</span>
             <b class="res_status red">Off</b>
           </div>
+          <div class="afo-button res_button res_buff_speed">
+            <span>⚡ 15% szybciej</span>
+            <b class="res_status red">Off</b>
+          </div>
+          <div class="afo-button res_button res_buff_chance">
+            <span>🍀 15% szansa</span>
+            <b class="res_status red">Off</b>
+          </div>
           <div class="res-info bt_cool"></div>
           <ul></ul>
         </div>
@@ -1054,7 +1066,7 @@ const AFO_Templates = {
             <span>🛡️ Unikaj borny</span>
             <b class='glebia_status red'>Off</b>
           </div>
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='glebia_speed' value='50' />
         </div>
       </div>
     `,
@@ -1949,8 +1961,11 @@ const AFO_PVP = {
   loadSpeed() {
     const saved = localStorage.getItem('pvp_speed');
     if (saved) {
-      PVP.speed = parseInt(saved) || 50;
-      PVP.speedMultiplier = PVP.speed;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      PVP.speed = val;
+      PVP.speedMultiplier = val;
     }
   },
 
@@ -2115,9 +2130,12 @@ const AFO_PVP = {
       });
     }
 
-    // Speed input handler - sync PVP.speed and save to localStorage
+    // Speed input handler - sync PVP.speed, clamp to 10-500, persist.
     $('#pvp_Panel input[name=speed_capt]').on('input change', (e) => {
-      const val = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
       PVP.speed = val;
       PVP.speedMultiplier = val;
       this.saveSpeed();
@@ -3529,8 +3547,14 @@ const AFO_RES = {
   },
 
   Action() {
-    RES.stop = false;
+    if (RES.stop) return;
     if (!RES.processing) {
+      // Activate gathering buffs if enabled and missing. Yield while server
+      // processes the bless use; loop re-enters Action via setTimeout.
+      if (this.checkResBuffs()) {
+        setTimeout(() => this.Action(), 1200);
+        return;
+      }
       this.Go();
     } else {
       setTimeout(() => this.Action(), 1200);
@@ -3579,22 +3603,73 @@ const AFO_RES = {
   },
 
   listMines() {
-    let html = "";
     let mdt = Object.entries(GAME.map_mines.mine_data);
-    for (let i = 0; i < mdt.length; i++) {
-      if (i == 0) {
-        RES.mined_id.push(mdt[i][1].id);
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' checked='true' value='${mdt[i][1].id}' ${mdt.length == 1 ? "disabled" : ""}> ${mdt[i][1].name}</div>`;
-      } else {
-        html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
-          <input class='select_mine' type='checkbox' value='${mdt[i][1].id}'> ${mdt[i][1].name}</div>`;
-      }
-    }
-    $("#res_Panel ul").html(html);
     if (mdt.length == 0) {
       $("#res_Panel ul").html("Brak zasobów");
+      return;
     }
+    // If nothing selected, or the previously selected id isn't on this map,
+    // default to the first available mine.
+    const availableIds = mdt.map(e => e[1].id);
+    if (RES.mined_id.length === 0 || !availableIds.includes(RES.mined_id[0])) {
+      RES.mined_id = [mdt[0][1].id];
+    }
+    this.renderMines();
+  },
+
+  // Render mine checkboxes — single-select. If one is selected, others are disabled.
+  renderMines() {
+    let mdt = Object.entries(GAME.map_mines.mine_data);
+    let html = "";
+    const selectedId = RES.mined_id[0];
+    for (let i = 0; i < mdt.length; i++) {
+      const id = mdt[i][1].id;
+      const checked = selectedId === id ? "checked" : "";
+      // Disable everything except the selected one when something is selected.
+      const disabled = (selectedId !== undefined && selectedId !== id) ? "disabled" : "";
+      html += `<div style='margin-bottom:5px; border-bottom:solid gray 1px; padding:3px;'>
+        <input class='select_mine' type='checkbox' value='${id}' ${checked} ${disabled}> ${mdt[i][1].name}</div>`;
+    }
+    $("#res_Panel ul").html(html);
+  },
+
+  // ============================================
+  // RESOURCE BUFFS (15% speed / 15% chance)
+  // ============================================
+  // Matches RESP's check_bless pattern. base item IDs:
+  //   1747 (buff 76) — szybsze zbieranie zasobów  (stat 148)
+  //   1746 (buff 75) — szansa na zebranie zasobu  (stat 149)
+  // Returns true if a buff request was emitted (caller should yield and retry).
+
+  RES_BUFFS: [
+    { flag: 'buff_speed',  base: 1747, buff: 76 },
+    { flag: 'buff_chance', base: 1746, buff: 75 }
+  ],
+
+  checkResBuffs() {
+    const needed = this.RES_BUFFS.filter(b => RES[b.flag]);
+    if (!needed.length) return false;
+
+    // Only check on ekw page 10 (consumables/blessings).
+    if (GAME.ekw_page != 10) {
+      GAME.ekw_page = 10;
+      GAME.socket.emit('ga', { a: 12, page: 10, used: 1 });
+      return true;
+    }
+
+    for (const item of needed) {
+      const $buff = $(`#char_buffs`).find(`[data-buff=${item.buff}]`);
+      const hasBuff = $buff.length === 1;
+      const expiring = hasBuff && $buff.find(".timer").text() <= '00:00:04';
+      if (hasBuff && !expiring) continue;
+
+      const itemId = $(`#ekw_page_items`).find(`div[data-base_item_id=${item.base}]`).attr("data-item_id");
+      if (!itemId) continue;
+
+      GAME.socket.emit('ga', { a: 12, type: 14, iid: parseInt(itemId), page: 10 });
+      return true;
+    }
+    return false;
   },
 
   CreateMatrix() {
@@ -3761,17 +3836,26 @@ const AFO_RES = {
       }
     });
 
-    // Mine checkbox selection
+    // Mine checkbox selection — single-select. Only one mine type active at a time.
     $(document).on('change', '.select_mine', (e) => {
-      let val = parseInt($(e.target).val());
+      const val = parseInt($(e.target).val());
       if ($(e.target).is(':checked')) {
-        if (!RES.mined_id.includes(val)) {
-          RES.mined_id.push(val);
-        }
+        RES.mined_id = [val];
       } else {
-        RES.mined_id = RES.mined_id.filter(id => id !== val);
+        RES.mined_id = [];
       }
       RES.refresh_mines = true;
+      this.renderMines();
+    });
+
+    // Buff toggles
+    $('#res_Panel .res_buff_speed').click(() => {
+      RES.buff_speed = !RES.buff_speed;
+      $(".res_buff_speed .res_status").toggleClass("green red").html(RES.buff_speed ? "On" : "Off");
+    });
+    $('#res_Panel .res_buff_chance').click(() => {
+      RES.buff_chance = !RES.buff_chance;
+      $(".res_buff_chance .res_status").toggleClass("green red").html(RES.buff_chance ? "On" : "Off");
     });
 
     console.log('[AFO_RES] Handlers bound');
@@ -4179,9 +4263,13 @@ const AFO_GLEBIA = {
       }
     });
 
-    // Speed input handler
+    // Speed input handler — clamp to 10-500, reflect clamped value back to UI.
     $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
-      GLEBIA.speed = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
+      GLEBIA.speed = val;
       this.saveSpeed();
     });
 
@@ -4345,7 +4433,10 @@ const AFO_GLEBIA = {
   loadSpeed() {
     const saved = localStorage.getItem('glebia_speed');
     if (saved) {
-      GLEBIA.speed = parseInt(saved) || 50;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      GLEBIA.speed = val;
     }
   },
 

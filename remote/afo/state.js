@@ -159,7 +159,11 @@ var RES = {
   first_mine: [],
   loc: 0,
   cdt: null,
-  finder: null
+  finder: null,
+  // 15% szybciej zbieranie (stat 148, buff 76, base item 1747 — bh17 w RESP)
+  buff_speed: false,
+  // 15% szansa na pomyślne zebranie (stat 149, buff 75, base item 1746 — bh18 w RESP)
+  buff_chance: false
 };
 
 // ============================================

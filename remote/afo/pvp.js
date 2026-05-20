@@ -717,8 +717,11 @@ const AFO_PVP = {
   loadSpeed() {
     const saved = localStorage.getItem('pvp_speed');
     if (saved) {
-      PVP.speed = parseInt(saved) || 50;
-      PVP.speedMultiplier = PVP.speed;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      PVP.speed = val;
+      PVP.speedMultiplier = val;
     }
   },
 
@@ -883,9 +886,12 @@ const AFO_PVP = {
       });
     }
 
-    // Speed input handler - sync PVP.speed and save to localStorage
+    // Speed input handler - sync PVP.speed, clamp to 10-500, persist.
     $('#pvp_Panel input[name=speed_capt]').on('input change', (e) => {
-      const val = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
       PVP.speed = val;
       PVP.speedMultiplier = val;
       this.saveSpeed();

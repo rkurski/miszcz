@@ -476,7 +476,7 @@ const AFO_Templates = {
             <b class='pvp_status red'>Off</b>
           </div>
           <input class='afo-input' type='text' placeholder="Lista wojen" name='pvp_capt' value='' />
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='speed_capt' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='speed_capt' value='50' />
         </div>
       </div>
     `,
@@ -701,6 +701,14 @@ const AFO_Templates = {
             <span>⛏️ ZBIERAJ</span>
             <b class="res_status red">Off</b>
           </div>
+          <div class="afo-button res_button res_buff_speed">
+            <span>⚡ 15% szybciej</span>
+            <b class="res_status red">Off</b>
+          </div>
+          <div class="afo-button res_button res_buff_chance">
+            <span>🍀 15% szansa</span>
+            <b class="res_status red">Off</b>
+          </div>
           <div class="res-info bt_cool"></div>
           <ul></ul>
         </div>
@@ -769,7 +777,7 @@ const AFO_Templates = {
             <span>🛡️ Unikaj borny</span>
             <b class='glebia_status red'>Off</b>
           </div>
-          <input class='afo-input' type='text' placeholder="Szybkość 10-100" name='glebia_speed' value='50' />
+          <input class='afo-input' type='number' min='10' max='500' placeholder="Szybkość 10-500" name='glebia_speed' value='50' />
         </div>
       </div>
     `,

@@ -143,9 +143,13 @@ const AFO_GLEBIA = {
       }
     });
 
-    // Speed input handler
+    // Speed input handler — clamp to 10-500, reflect clamped value back to UI.
     $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
-      GLEBIA.speed = parseInt($(e.target).val()) || 50;
+      let val = parseInt($(e.target).val()) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      if (String(val) !== $(e.target).val()) $(e.target).val(val);
+      GLEBIA.speed = val;
       this.saveSpeed();
     });
 
@@ -309,7 +313,10 @@ const AFO_GLEBIA = {
   loadSpeed() {
     const saved = localStorage.getItem('glebia_speed');
     if (saved) {
-      GLEBIA.speed = parseInt(saved) || 50;
+      let val = parseInt(saved) || 100;
+      if (val < 10) val = 10;
+      if (val > 500) val = 500;
+      GLEBIA.speed = val;
     }
   },
 

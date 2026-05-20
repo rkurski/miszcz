@@ -62,7 +62,7 @@ const AFO_STATE_MANAGER = {
 
     // RES (Resources/Mining) - optional
     RES: [
-      'stop', 'loc', 'speed'
+      'stop', 'loc', 'speed', 'mined_id', 'buff_speed', 'buff_chance'
     ]
   },
 
