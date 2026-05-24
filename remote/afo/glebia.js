@@ -143,12 +143,15 @@ const AFO_GLEBIA = {
       }
     });
 
-    // Speed input handler — clamp to 10-500, reflect clamped value back to UI.
-    $('#glebia_Panel input[name=glebia_speed]').on('input change', (e) => {
+    // Speed input handler — clamp on commit only (change/blur), not while typing.
+    // Live clamping during `input` was hijacking partial entries (e.g. "8" → 10
+    // before user could finish typing "80"). getSpeedMultiplier() clamps at
+    // runtime anyway, so a transient out-of-range UI value is harmless.
+    $('#glebia_Panel input[name=glebia_speed]').on('change blur', (e) => {
       let val = parseInt($(e.target).val()) || 100;
       if (val < 10) val = 10;
       if (val > 500) val = 500;
-      if (String(val) !== $(e.target).val()) $(e.target).val(val);
+      $(e.target).val(val);
       GLEBIA.speed = val;
       this.saveSpeed();
     });

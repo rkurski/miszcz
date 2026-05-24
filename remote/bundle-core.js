@@ -561,21 +561,113 @@ const ClickHandlersMixin = {
     });
 
     // --- QUEST ROLL HANDLERS ---
-    $("body").on("click", `.quest_roll1.option`, () => {
-      var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (questRollActive1) { questRollActive1 = false; }
-      else { questRollActive1 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
-    });
-    $("body").on("click", `.quest_roll2.option`, () => {
-      var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (questRollActive2) { questRollActive2 = false; }
-      else { questRollActive2 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
-    });
-    $("body").on("click", `.quest_roll3.option`, () => {
-      var id = parseInt($(".quest_roll.option").attr("data-qb_id"));
-      if (questRollActive3) { questRollActive3 = false; }
-      else { questRollActive3 = true; GAME.socket.emit('ga', { a: 22, type: 1, id: id }); }
-    });
+    // Inject styles for active dice highlight + attempt counter badge
+    if (!document.getElementById('kws-quest-roll-css')) {
+      const style = document.createElement('style');
+      style.id = 'kws-quest-roll-css';
+      style.textContent = `
+        .kws_roll_active {
+          animation: kws_roll_pulse 0.85s ease-in-out infinite alternate;
+          outline: 2px solid #ffeb3b;
+          outline-offset: -2px;
+          border-radius: 6px;
+        }
+        @keyframes kws_roll_pulse {
+          from { filter: drop-shadow(0 0 3px #ffeb3b) brightness(1.05); }
+          to   { filter: drop-shadow(0 0 10px #ffeb3b) brightness(1.35); }
+        }
+        .kws_roll_counter {
+          position: absolute;
+          top: -4px;
+          right: -4px;
+          min-width: 14px;
+          height: 14px;
+          line-height: 14px;
+          padding: 0 4px;
+          background: #1a1a1a;
+          color: #ffeb3b;
+          font-size: 10px;
+          font-weight: bold;
+          font-family: sans-serif;
+          text-align: center;
+          border: 1px solid #ffeb3b;
+          border-radius: 8px;
+          box-shadow: 0 0 4px rgba(255, 235, 59, 0.6);
+          pointer-events: none;
+          z-index: 10;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Apply visual state (called after every quest re-render since DOM is rebuilt)
+    window.kwsRefreshRollUI = () => {
+      $('.quest_roll1, .quest_roll2, .quest_roll3').removeClass('kws_roll_active');
+      $('.kws_roll_counter').remove();
+      const activeMode = questRollActive1 ? 1 : (questRollActive2 ? 2 : (questRollActive3 ? 3 : 0));
+      // Display mode: active if looping, else last completed mode (sticky badge after success)
+      const displayMode = activeMode || (window.kwsLastRollMode || 0);
+      if (!displayMode) return;
+      const $btn = $('.quest_roll' + displayMode + '.option');
+      if (!$btn.length) return;
+      if (activeMode) $btn.addClass('kws_roll_active');
+      const n = window.kwsRollCount || 0;
+      if (n > 0) $btn.append('<span class="kws_roll_counter">' + n + '</span>');
+    };
+
+    // Start a new roll session (resets count). mode=0 cancels.
+    window.kwsSetRollMode = (mode) => {
+      questRollActive1 = (mode === 1);
+      questRollActive2 = (mode === 2);
+      questRollActive3 = (mode === 3);
+      window.kwsRollCount = 0;
+      window.kwsLastRollMode = 0;
+      window.kwsRefreshRollUI();
+    };
+
+    // Stop looping but keep count visible (sticky badge after target reached)
+    window.kwsStopRoll = (finishedMode) => {
+      questRollActive1 = false;
+      questRollActive2 = false;
+      questRollActive3 = false;
+      window.kwsLastRollMode = finishedMode || 0;
+      window.kwsRefreshRollUI();
+    };
+
+    // Full clear (used on close / different quest / explicit cancel)
+    window.kwsClearRoll = () => {
+      window.kwsLastRollQbId = 0;
+      window.kwsSetRollMode(0);
+    };
+
+    const handleRollClick = (mode) => {
+      const id = parseInt($(".quest_roll.option").attr("data-qb_id"));
+      if (!id) return;
+      const isActive = (mode === 1 && questRollActive1) ||
+                       (mode === 2 && questRollActive2) ||
+                       (mode === 3 && questRollActive3);
+      if (isActive) {
+        window.kwsClearRoll();
+        return;
+      }
+      window.kwsSetRollMode(mode);
+      window.kwsLastRollQbId = id;
+      // Quest dialog already open → roll immediately (skip wasted type:1 open-request)
+      if ($('#quest_con').is(':visible')) {
+        window.kwsRollCount = 1;
+        window.kwsRefreshRollUI();
+        GAME.socket.emit('ga', { a: 22, type: 12, id: id });
+      } else {
+        GAME.socket.emit('ga', { a: 22, type: 1, id: id });
+      }
+    };
+
+    $("body").on("click", `.quest_roll1.option`, () => handleRollClick(1));
+    $("body").on("click", `.quest_roll2.option`, () => handleRollClick(2));
+    $("body").on("click", `.quest_roll3.option`, () => handleRollClick(3));
+
+    // Full reset when quest dialog is closed
+    $("body").on("click", `[data-option=close_quest]`, () => window.kwsClearRoll());
   }
 };
 
@@ -2392,27 +2484,33 @@ function setupGameOverrides() {
     if (res.q_step.want.riddle) {
       kws.solveRiddle(res.q_step.want.riddle);
     }
-    setTimeout(() => {
-      if (quest.difficulty != 6 && quest.difficulty != 5 && questRollActive2 && JQS.qcc.is(":visible")) {
-        GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
+    // --- AUTO ROLL: sync reaction to quest re-render (RTT-bound, no artificial delay)
+    // Different quest opened → clear sticky badge state
+    if (window.kwsLastRollQbId && window.kwsLastRollQbId !== quest.qb_id && typeof window.kwsClearRoll === 'function') {
+      window.kwsClearRoll();
+    }
+    // Restore visuals (DOM was rebuilt by JQS.qcc.html above)
+    if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
+    if (questRollActive1 || questRollActive2 || questRollActive3) {
+      const KWS_ROLL_MAX = 200;
+      const activeMode = questRollActive1 ? 1 : (questRollActive2 ? 2 : 3);
+      const reached =
+        (questRollActive1 && quest.difficulty === 1) ||
+        (questRollActive2 && (quest.difficulty === 5 || quest.difficulty === 6)) ||
+        (questRollActive3 && quest.difficulty === 6);
+      const blocked = !JQS.qcc.is(":visible") || !quest.can_roll || (window.kwsRollCount || 0) >= KWS_ROLL_MAX;
+      if (reached) {
+        if (typeof window.kwsStopRoll === 'function') window.kwsStopRoll(activeMode);
+        else { questRollActive1 = false; questRollActive2 = false; questRollActive3 = false; }
+      } else if (blocked) {
+        if (typeof window.kwsClearRoll === 'function') window.kwsClearRoll();
+        else { questRollActive1 = false; questRollActive2 = false; questRollActive3 = false; }
       } else {
-        questRollActive2 = false;
-      }
-    }, 300);
-    setTimeout(() => {
-      if (quest.difficulty != 6 && questRollActive3 && JQS.qcc.is(":visible")) {
+        window.kwsRollCount = (window.kwsRollCount || 0) + 1;
+        if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
         GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
-      } else {
-        questRollActive3 = false;
       }
-    }, 300);
-    setTimeout(() => {
-      if (quest.difficulty != 1 && questRollActive1 && JQS.qcc.is(":visible")) {
-        GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
-      } else {
-        questRollActive1 = false;
-      }
-    }, 300);
+    }
   };
 
   // ============================================
@@ -7514,8 +7612,11 @@ class filterQuest {
       this.filterQuests();
     });
     const questContainer = document.querySelector('#drag_con');
-    const observer = new MutationObserver(this.filterQuests.bind(this));
-    observer.observe(questContainer, { childList: true, subtree: true });
+    if (questContainer) {
+      const observer = new MutationObserver(this.filterQuests.bind(this));
+      // .qtrack items are direct children of #drag_con — no need for subtree
+      observer.observe(questContainer, { childList: true, subtree: false });
+    }
   }
   filterQuests() {
     const inputField = $("#quest-filter-input")[0];

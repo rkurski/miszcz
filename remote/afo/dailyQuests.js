@@ -790,7 +790,16 @@ const AFO_DAILY = {
 
   markQuestCurrent(questName) {
     $('.daily_quest_item').removeClass('current');
-    $(`.daily_quest_item[data-quest-name="${questName}"]`).addClass('current');
+    const $item = $(`.daily_quest_item[data-quest-name="${questName}"]`);
+    $item.addClass('current');
+
+    // Scroll the quest list so the current quest sits at the top (when possible).
+    const item = $item[0];
+    const list = document.getElementById('daily_quest_list');
+    if (item && list) {
+      const delta = item.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      list.scrollTo({ top: list.scrollTop + delta, behavior: 'smooth' });
+    }
   },
 
   unbindUIHandlers() {
@@ -4798,9 +4807,15 @@ const AFO_DAILY = {
             if (DAILY.stop || DAILY.paused) return;
 
             const locId = quest.location?.locId;
-            console.log('[AFO_DAILY] After exit - current loc:', GAME.char_data.loc, 'quest locId:', locId);
+            // Coerce both sides to numbers — GAME.char_data.loc can return a string
+            // after empire exit (a:16) while quest.location.locId is always a number,
+            // which made strict !== always true and triggered a wasteful teleport
+            // landing the character on the entry tile instead of the quest NPC tile.
+            const charLocNum = Number(GAME.char_data.loc);
+            const locIdNum = Number(locId);
+            console.log('[AFO_DAILY] After exit - current loc:', GAME.char_data.loc, '(' + typeof GAME.char_data.loc + ') quest locId:', locId, '(' + typeof locId + ')');
 
-            if (locId && GAME.char_data.loc !== locId) {
+            if (locId && charLocNum !== locIdNum) {
               // Need to teleport
               this.updateStatus('Teleport do lokacji questa...');
               DAILY.isTeleporting = true;
@@ -5048,29 +5063,35 @@ const AFO_DAILY = {
     DAILY._currentQuest = null;
     DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
 
-    // Check if there are quests at current location that should be done first
-    // This handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is
+    // Check if there are quests at current location that should be done first.
+    // Only reorder when the next quest is at a DIFFERENT location — otherwise the
+    // "skip idx===0" logic would repeatedly leapfrog later same-location quests
+    // ahead of the next-in-line one, stranding it at the back of the queue.
+    // (handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is)
     const currentLocId = GAME.char_data.loc;
     const remainingQuests = DAILY.questQueue.slice(DAILY.currentQuestIdx);
+    const nextQuest = remainingQuests[0];
 
-    // Find quest at current location that's later in queue
-    const questAtCurrentLoc = remainingQuests.find((q, idx) => {
-      if (idx === 0) return false;  // Skip first quest (it's already next)
-      return q.location?.locId === currentLocId &&
-        !DAILY.completedQuests.includes(q.name) &&
-        !DAILY.skippedQuests.includes(q.name);
-    });
+    if (nextQuest && nextQuest.location?.locId !== currentLocId) {
+      // Find quest at current location that's later in queue
+      const questAtCurrentLoc = remainingQuests.find((q, idx) => {
+        if (idx === 0) return false;  // Skip first quest (it's already next)
+        return q.location?.locId === currentLocId &&
+          !DAILY.completedQuests.includes(q.name) &&
+          !DAILY.skippedQuests.includes(q.name);
+      });
 
-    if (questAtCurrentLoc) {
-      console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
+      if (questAtCurrentLoc) {
+        console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
 
-      // Move this quest to current position
-      const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
-      if (questIdx > DAILY.currentQuestIdx) {
-        // Swap: move found quest to current position
-        DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
-        DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
-        console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+        // Move this quest to current position
+        const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
+        if (questIdx > DAILY.currentQuestIdx) {
+          // Swap: move found quest to current position
+          DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
+          DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
+          console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+        }
       }
     }
 
@@ -5092,6 +5113,14 @@ const AFO_DAILY = {
 
   handleSockets(res) {
     if (DAILY.stop) return;
+
+    // Normalize char_data.loc to number once per socket event.
+    // The server returns it as a string after certain responses (notably a:16
+    // empire exit), which makes strict comparisons like `char_data.loc === locId`
+    // false-positive and triggers wasteful teleports back to the same location.
+    if (typeof GAME.char_data.loc === 'string') {
+      GAME.char_data.loc = Number(GAME.char_data.loc);
+    }
 
     // Movement completed
     if (res.a === 4 && res.char_id === GAME.char_id && DAILY.isNavigating) {

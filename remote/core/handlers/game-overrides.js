@@ -456,27 +456,33 @@ function setupGameOverrides() {
     if (res.q_step.want.riddle) {
       kws.solveRiddle(res.q_step.want.riddle);
     }
-    setTimeout(() => {
-      if (quest.difficulty != 6 && quest.difficulty != 5 && questRollActive2 && JQS.qcc.is(":visible")) {
-        GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
+    // --- AUTO ROLL: sync reaction to quest re-render (RTT-bound, no artificial delay)
+    // Different quest opened → clear sticky badge state
+    if (window.kwsLastRollQbId && window.kwsLastRollQbId !== quest.qb_id && typeof window.kwsClearRoll === 'function') {
+      window.kwsClearRoll();
+    }
+    // Restore visuals (DOM was rebuilt by JQS.qcc.html above)
+    if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
+    if (questRollActive1 || questRollActive2 || questRollActive3) {
+      const KWS_ROLL_MAX = 200;
+      const activeMode = questRollActive1 ? 1 : (questRollActive2 ? 2 : 3);
+      const reached =
+        (questRollActive1 && quest.difficulty === 1) ||
+        (questRollActive2 && (quest.difficulty === 5 || quest.difficulty === 6)) ||
+        (questRollActive3 && quest.difficulty === 6);
+      const blocked = !JQS.qcc.is(":visible") || !quest.can_roll || (window.kwsRollCount || 0) >= KWS_ROLL_MAX;
+      if (reached) {
+        if (typeof window.kwsStopRoll === 'function') window.kwsStopRoll(activeMode);
+        else { questRollActive1 = false; questRollActive2 = false; questRollActive3 = false; }
+      } else if (blocked) {
+        if (typeof window.kwsClearRoll === 'function') window.kwsClearRoll();
+        else { questRollActive1 = false; questRollActive2 = false; questRollActive3 = false; }
       } else {
-        questRollActive2 = false;
-      }
-    }, 300);
-    setTimeout(() => {
-      if (quest.difficulty != 6 && questRollActive3 && JQS.qcc.is(":visible")) {
+        window.kwsRollCount = (window.kwsRollCount || 0) + 1;
+        if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
         GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
-      } else {
-        questRollActive3 = false;
       }
-    }, 300);
-    setTimeout(() => {
-      if (quest.difficulty != 1 && questRollActive1 && JQS.qcc.is(":visible")) {
-        GAME.socket.emit('ga', { a: 22, type: 12, id: quest.qb_id });
-      } else {
-        questRollActive1 = false;
-      }
-    }, 300);
+    }
   };
 
   // ============================================

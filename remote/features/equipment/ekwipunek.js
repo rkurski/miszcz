@@ -1057,8 +1057,11 @@ class filterQuest {
       this.filterQuests();
     });
     const questContainer = document.querySelector('#drag_con');
-    const observer = new MutationObserver(this.filterQuests.bind(this));
-    observer.observe(questContainer, { childList: true, subtree: true });
+    if (questContainer) {
+      const observer = new MutationObserver(this.filterQuests.bind(this));
+      // .qtrack items are direct children of #drag_con — no need for subtree
+      observer.observe(questContainer, { childList: true, subtree: false });
+    }
   }
   filterQuests() {
     const inputField = $("#quest-filter-input")[0];
