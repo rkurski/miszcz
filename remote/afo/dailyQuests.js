@@ -790,7 +790,16 @@ const AFO_DAILY = {
 
   markQuestCurrent(questName) {
     $('.daily_quest_item').removeClass('current');
-    $(`.daily_quest_item[data-quest-name="${questName}"]`).addClass('current');
+    const $item = $(`.daily_quest_item[data-quest-name="${questName}"]`);
+    $item.addClass('current');
+
+    // Scroll the quest list so the current quest sits at the top (when possible).
+    const item = $item[0];
+    const list = document.getElementById('daily_quest_list');
+    if (item && list) {
+      const delta = item.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      list.scrollTo({ top: list.scrollTop + delta, behavior: 'smooth' });
+    }
   },
 
   unbindUIHandlers() {
@@ -4798,9 +4807,15 @@ const AFO_DAILY = {
             if (DAILY.stop || DAILY.paused) return;
 
             const locId = quest.location?.locId;
-            console.log('[AFO_DAILY] After exit - current loc:', GAME.char_data.loc, 'quest locId:', locId);
+            // Coerce both sides to numbers — GAME.char_data.loc can return a string
+            // after empire exit (a:16) while quest.location.locId is always a number,
+            // which made strict !== always true and triggered a wasteful teleport
+            // landing the character on the entry tile instead of the quest NPC tile.
+            const charLocNum = Number(GAME.char_data.loc);
+            const locIdNum = Number(locId);
+            console.log('[AFO_DAILY] After exit - current loc:', GAME.char_data.loc, '(' + typeof GAME.char_data.loc + ') quest locId:', locId, '(' + typeof locId + ')');
 
-            if (locId && GAME.char_data.loc !== locId) {
+            if (locId && charLocNum !== locIdNum) {
               // Need to teleport
               this.updateStatus('Teleport do lokacji questa...');
               DAILY.isTeleporting = true;
@@ -5098,6 +5113,14 @@ const AFO_DAILY = {
 
   handleSockets(res) {
     if (DAILY.stop) return;
+
+    // Normalize char_data.loc to number once per socket event.
+    // The server returns it as a string after certain responses (notably a:16
+    // empire exit), which makes strict comparisons like `char_data.loc === locId`
+    // false-positive and triggers wasteful teleports back to the same location.
+    if (typeof GAME.char_data.loc === 'string') {
+      GAME.char_data.loc = Number(GAME.char_data.loc);
+    }
 
     // Movement completed
     if (res.a === 4 && res.char_id === GAME.char_id && DAILY.isNavigating) {

@@ -886,12 +886,15 @@ const AFO_PVP = {
       });
     }
 
-    // Speed input handler - sync PVP.speed, clamp to 10-500, persist.
-    $('#pvp_Panel input[name=speed_capt]').on('input change', (e) => {
+    // Speed input handler — clamp on commit only (change/blur), not while typing.
+    // Live clamping during `input` was hijacking partial entries (e.g. "8" → 10
+    // before user could finish typing "80"). getSpeedMultiplier() clamps at
+    // runtime anyway, so a transient out-of-range UI value is harmless.
+    $('#pvp_Panel input[name=speed_capt]').on('change blur', (e) => {
       let val = parseInt($(e.target).val()) || 100;
       if (val < 10) val = 10;
       if (val > 500) val = 500;
-      if (String(val) !== $(e.target).val()) $(e.target).val(val);
+      $(e.target).val(val);
       PVP.speed = val;
       PVP.speedMultiplier = val;
       this.saveSpeed();
