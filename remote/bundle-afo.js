@@ -5053,21 +5053,21 @@ const AFO_BALL_SEARCHER = {
   },
 
   /**
-   * Setup MutationObserver to inject button when dragon balls page opens
+   * Hook GAME.page_switch to inject button when dragon balls page opens.
+   * Avoids observing the whole document body for every DOM mutation.
    */
   setupButtonInjection() {
-    // Also try to inject immediately if page is already open
+    // Try once on init in case the dragon balls page is already open
     this.tryInjectButton();
 
-    // Watch for DOM changes to inject button when db page opens
-    const observer = new MutationObserver(() => {
-      this.tryInjectButton();
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+    if (typeof GAME !== 'undefined' && typeof GAME.page_switch === 'function' && !GAME._ballSearcherPageHook) {
+      const origPageSwitch = GAME.page_switch.bind(GAME);
+      GAME.page_switch = (page, arg) => {
+        origPageSwitch(page, arg);
+        this.tryInjectButton();
+      };
+      GAME._ballSearcherPageHook = true;
+    }
   },
 
   /**
