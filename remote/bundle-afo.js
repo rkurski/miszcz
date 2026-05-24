@@ -11387,29 +11387,35 @@ const AFO_DAILY = {
     DAILY._currentQuest = null;
     DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
 
-    // Check if there are quests at current location that should be done first
-    // This handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is
+    // Check if there are quests at current location that should be done first.
+    // Only reorder when the next quest is at a DIFFERENT location — otherwise the
+    // "skip idx===0" logic would repeatedly leapfrog later same-location quests
+    // ahead of the next-in-line one, stranding it at the back of the queue.
+    // (handles cases like Tajemniczy Portal teleporting to Vestria where Boski Ulepszacz is)
     const currentLocId = GAME.char_data.loc;
     const remainingQuests = DAILY.questQueue.slice(DAILY.currentQuestIdx);
+    const nextQuest = remainingQuests[0];
 
-    // Find quest at current location that's later in queue
-    const questAtCurrentLoc = remainingQuests.find((q, idx) => {
-      if (idx === 0) return false;  // Skip first quest (it's already next)
-      return q.location?.locId === currentLocId &&
-        !DAILY.completedQuests.includes(q.name) &&
-        !DAILY.skippedQuests.includes(q.name);
-    });
+    if (nextQuest && nextQuest.location?.locId !== currentLocId) {
+      // Find quest at current location that's later in queue
+      const questAtCurrentLoc = remainingQuests.find((q, idx) => {
+        if (idx === 0) return false;  // Skip first quest (it's already next)
+        return q.location?.locId === currentLocId &&
+          !DAILY.completedQuests.includes(q.name) &&
+          !DAILY.skippedQuests.includes(q.name);
+      });
 
-    if (questAtCurrentLoc) {
-      console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
+      if (questAtCurrentLoc) {
+        console.log('[AFO_DAILY] Found quest at current location, prioritizing:', questAtCurrentLoc.name);
 
-      // Move this quest to current position
-      const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
-      if (questIdx > DAILY.currentQuestIdx) {
-        // Swap: move found quest to current position
-        DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
-        DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
-        console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+        // Move this quest to current position
+        const questIdx = DAILY.questQueue.indexOf(questAtCurrentLoc);
+        if (questIdx > DAILY.currentQuestIdx) {
+          // Swap: move found quest to current position
+          DAILY.questQueue.splice(questIdx, 1);  // Remove from original position
+          DAILY.questQueue.splice(DAILY.currentQuestIdx, 0, questAtCurrentLoc);  // Insert at current
+          console.log('[AFO_DAILY] Reordered queue, next quest:', DAILY.questQueue[DAILY.currentQuestIdx]?.name);
+        }
       }
     }
 
