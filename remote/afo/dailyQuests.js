@@ -243,11 +243,38 @@ const AFO_DAILY = {
         font-weight: 500;
       }
 
+      #daily_Panel .daily_quest_item .quest_born {
+        display: inline-block;
+        width: 12px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 700;
+        margin-right: 4px;
+        flex-shrink: 0;
+      }
+
       #daily_Panel .daily_quest_item .quest_loc {
         color: #666;
         font-size: 9px;
         margin-left: 8px;
       }
+
+      #daily_Panel .daily_quest_item .quest_imp_roll {
+        font-size: 9px;
+        font-weight: 700;
+        padding: 1px 5px;
+        margin-left: 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        user-select: none;
+        background: #2a2a2a;
+        color: #888;
+        border: 1px solid #444;
+      }
+      #daily_Panel .daily_quest_item .quest_imp_roll:hover { filter: brightness(1.3); }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-1 { color: #ff5252; border-color: #ff5252; }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-2 { color: #ffeb3b; border-color: #ffeb3b; }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-3 { color: #4caf50; border-color: #4caf50; }
 
       #daily_Panel .daily_controls {
         display: flex;
@@ -637,6 +664,7 @@ const AFO_DAILY = {
     this.loadCompletedQuests();
     this.loadSkippedQuests();
     this.loadFailedQuests();
+    this.loadImperiumRollMode();
     this.renderQuestList();
     this.bindUIHandlers();
   },
@@ -703,12 +731,28 @@ const AFO_DAILY = {
         iconHtml = `<span class="quest_icon icon-${iconName}"></span>`;
       }
 
+      // Min-born indicator using game's .r1-.r6 classes (matches GAME.rebPref letters)
+      const bornLetters = { 1: 'R', 2: 'G', 3: 'U', 4: 'S', 5: 'H', 6: 'M' };
+      const minBorn = Array.isArray(quest.born) && quest.born.length ? Math.min(...quest.born) : 0;
+      const bornHtml = bornLetters[minBorn]
+        ? `<span class="quest_born r${minBorn}">${bornLetters[minBorn]}</span>`
+        : '';
+
+      // Per-quest imperium roll toggle (only for "Zadanie Imperium")
+      let impRollHtml = '';
+      if (quest.name === 'Zadanie Imperium') {
+        const mode = DAILY.imperiumRollMode || 0;
+        const labels = { 0: '—', 1: '-50', 2: '150+', 3: '200' };
+        impRollHtml = `<span class="quest_imp_roll mode-${mode}" data-mode="${mode}" title="Kostkowanie Zadania Imperium (klik aby zmienić)">🎲${labels[mode]}</span>`;
+      }
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
-          ${iconHtml}<span class="quest_name">${quest.name}</span>
+          ${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
+          ${impRollHtml}
         </div>
       `;
     });
@@ -788,6 +832,24 @@ const AFO_DAILY = {
     }
   },
 
+  // Imperium roll preference: 0=off, 1=-50, 2=150/200, 3=200 (matches kwsSetRollMode)
+  loadImperiumRollMode() {
+    try {
+      const saved = localStorage.getItem('daily_imperium_roll_' + GAME.char_id);
+      DAILY.imperiumRollMode = saved ? parseInt(saved) || 0 : 0;
+    } catch (e) {
+      DAILY.imperiumRollMode = 0;
+    }
+  },
+
+  saveImperiumRollMode() {
+    try {
+      localStorage.setItem('daily_imperium_roll_' + GAME.char_id, String(DAILY.imperiumRollMode || 0));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save imperium roll mode:', e);
+    }
+  },
+
   markQuestCurrent(questName) {
     $('.daily_quest_item').removeClass('current');
     const $item = $(`.daily_quest_item[data-quest-name="${questName}"]`);
@@ -849,6 +911,16 @@ const AFO_DAILY = {
           DAILY.enabledQuests = DAILY.enabledQuests.filter(n => n !== questName);
         }
       }
+    });
+
+    // Per-quest imperium roll toggle — cycles 0 → 2 (150+) → 3 (200) → 1 (-50) → 0
+    $('#daily_quest_list').on('click', '.quest_imp_roll', (e) => {
+      e.stopPropagation();
+      const cycle = { 0: 2, 2: 3, 3: 1, 1: 0 };
+      const cur = DAILY.imperiumRollMode || 0;
+      DAILY.imperiumRollMode = cycle[cur] ?? 0;
+      this.saveImperiumRollMode();
+      this.renderQuestList();
     });
 
     // Toggle all button - if any unchecked, select all; otherwise deselect all
@@ -2137,6 +2209,92 @@ const AFO_DAILY = {
     }
   },
 
+  // Trigger the existing game-overrides quest-roll loop for Zadanie Imperium
+  // if user enabled a roll target. Returns true if a roll loop was started
+  // (caller should bail; we'll re-enter processDialog when rolling finishes).
+  // Mode mapping (matches kwsSetRollMode): 1 = -50%, 2 = 150/200, 3 = 200.
+  // Falls back to no-op when out of dice / dialog gone / target already met.
+  _maybeRollImperium(quest) {
+    if (!quest || quest.name !== 'Zadanie Imperium') return false;
+    if (DAILY._imperiumRollInProgress) return true;
+
+    const mode = DAILY.imperiumRollMode || 0;
+    if (mode === 0) return false;
+    if (typeof window.kwsSetRollMode !== 'function') return false;
+    if (!$('#quest_con').is(':visible')) return false;
+
+    const $rollBtn = $('.quest_roll.option');
+    if (!$rollBtn.length) return false;  // can_roll = false on this quest right now
+
+    // Skip if current difficulty already satisfies target (game-overrides handler
+    // uses these same difficulty IDs internally).
+    const cls = $('.quest_win').attr('class') || '';
+    const diffMatch = cls.match(/diff(\d)/);
+    const currentDiff = diffMatch ? parseInt(diffMatch[1]) : 0;
+    const targetMet =
+      (mode === 1 && currentDiff === 1) ||
+      (mode === 2 && (currentDiff === 5 || currentDiff === 6)) ||
+      (mode === 3 && currentDiff === 6);
+    if (targetMet) {
+      console.log('[AFO_DAILY] Imperium roll: target diff already met (', currentDiff, '), skipping');
+      return false;
+    }
+
+    const qb_id = parseInt($rollBtn.attr('data-qb_id'));
+    if (!qb_id) return false;
+
+    const labels = { 1: '-50%', 2: '150/200%', 3: '200%' };
+    console.log('[AFO_DAILY] Imperium auto-roll start, mode:', mode, '(target', labels[mode] + ')');
+    this.updateStatus(`${quest.name}: Kostkuję (cel ${labels[mode]})...`);
+
+    DAILY._imperiumRollInProgress = true;
+    window.kwsSetRollMode(mode);
+    window.kwsLastRollQbId = qb_id;
+    window.kwsRollCount = 1;
+    if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
+    GAME.socket.emit('ga', { a: 22, type: 12, id: qb_id });
+
+    const POLL_MS = 250;
+    const MAX_WAIT_MS = 60000;  // safety cap (game-overrides also caps at 200 rolls)
+    const startedAt = Date.now();
+
+    const checkDone = () => {
+      if (DAILY.stop || DAILY.paused) {
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        return;
+      }
+      if (!$('#quest_con').is(':visible')) {
+        // Dialog closed externally — give up rolling and let the normal flow take over.
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        console.warn('[AFO_DAILY] Imperium roll: dialog closed mid-loop, aborting');
+        return;
+      }
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        console.warn('[AFO_DAILY] Imperium roll: max-wait timeout, continuing normally');
+        setTimeout(() => this.processDialog(quest), 300);
+        return;
+      }
+
+      // Roll loop ends when the .kws_roll_active visual highlight disappears
+      // (either reached target → kwsStopRoll, or blocked → kwsClearRoll).
+      const stillRolling = $('.kws_roll_active').length > 0;
+      if (stillRolling) {
+        setTimeout(checkDone, POLL_MS);
+        return;
+      }
+
+      DAILY._imperiumRollInProgress = false;
+      console.log('[AFO_DAILY] Imperium auto-roll finished, resuming dialog flow');
+      setTimeout(() => this.processDialog(quest), 300);
+    };
+    setTimeout(checkDone, 600);
+    return true;
+  },
+
   processDialog(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
@@ -2159,6 +2317,11 @@ const AFO_DAILY = {
       }
       return;
     }
+
+    // Imperium auto-roll: if user enabled rolling for Zadanie Imperium and we
+    // haven't reached the target difficulty yet, kick off the existing
+    // game-overrides roll loop and bail until it lands the desired multiplier.
+    if (this._maybeRollImperium(quest)) return;
 
     // STUDNIA ŻYCZEŃ early detection - handle with special slow timing
     if (quest.name && quest.name.startsWith('Studnia Życzeń')) {
@@ -2328,6 +2491,11 @@ const AFO_DAILY = {
       // New stage with new requirements!
       console.log('[AFO_DAILY] New requirements after finish:', newRequires.type, newRequires.current, '/', newRequires.target);
       DAILY._finishClicked = false;
+
+      // Imperium auto-roll for stage 2: dialog is still open with the new
+      // stage data — roll BEFORE hiding/handling so we get the desired diff.
+      if (this._maybeRollImperium(quest)) return;
+
       $('#quest_con').hide();
       this.handleQuestRequirement(quest, newRequires);
       return;
@@ -5063,6 +5231,15 @@ const AFO_DAILY = {
     DAILY._currentQuest = null;
     DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
 
+    // Reset per-quest attempt counters. Without this, a counter raised by
+    // the previous quest (e.g. no-fight combat keeping _dialogAttempts) leaks
+    // into the next quest and triggers a false "Nie udało się otworzyć dialogu"
+    // skip on the first startDialog call.
+    DAILY._dialogAttempts = 0;
+    DAILY._verifyAttempts = 0;
+    DAILY._verifyMapAttempts = 0;
+    DAILY._studniaAttempts = 0;
+
     // Check if there are quests at current location that should be done first.
     // Only reorder when the next quest is at a DIFFERENT location — otherwise the
     // "skip idx===0" logic would repeatedly leapfrog later same-location quests
@@ -5216,20 +5393,40 @@ const AFO_DAILY = {
       const isValidLocation = isAtExpectedLoc || isAtInnerLoc || DAILY.inPortal;
 
       if (expectedLocId && !isValidLocation) {
-        DAILY._teleportRetries = (DAILY._teleportRetries || 0) + 1;
-        console.warn('[AFO_DAILY] Teleport verification failed! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', currentLoc, 'Retry:', DAILY._teleportRetries);
+        // GAME.char_data.loc sometimes lags 1–2s behind the teleport's show_map
+        // response. Poll briefly before treating this as a real failure — a retry
+        // teleport wouldn't change anything if the issue is just sync latency, and
+        // a needless retry costs another ~3-4s round trip.
+        const pollSync = (remaining) => {
+          if (DAILY.stop || DAILY.paused) return;
+          const loc = GAME.char_data.loc;
+          const synced = (expectedLocId && loc === expectedLocId) ||
+                         (innerLocId && loc === innerLocId);
+          if (synced) {
+            DAILY._teleportRetries = 0;
+            this.waitForMapQuests(quest, 0);
+            return;
+          }
+          if (remaining > 0) {
+            setTimeout(() => pollSync(remaining - 1), 400);
+            return;
+          }
+          // Truly failed - retry teleport
+          DAILY._teleportRetries = (DAILY._teleportRetries || 0) + 1;
+          console.warn('[AFO_DAILY] Teleport verification failed! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', loc, 'Retry:', DAILY._teleportRetries);
 
-        if (DAILY._teleportRetries >= 3) {
-          console.error('[AFO_DAILY] Teleport failed after 3 retries - skipping quest');
-          DAILY._teleportRetries = 0;
-          this.skipQuestWithMark(quest, 'Teleport nie powiódł się');
-          return;
-        }
+          if (DAILY._teleportRetries >= 3) {
+            console.error('[AFO_DAILY] Teleport failed after 3 retries - skipping quest');
+            DAILY._teleportRetries = 0;
+            this.skipQuestWithMark(quest, 'Teleport nie powiódł się');
+            return;
+          }
 
-        // Retry teleport
-        console.log('[AFO_DAILY] Retrying teleport to:', expectedLocId);
-        DAILY.isTeleporting = true;
-        GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+          console.log('[AFO_DAILY] Retrying teleport to:', expectedLocId);
+          DAILY.isTeleporting = true;
+          GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+        };
+        pollSync(3);  // up to 3 polls × 400ms = ~1.2s grace for sync
         return;
       }
       DAILY._teleportRetries = 0;  // Reset on success
