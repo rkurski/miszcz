@@ -259,6 +259,23 @@ const AFO_DAILY = {
         margin-left: 8px;
       }
 
+      #daily_Panel .daily_quest_item .quest_imp_roll {
+        font-size: 9px;
+        font-weight: 700;
+        padding: 1px 5px;
+        margin-left: 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        user-select: none;
+        background: #2a2a2a;
+        color: #888;
+        border: 1px solid #444;
+      }
+      #daily_Panel .daily_quest_item .quest_imp_roll:hover { filter: brightness(1.3); }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-1 { color: #ff5252; border-color: #ff5252; }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-2 { color: #ffeb3b; border-color: #ffeb3b; }
+      #daily_Panel .daily_quest_item .quest_imp_roll.mode-3 { color: #4caf50; border-color: #4caf50; }
+
       #daily_Panel .daily_controls {
         display: flex;
         justify-content: center;
@@ -647,6 +664,7 @@ const AFO_DAILY = {
     this.loadCompletedQuests();
     this.loadSkippedQuests();
     this.loadFailedQuests();
+    this.loadImperiumRollMode();
     this.renderQuestList();
     this.bindUIHandlers();
   },
@@ -720,12 +738,21 @@ const AFO_DAILY = {
         ? `<span class="quest_born r${minBorn}">${bornLetters[minBorn]}</span>`
         : '';
 
+      // Per-quest imperium roll toggle (only for "Zadanie Imperium")
+      let impRollHtml = '';
+      if (quest.name === 'Zadanie Imperium') {
+        const mode = DAILY.imperiumRollMode || 0;
+        const labels = { 0: '—', 1: '-50', 2: '150+', 3: '200' };
+        impRollHtml = `<span class="quest_imp_roll mode-${mode}" data-mode="${mode}" title="Kostkowanie Zadania Imperium (klik aby zmienić)">🎲${labels[mode]}</span>`;
+      }
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
           ${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
+          ${impRollHtml}
         </div>
       `;
     });
@@ -805,6 +832,24 @@ const AFO_DAILY = {
     }
   },
 
+  // Imperium roll preference: 0=off, 1=-50, 2=150/200, 3=200 (matches kwsSetRollMode)
+  loadImperiumRollMode() {
+    try {
+      const saved = localStorage.getItem('daily_imperium_roll_' + GAME.char_id);
+      DAILY.imperiumRollMode = saved ? parseInt(saved) || 0 : 0;
+    } catch (e) {
+      DAILY.imperiumRollMode = 0;
+    }
+  },
+
+  saveImperiumRollMode() {
+    try {
+      localStorage.setItem('daily_imperium_roll_' + GAME.char_id, String(DAILY.imperiumRollMode || 0));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save imperium roll mode:', e);
+    }
+  },
+
   markQuestCurrent(questName) {
     $('.daily_quest_item').removeClass('current');
     const $item = $(`.daily_quest_item[data-quest-name="${questName}"]`);
@@ -866,6 +911,16 @@ const AFO_DAILY = {
           DAILY.enabledQuests = DAILY.enabledQuests.filter(n => n !== questName);
         }
       }
+    });
+
+    // Per-quest imperium roll toggle — cycles 0 → 2 (150+) → 3 (200) → 1 (-50) → 0
+    $('#daily_quest_list').on('click', '.quest_imp_roll', (e) => {
+      e.stopPropagation();
+      const cycle = { 0: 2, 2: 3, 3: 1, 1: 0 };
+      const cur = DAILY.imperiumRollMode || 0;
+      DAILY.imperiumRollMode = cycle[cur] ?? 0;
+      this.saveImperiumRollMode();
+      this.renderQuestList();
     });
 
     // Toggle all button - if any unchecked, select all; otherwise deselect all
@@ -2154,6 +2209,92 @@ const AFO_DAILY = {
     }
   },
 
+  // Trigger the existing game-overrides quest-roll loop for Zadanie Imperium
+  // if user enabled a roll target. Returns true if a roll loop was started
+  // (caller should bail; we'll re-enter processDialog when rolling finishes).
+  // Mode mapping (matches kwsSetRollMode): 1 = -50%, 2 = 150/200, 3 = 200.
+  // Falls back to no-op when out of dice / dialog gone / target already met.
+  _maybeRollImperium(quest) {
+    if (!quest || quest.name !== 'Zadanie Imperium') return false;
+    if (DAILY._imperiumRollInProgress) return true;
+
+    const mode = DAILY.imperiumRollMode || 0;
+    if (mode === 0) return false;
+    if (typeof window.kwsSetRollMode !== 'function') return false;
+    if (!$('#quest_con').is(':visible')) return false;
+
+    const $rollBtn = $('.quest_roll.option');
+    if (!$rollBtn.length) return false;  // can_roll = false on this quest right now
+
+    // Skip if current difficulty already satisfies target (game-overrides handler
+    // uses these same difficulty IDs internally).
+    const cls = $('.quest_win').attr('class') || '';
+    const diffMatch = cls.match(/diff(\d)/);
+    const currentDiff = diffMatch ? parseInt(diffMatch[1]) : 0;
+    const targetMet =
+      (mode === 1 && currentDiff === 1) ||
+      (mode === 2 && (currentDiff === 5 || currentDiff === 6)) ||
+      (mode === 3 && currentDiff === 6);
+    if (targetMet) {
+      console.log('[AFO_DAILY] Imperium roll: target diff already met (', currentDiff, '), skipping');
+      return false;
+    }
+
+    const qb_id = parseInt($rollBtn.attr('data-qb_id'));
+    if (!qb_id) return false;
+
+    const labels = { 1: '-50%', 2: '150/200%', 3: '200%' };
+    console.log('[AFO_DAILY] Imperium auto-roll start, mode:', mode, '(target', labels[mode] + ')');
+    this.updateStatus(`${quest.name}: Kostkuję (cel ${labels[mode]})...`);
+
+    DAILY._imperiumRollInProgress = true;
+    window.kwsSetRollMode(mode);
+    window.kwsLastRollQbId = qb_id;
+    window.kwsRollCount = 1;
+    if (typeof window.kwsRefreshRollUI === 'function') window.kwsRefreshRollUI();
+    GAME.socket.emit('ga', { a: 22, type: 12, id: qb_id });
+
+    const POLL_MS = 250;
+    const MAX_WAIT_MS = 60000;  // safety cap (game-overrides also caps at 200 rolls)
+    const startedAt = Date.now();
+
+    const checkDone = () => {
+      if (DAILY.stop || DAILY.paused) {
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        return;
+      }
+      if (!$('#quest_con').is(':visible')) {
+        // Dialog closed externally — give up rolling and let the normal flow take over.
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        console.warn('[AFO_DAILY] Imperium roll: dialog closed mid-loop, aborting');
+        return;
+      }
+      if (Date.now() - startedAt > MAX_WAIT_MS) {
+        DAILY._imperiumRollInProgress = false;
+        try { window.kwsClearRoll && window.kwsClearRoll(); } catch (e) {}
+        console.warn('[AFO_DAILY] Imperium roll: max-wait timeout, continuing normally');
+        setTimeout(() => this.processDialog(quest), 300);
+        return;
+      }
+
+      // Roll loop ends when the .kws_roll_active visual highlight disappears
+      // (either reached target → kwsStopRoll, or blocked → kwsClearRoll).
+      const stillRolling = $('.kws_roll_active').length > 0;
+      if (stillRolling) {
+        setTimeout(checkDone, POLL_MS);
+        return;
+      }
+
+      DAILY._imperiumRollInProgress = false;
+      console.log('[AFO_DAILY] Imperium auto-roll finished, resuming dialog flow');
+      setTimeout(() => this.processDialog(quest), 300);
+    };
+    setTimeout(checkDone, 600);
+    return true;
+  },
+
   processDialog(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
@@ -2176,6 +2317,11 @@ const AFO_DAILY = {
       }
       return;
     }
+
+    // Imperium auto-roll: if user enabled rolling for Zadanie Imperium and we
+    // haven't reached the target difficulty yet, kick off the existing
+    // game-overrides roll loop and bail until it lands the desired multiplier.
+    if (this._maybeRollImperium(quest)) return;
 
     // STUDNIA ŻYCZEŃ early detection - handle with special slow timing
     if (quest.name && quest.name.startsWith('Studnia Życzeń')) {
@@ -2345,6 +2491,11 @@ const AFO_DAILY = {
       // New stage with new requirements!
       console.log('[AFO_DAILY] New requirements after finish:', newRequires.type, newRequires.current, '/', newRequires.target);
       DAILY._finishClicked = false;
+
+      // Imperium auto-roll for stage 2: dialog is still open with the new
+      // stage data — roll BEFORE hiding/handling so we get the desired diff.
+      if (this._maybeRollImperium(quest)) return;
+
       $('#quest_con').hide();
       this.handleQuestRequirement(quest, newRequires);
       return;
