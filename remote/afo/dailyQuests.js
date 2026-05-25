@@ -243,6 +243,16 @@ const AFO_DAILY = {
         font-weight: 500;
       }
 
+      #daily_Panel .daily_quest_item .quest_born {
+        display: inline-block;
+        width: 12px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 700;
+        margin-right: 4px;
+        flex-shrink: 0;
+      }
+
       #daily_Panel .daily_quest_item .quest_loc {
         color: #666;
         font-size: 9px;
@@ -703,10 +713,17 @@ const AFO_DAILY = {
         iconHtml = `<span class="quest_icon icon-${iconName}"></span>`;
       }
 
+      // Min-born indicator using game's .r1-.r6 classes (matches GAME.rebPref letters)
+      const bornLetters = { 1: 'R', 2: 'G', 3: 'U', 4: 'S', 5: 'H', 6: 'M' };
+      const minBorn = Array.isArray(quest.born) && quest.born.length ? Math.min(...quest.born) : 0;
+      const bornHtml = bornLetters[minBorn]
+        ? `<span class="quest_born r${minBorn}">${bornLetters[minBorn]}</span>`
+        : '';
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
-          ${iconHtml}<span class="quest_name">${quest.name}</span>
+          ${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
         </div>
@@ -5063,6 +5080,15 @@ const AFO_DAILY = {
     DAILY._currentQuest = null;
     DAILY._questNpcCoords = null;  // Clear quest-persistent NPC coords
 
+    // Reset per-quest attempt counters. Without this, a counter raised by
+    // the previous quest (e.g. no-fight combat keeping _dialogAttempts) leaks
+    // into the next quest and triggers a false "Nie udało się otworzyć dialogu"
+    // skip on the first startDialog call.
+    DAILY._dialogAttempts = 0;
+    DAILY._verifyAttempts = 0;
+    DAILY._verifyMapAttempts = 0;
+    DAILY._studniaAttempts = 0;
+
     // Check if there are quests at current location that should be done first.
     // Only reorder when the next quest is at a DIFFERENT location — otherwise the
     // "skip idx===0" logic would repeatedly leapfrog later same-location quests
@@ -5216,20 +5242,40 @@ const AFO_DAILY = {
       const isValidLocation = isAtExpectedLoc || isAtInnerLoc || DAILY.inPortal;
 
       if (expectedLocId && !isValidLocation) {
-        DAILY._teleportRetries = (DAILY._teleportRetries || 0) + 1;
-        console.warn('[AFO_DAILY] Teleport verification failed! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', currentLoc, 'Retry:', DAILY._teleportRetries);
+        // GAME.char_data.loc sometimes lags 1–2s behind the teleport's show_map
+        // response. Poll briefly before treating this as a real failure — a retry
+        // teleport wouldn't change anything if the issue is just sync latency, and
+        // a needless retry costs another ~3-4s round trip.
+        const pollSync = (remaining) => {
+          if (DAILY.stop || DAILY.paused) return;
+          const loc = GAME.char_data.loc;
+          const synced = (expectedLocId && loc === expectedLocId) ||
+                         (innerLocId && loc === innerLocId);
+          if (synced) {
+            DAILY._teleportRetries = 0;
+            this.waitForMapQuests(quest, 0);
+            return;
+          }
+          if (remaining > 0) {
+            setTimeout(() => pollSync(remaining - 1), 400);
+            return;
+          }
+          // Truly failed - retry teleport
+          DAILY._teleportRetries = (DAILY._teleportRetries || 0) + 1;
+          console.warn('[AFO_DAILY] Teleport verification failed! Expected:', expectedLocId, 'or innerLocId:', innerLocId, 'Current:', loc, 'Retry:', DAILY._teleportRetries);
 
-        if (DAILY._teleportRetries >= 3) {
-          console.error('[AFO_DAILY] Teleport failed after 3 retries - skipping quest');
-          DAILY._teleportRetries = 0;
-          this.skipQuestWithMark(quest, 'Teleport nie powiódł się');
-          return;
-        }
+          if (DAILY._teleportRetries >= 3) {
+            console.error('[AFO_DAILY] Teleport failed after 3 retries - skipping quest');
+            DAILY._teleportRetries = 0;
+            this.skipQuestWithMark(quest, 'Teleport nie powiódł się');
+            return;
+          }
 
-        // Retry teleport
-        console.log('[AFO_DAILY] Retrying teleport to:', expectedLocId);
-        DAILY.isTeleporting = true;
-        GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+          console.log('[AFO_DAILY] Retrying teleport to:', expectedLocId);
+          DAILY.isTeleporting = true;
+          GAME.socket.emit('ga', { a: 12, type: 18, loc: expectedLocId });
+        };
+        pollSync(3);  // up to 3 polls × 400ms = ~1.2s grace for sync
         return;
       }
       DAILY._teleportRetries = 0;  // Reset on success
