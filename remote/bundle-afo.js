@@ -6621,6 +6621,20 @@ const AFO_DAILY = {
       #daily_Panel .daily_quest_item .quest_imp_roll.mode-2 { color: #ffeb3b; border-color: #ffeb3b; }
       #daily_Panel .daily_quest_item .quest_imp_roll.mode-3 { color: #4caf50; border-color: #4caf50; }
 
+      #daily_Panel .daily_quest_item .quest_variant {
+        font-size: 9px;
+        font-weight: 700;
+        padding: 1px 5px;
+        margin-left: 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        user-select: none;
+        background: #2a2a2a;
+        color: #ffb74d;
+        border: 1px solid #ffb74d;
+      }
+      #daily_Panel .daily_quest_item .quest_variant:hover { filter: brightness(1.3); }
+
       #daily_Panel .daily_controls {
         display: flex;
         justify-content: center;
@@ -6938,6 +6952,23 @@ const AFO_DAILY = {
 
       DAILY.questData = data.quests || [];
       DAILY.config = data.config || {};  // Save config (defaultCombatLocByBorn, etc.)
+
+      // Assign a stable unique id per quest. Quest NAMES are not unique (e.g. two
+      // distinct "Wymiana" quests at locId 414 and 1437), and all bookkeeping
+      // (completed/skipped/enabled/failed, list selectors, filters) keys off it.
+      // uid = name + location; append index only on a real collision.
+      const seenUids = {};
+      DAILY.questData.forEach((q, i) => {
+        const loc = q.location || {};
+        const locKey = loc.locId != null
+          ? 'L' + loc.locId
+          : (loc.coords ? loc.coords.x + '_' + loc.coords.y : 'X');
+        let uid = q.name + '@' + locKey;
+        if (seenUids[uid] != null) uid += '#' + i;
+        seenUids[uid] = i;
+        q.uid = uid;
+      });
+
       this.dataLoaded = true;
       console.log(`[AFO_DAILY] Loaded ${DAILY.questData.length} quests, config:`, DAILY.config);
 
@@ -7009,7 +7040,8 @@ const AFO_DAILY = {
     this.loadCompletedQuests();
     this.loadSkippedQuests();
     this.loadFailedQuests();
-    this.loadImperiumRollMode();
+    this.loadQuestRollModes();
+    this.loadQuestVariants();
     this.renderQuestList();
     this.bindUIHandlers();
   },
@@ -7017,6 +7049,20 @@ const AFO_DAILY = {
   hidePanel() {
     this.unbindUIHandlers();
     $('#daily_Panel').hide();
+  },
+
+  // Single source of truth for "is this quest selected to run". Used by BOTH the
+  // checkbox render AND the start() filter, so the visible checkbox can never
+  // disagree with what actually executes (a desync here once ran an unchecked
+  // expedition quest). Checked iff the box is ticked: completed/failed/unchecked
+  // -> false; explicitly enabled -> true; otherwise the JSON default.
+  isQuestChecked(quest) {
+    if (!quest) return false;
+    if (DAILY.completedQuests.includes(quest.uid)) return false;
+    if (DAILY.failedQuests.includes(quest.uid)) return false;
+    if (DAILY.skippedQuests.includes(quest.uid)) return false;
+    if (DAILY.enabledQuests && DAILY.enabledQuests.includes(quest.uid)) return true;
+    return quest.enabled !== false;
   },
 
   renderQuestList() {
@@ -7027,28 +7073,23 @@ const AFO_DAILY = {
 
     let html = '';
     quests.forEach((quest, idx) => {
-      const isCompleted = DAILY.completedQuests.includes(quest.name);
-      const isUserDisabled = DAILY.skippedQuests.includes(quest.name);  // User unchecked
-      const isFailed = DAILY.failedQuests.includes(quest.name);         // Bot couldn't complete
-      const isWaiting = DAILY.waitingQuests?.some(w => w.name === quest.name);  // Waiting for timer
-      const isCurrent = DAILY.questQueue[DAILY.currentQuestIdx]?.name === quest.name;
-
-      // Checkbox state: enabled from JSON is default, but user can override via skippedQuests
-      // If user unchecked (in skippedQuests) -> unchecked
-      // If not in skippedQuests and quest.enabled !== false -> checked (enabled defaults to true)
-      const isEnabled = !isUserDisabled && quest.enabled !== false;
+      const isCompleted = DAILY.completedQuests.includes(quest.uid);
+      const isFailed = DAILY.failedQuests.includes(quest.uid);         // Bot couldn't complete
+      const isWaiting = DAILY.waitingQuests?.some(w => w.uid === quest.uid);  // Waiting for timer
+      const isCurrent = DAILY.questQueue[DAILY.currentQuestIdx]?.uid === quest.uid;
 
       const completedClass = isCompleted ? 'completed' : '';
       const failedClass = isFailed ? 'skipped' : '';  // Orange style only for failed
       const currentClass = isCurrent && !DAILY.stop ? 'current' : '';
       const premiumClass = quest.premium ? 'premium' : '';
       const waitingClass = isWaiting ? 'waiting' : '';
-      const checked = isEnabled && !isCompleted && !isFailed ? 'checked' : '';
+      // Checkbox state — same predicate the start() filter uses (no desync).
+      const checked = this.isQuestChecked(quest) ? 'checked' : '';
 
       // Get waiting time from track_quest data-end if applicable
       let waitingInfo = '';
       if (isWaiting) {
-        const waitData = DAILY.waitingQuests.find(w => w.name === quest.name);
+        const waitData = DAILY.waitingQuests.find(w => w.uid === quest.uid);
         if (waitData && waitData.qbId) {
           // Try to get timer from track_quest (more accurate, updates in real-time)
           const trackTimer = $(`#track_quest_${waitData.qbId} .timer[data-end]`);
@@ -7083,21 +7124,31 @@ const AFO_DAILY = {
         ? `<span class="quest_born r${minBorn}">${bornLetters[minBorn]}</span>`
         : '';
 
-      // Per-quest imperium roll toggle (only for "Zadanie Imperium")
-      let impRollHtml = '';
-      if (quest.name === 'Zadanie Imperium') {
-        const mode = DAILY.imperiumRollMode || 0;
+      // Per-quest dice (kostka) toggle for rollable quests (quest.roll === true).
+      // Each quest keeps an independent roll mode (one can be -50%, another +150%).
+      let rollHtml = '';
+      if (quest.roll) {
+        const mode = (DAILY.questRollModes && DAILY.questRollModes[quest.uid]) || 0;
         const labels = { 0: '—', 1: '-50', 2: '150+', 3: '200' };
-        impRollHtml = `<span class="quest_imp_roll mode-${mode}" data-mode="${mode}" title="Kostkowanie Zadania Imperium (klik aby zmienić)">🎲${labels[mode]}</span>`;
+        rollHtml = `<span class="quest_imp_roll mode-${mode}" data-mode="${mode}" title="Kostkowanie (klik aby zmienić)">🎲${labels[mode]}</span>`;
+      }
+
+      // Per-quest reward variant toggle (Substancja / Substancja II / Wymiana na M).
+      // Cycles through the configured options; clicked button decides reward tier.
+      let variantHtml = '';
+      if (quest.variant && Array.isArray(quest.variant.options) && quest.variant.options.length) {
+        const selBtn = (DAILY.questVariants && DAILY.questVariants[quest.uid]) ?? quest.variant.default;
+        const sel = quest.variant.options.find(o => o.button === selBtn) || quest.variant.options[quest.variant.options.length - 1];
+        variantHtml = `<span class="quest_variant" title="Wariant nagrody (klik aby zmienić)">💰${sel.label}</span>`;
       }
 
       html += `
-        <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-name="${quest.name}">
+        <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-uid="${quest.uid}">
           <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
           ${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
-          ${impRollHtml}
+          ${rollHtml}${variantHtml}
         </div>
       `;
     });
@@ -7109,23 +7160,28 @@ const AFO_DAILY = {
     $('#daily_status').text(text);
   },
 
-  markQuestComplete(questName) {
-    if (!DAILY.completedQuests.includes(questName)) {
-      DAILY.completedQuests.push(questName);
+  // Accepts the quest object (uid keys all bookkeeping; names are not unique).
+  markQuestComplete(quest) {
+    const uid = quest && quest.uid;
+    if (!uid) return;
+    if (!DAILY.completedQuests.includes(uid)) {
+      DAILY.completedQuests.push(uid);
       this.saveCompletedQuests();
     }
-    $(`.daily_quest_item[data-quest-name="${questName}"]`)
+    $(`.daily_quest_item[data-quest-uid="${uid}"]`)
       .addClass('completed')
       .find('input').prop('disabled', true).prop('checked', false);
   },
 
-  markQuestSkipped(questName) {
+  markQuestSkipped(quest) {
     // failedQuests = quests bot couldn't complete (orange style, persisted)
-    if (!DAILY.failedQuests.includes(questName)) {
-      DAILY.failedQuests.push(questName);
+    const uid = quest && quest.uid;
+    if (!uid) return;
+    if (!DAILY.failedQuests.includes(uid)) {
+      DAILY.failedQuests.push(uid);
       this.saveFailedQuests();
     }
-    $(`.daily_quest_item[data-quest-name="${questName}"]`)
+    $(`.daily_quest_item[data-quest-uid="${uid}"]`)
       .addClass('skipped')
       .removeClass('current')
       .find('input').prop('disabled', true).prop('checked', false);
@@ -7177,27 +7233,60 @@ const AFO_DAILY = {
     }
   },
 
-  // Imperium roll preference: 0=off, 1=-50, 2=150/200, 3=200 (matches kwsSetRollMode)
-  loadImperiumRollMode() {
+  // Per-quest roll preference map { uid: mode }. mode: 0=off, 1=-50, 2=150/200, 3=200
+  // (matches kwsSetRollMode). One-time migration from the old single-quest key.
+  loadQuestRollModes() {
     try {
-      const saved = localStorage.getItem('daily_imperium_roll_' + GAME.char_id);
-      DAILY.imperiumRollMode = saved ? parseInt(saved) || 0 : 0;
+      const saved = localStorage.getItem('daily_roll_modes_' + GAME.char_id);
+      DAILY.questRollModes = saved ? (JSON.parse(saved) || {}) : {};
     } catch (e) {
-      DAILY.imperiumRollMode = 0;
+      DAILY.questRollModes = {};
+    }
+
+    // Migrate legacy single Imperium roll mode → uid-keyed map.
+    try {
+      const legacy = localStorage.getItem('daily_imperium_roll_' + GAME.char_id);
+      if (legacy != null) {
+        const impQuest = DAILY.questData?.find(q => q.name === 'Zadanie Imperium');
+        if (impQuest && DAILY.questRollModes[impQuest.uid] == null) {
+          DAILY.questRollModes[impQuest.uid] = parseInt(legacy) || 0;
+          this.saveQuestRollModes();
+        }
+        localStorage.removeItem('daily_imperium_roll_' + GAME.char_id);
+      }
+    } catch (e) { /* ignore migration errors */ }
+  },
+
+  saveQuestRollModes() {
+    try {
+      localStorage.setItem('daily_roll_modes_' + GAME.char_id, JSON.stringify(DAILY.questRollModes || {}));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save quest roll modes:', e);
     }
   },
 
-  saveImperiumRollMode() {
+  // Per-quest reward variant map { uid: button }. Missing → quest.variant.default.
+  loadQuestVariants() {
     try {
-      localStorage.setItem('daily_imperium_roll_' + GAME.char_id, String(DAILY.imperiumRollMode || 0));
+      const saved = localStorage.getItem('daily_variants_' + GAME.char_id);
+      DAILY.questVariants = saved ? (JSON.parse(saved) || {}) : {};
     } catch (e) {
-      console.warn('[AFO_DAILY] Failed to save imperium roll mode:', e);
+      DAILY.questVariants = {};
     }
   },
 
-  markQuestCurrent(questName) {
+  saveQuestVariants() {
+    try {
+      localStorage.setItem('daily_variants_' + GAME.char_id, JSON.stringify(DAILY.questVariants || {}));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save quest variants:', e);
+    }
+  },
+
+  markQuestCurrent(quest) {
+    const uid = quest && quest.uid;
     $('.daily_quest_item').removeClass('current');
-    const $item = $(`.daily_quest_item[data-quest-name="${questName}"]`);
+    const $item = $(`.daily_quest_item[data-quest-uid="${uid}"]`);
     $item.addClass('current');
 
     // Scroll the quest list so the current quest sits at the top (when possible).
@@ -7227,44 +7316,63 @@ const AFO_DAILY = {
     // Unbind first to prevent duplicates
     this.unbindUIHandlers();
 
-    // Quest checkbox toggle
+    // Quest checkbox toggle (keyed by uid — quest names are not unique)
     $('#daily_quest_list').on('change', 'input[type="checkbox"]', (e) => {
       const $item = $(e.target).closest('.daily_quest_item');
-      const questName = $item.data('quest-name');
-      const quest = DAILY.questData?.find(q => q.name === questName);
+      const uid = $item.data('quest-uid');
+      const quest = DAILY.questData?.find(q => q.uid === uid);
       const defaultEnabled = quest?.enabled !== false;  // Default is enabled unless explicitly false
 
       if (e.target.checked) {
         // User checked the box
-        DAILY.skippedQuests = DAILY.skippedQuests.filter(n => n !== questName);
+        DAILY.skippedQuests = DAILY.skippedQuests.filter(n => n !== uid);
 
         // If quest is disabled by default, track that user explicitly enabled it
         if (!defaultEnabled) {
           if (!DAILY.enabledQuests) DAILY.enabledQuests = [];
-          if (!DAILY.enabledQuests.includes(questName)) {
-            DAILY.enabledQuests.push(questName);
+          if (!DAILY.enabledQuests.includes(uid)) {
+            DAILY.enabledQuests.push(uid);
           }
         }
       } else {
         // User unchecked the box
-        if (!DAILY.skippedQuests.includes(questName)) {
-          DAILY.skippedQuests.push(questName);
+        if (!DAILY.skippedQuests.includes(uid)) {
+          DAILY.skippedQuests.push(uid);
         }
 
         // Remove from enabledQuests if was there
         if (DAILY.enabledQuests) {
-          DAILY.enabledQuests = DAILY.enabledQuests.filter(n => n !== questName);
+          DAILY.enabledQuests = DAILY.enabledQuests.filter(n => n !== uid);
         }
       }
     });
 
-    // Per-quest imperium roll toggle — cycles 0 → 2 (150+) → 3 (200) → 1 (-50) → 0
+    // Per-quest dice (kostka) toggle — cycles 0 → 2 (150+) → 3 (200) → 1 (-50) → 0
     $('#daily_quest_list').on('click', '.quest_imp_roll', (e) => {
       e.stopPropagation();
+      const uid = $(e.target).closest('.daily_quest_item').data('quest-uid');
+      if (!uid) return;
+      if (!DAILY.questRollModes) DAILY.questRollModes = {};
       const cycle = { 0: 2, 2: 3, 3: 1, 1: 0 };
-      const cur = DAILY.imperiumRollMode || 0;
-      DAILY.imperiumRollMode = cycle[cur] ?? 0;
-      this.saveImperiumRollMode();
+      const cur = DAILY.questRollModes[uid] || 0;
+      DAILY.questRollModes[uid] = cycle[cur] ?? 0;
+      this.saveQuestRollModes();
+      this.renderQuestList();
+    });
+
+    // Per-quest reward variant toggle — cycles through quest.variant.options
+    $('#daily_quest_list').on('click', '.quest_variant', (e) => {
+      e.stopPropagation();
+      const uid = $(e.target).closest('.daily_quest_item').data('quest-uid');
+      const quest = DAILY.questData?.find(q => q.uid === uid);
+      if (!quest || !quest.variant || !Array.isArray(quest.variant.options)) return;
+      if (!DAILY.questVariants) DAILY.questVariants = {};
+      const opts = quest.variant.options;
+      const curBtn = DAILY.questVariants[uid] ?? quest.variant.default;
+      const curIdx = Math.max(0, opts.findIndex(o => o.button === curBtn));
+      const next = opts[(curIdx + 1) % opts.length];
+      DAILY.questVariants[uid] = next.button;
+      this.saveQuestVariants();
       this.renderQuestList();
     });
 
@@ -7281,8 +7389,8 @@ const AFO_DAILY = {
     $('#daily_important_btn').on('click', () => {
       $('#daily_quest_list input[type="checkbox"]:not(:disabled)').each((_, el) => {
         const $item = $(el).closest('.daily_quest_item');
-        const questName = $item.data('quest-name');
-        const quest = DAILY.questData?.find(q => q.name === questName);
+        const uid = $item.data('quest-uid');
+        const quest = DAILY.questData?.find(q => q.uid === uid);
         const isImportant = quest?.worth === true;
 
         $(el).prop('checked', isImportant).trigger('change');
@@ -7295,6 +7403,7 @@ const AFO_DAILY = {
         DAILY.completedQuests = [];
         DAILY.skippedQuests = [];
         DAILY.failedQuests = [];
+        DAILY.enabledQuests = [];  // back to JSON-default selection, no stale opt-ins
         this.saveCompletedQuests();
         this.saveFailedQuests();
         this.renderQuestList();
@@ -7364,29 +7473,15 @@ const AFO_DAILY = {
       return;
     }
 
-    // Build quest queue from checked quests
-    // Quest is checked if: not in skippedQuests AND (enabled !== false OR user explicitly enabled it)
-    // enabledQuests tracks quests user explicitly enabled (overriding enabled:false default)
+    // Build quest queue from CHECKED quests only. isQuestChecked() is the exact
+    // same predicate renderQuestList() uses for the checkbox, so what runs always
+    // matches what's ticked — unchecked / struck-through (failed) / completed are
+    // ignored regardless of how we got there (PRZEŁĄCZ / ULUBIONE / ZERUJ).
     const currentBorn = GAME.char_data.reborn;
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q))
-      .filter(q => {
-        // Check if quest should be executed based on checkbox state
-        // Same logic as renderQuestList uses for isEnabled
-        const isUserDisabled = DAILY.skippedQuests.includes(q.name);
-        const isUserEnabled = DAILY.enabledQuests?.includes(q.name);  // User explicitly enabled
-
-        // If user explicitly disabled (unchecked) -> skip
-        if (isUserDisabled) return false;
-
-        // If user explicitly enabled (checked despite enabled:false) -> include
-        if (isUserEnabled) return true;
-
-        // Otherwise use JSON default: enabled !== false means include
-        return q.enabled !== false;
-      })
-      .filter(q => !DAILY.completedQuests.includes(q.name))
+      .filter(q => this.isQuestChecked(q))
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
     if (availableQuests.length === 0) {
@@ -7412,6 +7507,10 @@ const AFO_DAILY = {
     DAILY.portalGroupIdx = 0;
     DAILY._dialogAttempts = 0;
     DAILY._currentQuest = null;
+
+    // Reset Anielska batch state so a restart never stays stuck on a stale
+    // _anielskaBatchActive flag (which would block re-entry in processNextQuest).
+    this.resetAnielskaState();
 
     // Clear any pending timeouts from previous runs
     this.clearAllTimeouts();
@@ -7665,7 +7764,7 @@ const AFO_DAILY = {
       console.log('[AFO_DAILY] Waiting quest ready:', waitData.name);
 
       // Remove from waiting list
-      DAILY.waitingQuests = DAILY.waitingQuests.filter(w => w.name !== waitData.name);
+      DAILY.waitingQuests = DAILY.waitingQuests.filter(w => w.uid !== waitData.uid);
 
       // Set flag to prevent scheduleWaitingCheck from calling stop() while we're processing
       DAILY._processingWaitingQuest = true;
@@ -7746,7 +7845,7 @@ const AFO_DAILY = {
       DAILY.waitingQuests.forEach(waitData => {
         if (!waitData.qbId) return;
 
-        const $item = $(`.daily_quest_item[data-quest-name="${waitData.name}"]`);
+        const $item = $(`.daily_quest_item[data-quest-uid="${waitData.uid}"]`);
         let $timer = $item.find('.quest_timer');
 
         // Try to get timer from track_quest first (live game timer)
@@ -7900,7 +7999,7 @@ const AFO_DAILY = {
   processQuest(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
-    this.markQuestCurrent(quest.name);
+    this.markQuestCurrent(quest);
     this.updateStatus(`Quest: ${quest.name}`);
     console.log('[AFO_DAILY] Processing quest:', quest.name);
 
@@ -8002,14 +8101,14 @@ const AFO_DAILY = {
               } else {
                 // Still not found - truly completed
                 console.log('[AFO_DAILY] Quest still not found after navigating - marking complete:', quest.name);
-                this.markQuestComplete(quest.name);
+                this.markQuestComplete(quest);
                 this.advanceQuestQueue();
               }
             }
           });
         } else {
           console.log('[AFO_DAILY] Quest not in map_quests and no coords - marking complete:', quest.name);
-          this.markQuestComplete(quest.name);
+          this.markQuestComplete(quest);
           this.advanceQuestQueue();
         }
       }
@@ -8554,16 +8653,16 @@ const AFO_DAILY = {
     }
   },
 
-  // Trigger the existing game-overrides quest-roll loop for Zadanie Imperium
-  // if user enabled a roll target. Returns true if a roll loop was started
-  // (caller should bail; we'll re-enter processDialog when rolling finishes).
-  // Mode mapping (matches kwsSetRollMode): 1 = -50%, 2 = 150/200, 3 = 200.
-  // Falls back to no-op when out of dice / dialog gone / target already met.
-  _maybeRollImperium(quest) {
-    if (!quest || quest.name !== 'Zadanie Imperium') return false;
+  // Trigger the existing game-overrides quest-roll loop for any rollable quest
+  // (quest.roll === true) if the user picked a roll target for it. Returns true
+  // if a roll loop was started (caller should bail; we re-enter processDialog
+  // when rolling finishes). Mode mapping (matches kwsSetRollMode): 1 = -50%,
+  // 2 = 150/200, 3 = 200. No-op when out of dice / dialog gone / target met.
+  _maybeRollQuest(quest) {
+    if (!quest || !quest.roll) return false;
     if (DAILY._imperiumRollInProgress) return true;
 
-    const mode = DAILY.imperiumRollMode || 0;
+    const mode = (DAILY.questRollModes && DAILY.questRollModes[quest.uid]) || 0;
     if (mode === 0) return false;
     if (typeof window.kwsSetRollMode !== 'function') return false;
     if (!$('#quest_con').is(':visible')) return false;
@@ -8640,6 +8739,27 @@ const AFO_DAILY = {
     return true;
   },
 
+  // Reward-tier variant quests (Substancja / Substancja II / Wymiana na M):
+  // click the user-selected button (default = richest tier). Returns true if it
+  // clicked. No-op (false) until the selected tier's button is actually rendered,
+  // so it never misfires on single-button confirmation steps.
+  _maybeClickVariant(quest) {
+    if (!quest || !quest.variant) return false;
+    if (!$('#quest_con').is(':visible')) return false;
+
+    const btnNum = (DAILY.questVariants && DAILY.questVariants[quest.uid]) ?? quest.variant.default;
+    const target = $(`button[data-option=finish_quest][data-button="${btnNum}"]`).first();
+    if (!target.length) return false;  // selected tier not on screen yet
+
+    const qb_id = target.attr('data-qb_id');
+    const button = parseInt(target.attr('data-button')) || btnNum;
+    console.log('[AFO_DAILY] Variant quest:', quest.name, '- clicking button', button);
+    DAILY._finishClicked = true;
+    GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: qb_id });
+    setTimeout(() => this.afterFinishClick(quest), 1200);
+    return true;
+  },
+
   processDialog(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
@@ -8666,7 +8786,7 @@ const AFO_DAILY = {
     // Imperium auto-roll: if user enabled rolling for Zadanie Imperium and we
     // haven't reached the target difficulty yet, kick off the existing
     // game-overrides roll loop and bail until it lands the desired multiplier.
-    if (this._maybeRollImperium(quest)) return;
+    if (this._maybeRollQuest(quest)) return;
 
     // STUDNIA ŻYCZEŃ early detection - handle with special slow timing
     if (quest.name && quest.name.startsWith('Studnia Życzeń')) {
@@ -8695,15 +8815,9 @@ const AFO_DAILY = {
       return;
     }
 
-    // ZADANIE SUBSTANCJI: title starts with "zadanie substancji" and 3 buttons
-    if (questTitle.startsWith('zadanie substancji') && finishBtns.length === 3) {
-      console.log('[AFO_DAILY] Zadanie Substancji detected - clicking button 3');
-      const qb_id = finishBtns.attr('data-qb_id');
-      DAILY._finishClicked = true;
-      GAME.socket.emit('ga', { a: 22, type: 2, button: 3, id: qb_id });
-      setTimeout(() => this.afterFinishClick(quest), 1200);
-      return;
-    }
+    // VARIANT QUESTS: user-selectable reward tier (Substancja / Substancja II /
+    // Wymiana na M). Clicks the configured button (default = richest).
+    if (this._maybeClickVariant(quest)) return;
 
     // NUDA: title is "nuda" and 3 buttons
     if (questTitle === 'nuda' && finishBtns.length === 3) {
@@ -8807,15 +8921,9 @@ const AFO_DAILY = {
       return;
     }
 
-    // ZADANIE SUBSTANCJI: title starts with "zadanie substancji" and 3 buttons
-    if (questTitle.startsWith('zadanie substancji') && finishBtns.length === 3) {
-      console.log('[AFO_DAILY] Zadanie Substancji - clicking button 3');
-      const qb_id = finishBtns.attr('data-qb_id');
-      DAILY._finishClicked = true;
-      GAME.socket.emit('ga', { a: 22, type: 2, button: 3, id: qb_id });
-      setTimeout(() => this.afterFinishClick(quest), 1500);
-      return;
-    }
+    // VARIANT QUESTS: user-selectable reward tier (Substancja / Substancja II /
+    // Wymiana na M). Clicks the configured button (default = richest).
+    if (this._maybeClickVariant(quest)) return;
 
     // NUDA: title is "nuda" and 3 buttons
     if (questTitle === 'nuda' && finishBtns.length === 3) {
@@ -8839,7 +8947,7 @@ const AFO_DAILY = {
 
       // Imperium auto-roll for stage 2: dialog is still open with the new
       // stage data — roll BEFORE hiding/handling so we get the desired diff.
-      if (this._maybeRollImperium(quest)) return;
+      if (this._maybeRollQuest(quest)) return;
 
       $('#quest_con').hide();
       this.handleQuestRequirement(quest, newRequires);
@@ -9373,6 +9481,7 @@ const AFO_DAILY = {
     // Add quest to waiting queue
     const waitData = {
       name: quest.name,
+      uid: quest.uid,
       quest: quest,
       requires: requires,
       endTime: endTime,
@@ -9384,7 +9493,7 @@ const AFO_DAILY = {
     }
 
     // Don't add duplicate
-    if (!DAILY.waitingQuests.some(w => w.name === quest.name)) {
+    if (!DAILY.waitingQuests.some(w => w.uid === quest.uid)) {
       DAILY.waitingQuests.push(waitData);
       console.log('[AFO_DAILY] Added to waiting queue:', quest.name, 'until', new Date(endTime));
     }
@@ -9905,15 +10014,15 @@ const AFO_DAILY = {
     const anielskaCombatQuests = DAILY.questQueue.filter(q =>
       q.name.startsWith('Anielska karta[LvL') &&
       q.stages?.some(s => s.type === 'BOT_KILL') &&
-      !DAILY.completedQuests.includes(q.name) &&
-      !DAILY.skippedQuests.includes(q.name)
+      !DAILY.completedQuests.includes(q.uid) &&
+      !DAILY.skippedQuests.includes(q.uid)
     );
 
     // Find LvL4 (ACTION only, premium)
     const lvl4Quest = DAILY.questQueue.find(q =>
       q.name === 'Anielska karta[LvL4]' &&
-      !DAILY.completedQuests.includes(q.name) &&
-      !DAILY.skippedQuests.includes(q.name)
+      !DAILY.completedQuests.includes(q.uid) &&
+      !DAILY.skippedQuests.includes(q.uid)
     );
 
     console.log('[AFO_DAILY] Anielska combat quests:', anielskaCombatQuests.map(q => q.name));
@@ -10147,6 +10256,14 @@ const AFO_DAILY = {
   anielskaCombatLoop() {
     if (DAILY.stop || DAILY.paused) return;
 
+    // Self-heal: resume() jumps straight here, but if the user paused during the
+    // teleport/setup phase (before anielskaSetFilterAndFight ran), _anielskaIgnore
+    // is still null and the spread below would throw "not iterable". Re-seed it.
+    if (!Array.isArray(DAILY._anielskaIgnore)) {
+      DAILY._anielskaIgnore = [true, true, true, false, false, false];
+      this.setSpawnerCheckboxes(DAILY._anielskaIgnore);
+    }
+
     // Periodic refresh - every 5 seconds, pause for 1.5 seconds to let game catch up
     // This mirrors the logic in combatLoop() for regular BOT_KILL quests
     const now = Date.now();
@@ -10378,7 +10495,7 @@ const AFO_DAILY = {
     const questData = this.findQuestByName(quest.name);
     if (!questData) {
       // Already completed or not found
-      this.markQuestComplete(quest.name);
+      this.markQuestComplete(quest);
       setTimeout(() => this.anielskaCompleteNext(idx + 1), 300);
       return;
     }
@@ -10399,7 +10516,7 @@ const AFO_DAILY = {
 
     if (!$('#quest_con').is(':visible')) {
       // Dialog closed - quest complete
-      this.markQuestComplete(quest.name);
+      this.markQuestComplete(quest);
       setTimeout(() => this.anielskaCompleteNext(idx + 1), 500);
       return;
     }
@@ -10423,7 +10540,7 @@ const AFO_DAILY = {
 
     const questData = this.findQuestByName(quest.name);
     if (!questData) {
-      this.markQuestComplete(quest.name);
+      this.markQuestComplete(quest);
       this.anielskaFinish();
       return;
     }
@@ -10441,7 +10558,7 @@ const AFO_DAILY = {
     if (DAILY.stop || DAILY.paused) return;
 
     if (!$('#quest_con').is(':visible')) {
-      this.markQuestComplete(DAILY._anielskLvl4Quest.name);
+      this.markQuestComplete(DAILY._anielskLvl4Quest);
       this.anielskaFinish();
       return;
     }
@@ -10456,8 +10573,10 @@ const AFO_DAILY = {
     setTimeout(() => this.anielskaClickFinishLvl4(), 800);
   },
 
-  anielskaFinish() {
-    console.log('[AFO_DAILY] Anielska: Batch complete!');
+  // Reset all Anielska karta batch state. Called on batch finish AND on start()
+  // so a fresh run (or restart after a crash) never inherits a stuck
+  // _anielskaBatchActive flag that would block re-entry in processNextQuest.
+  resetAnielskaState() {
     DAILY._anielskaBatchActive = false;
     DAILY._anielskaCombatQuests = null;
     DAILY._anielskLvl4Quest = null;
@@ -10468,6 +10587,11 @@ const AFO_DAILY = {
     DAILY._anielskaReturnTeleporting = false;
     DAILY._anielskaTeleportRetries = 0;
     DAILY._anielskaReturnRetries = 0;
+  },
+
+  anielskaFinish() {
+    console.log('[AFO_DAILY] Anielska: Batch complete!');
+    this.resetAnielskaState();
 
     // Skip all anielska quests in queue (they're done)
     this.skipAnielskaBatch();
@@ -11446,7 +11570,7 @@ const AFO_DAILY = {
 
   onQuestComplete(quest) {
     console.log('[AFO_DAILY] Quest complete:', quest.name);
-    this.markQuestComplete(quest.name);
+    this.markQuestComplete(quest);
 
     DAILY.isInCombat = false;
     DAILY._processingWaitingQuest = false;  // Clear flag - waiting quest processing done
@@ -11514,7 +11638,7 @@ const AFO_DAILY = {
     GAME.komunikat(`[DZIENNE] Pominięto: ${quest.name} - ${reason}`);
 
     // Mark on UI and save to localStorage
-    this.markQuestSkipped(quest.name);
+    this.markQuestSkipped(quest);
 
     // Clear states
     DAILY.isInCombat = false;
@@ -11599,8 +11723,8 @@ const AFO_DAILY = {
       const questAtCurrentLoc = remainingQuests.find((q, idx) => {
         if (idx === 0) return false;  // Skip first quest (it's already next)
         return q.location?.locId === currentLocId &&
-          !DAILY.completedQuests.includes(q.name) &&
-          !DAILY.skippedQuests.includes(q.name);
+          !DAILY.completedQuests.includes(q.uid) &&
+          !DAILY.skippedQuests.includes(q.uid);
       });
 
       if (questAtCurrentLoc) {
@@ -11851,7 +11975,7 @@ const AFO_DAILY = {
             } else {
               // Still not found after navigating - truly doesn't exist
               console.log('[AFO_DAILY] Quest still not found after navigating - marking complete:', quest.name);
-              this.markQuestComplete(quest.name);
+              this.markQuestComplete(quest);
               this.advanceQuestQueue();
             }
           });
@@ -11887,7 +12011,7 @@ const AFO_DAILY = {
             } else {
               // Truly not found after navigating - mark complete
               console.log('[AFO_DAILY] Quest not found after navigating - marking complete:', quest.name);
-              this.markQuestComplete(quest.name);
+              this.markQuestComplete(quest);
               this.advanceQuestQueue();
             }
           }
@@ -11897,7 +12021,7 @@ const AFO_DAILY = {
 
       // No coords available - mark as completed
       console.log('[AFO_DAILY] Quest not in map_quests and no coords - marking complete:', quest.name);
-      this.markQuestComplete(quest.name);
+      this.markQuestComplete(quest);
       this.advanceQuestQueue();
       return;
     }

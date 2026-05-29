@@ -224,6 +224,7 @@
     },
     {
       "name": "Zadanie Imperium",
+      "roll": true,
       "born": [
         0,
         1,
@@ -350,6 +351,14 @@
     {
       "name": "Zadanie Substancji",
       "icon": "action.png",
+      "variant": {
+        "default": 3,
+        "options": [
+          { "button": 1, "label": "100" },
+          { "button": 2, "label": "1k" },
+          { "button": 3, "label": "100k" }
+        ]
+      },
       "born": [
         0,
         1,
@@ -452,6 +461,14 @@
     {
       "name": "Zadanie Substancji II",
       "icon": "action.png",
+      "variant": {
+        "default": 3,
+        "options": [
+          { "button": 1, "label": "500k" },
+          { "button": 2, "label": "1kk" },
+          { "button": 3, "label": "10kk" }
+        ]
+      },
       "born": [
         6
       ],
@@ -1337,6 +1354,7 @@
     },
     {
       "name": "Codzienny instynkt",
+      "roll": true,
       "icon": "pvm.png",
       "born": [
         5,
@@ -1602,6 +1620,14 @@
     {
       "name": "Wymiana",
       "icon": "zeni.png",
+      "variant": {
+        "default": 3,
+        "options": [
+          { "button": 1, "label": "100" },
+          { "button": 2, "label": "200" },
+          { "button": 3, "label": "300" }
+        ]
+      },
       "born": [
         6
       ],
