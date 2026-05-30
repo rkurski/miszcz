@@ -1160,7 +1160,18 @@ const AFO_DAILY = {
     DAILY.inPortal = false;
     DAILY.portalGroup = [];
     DAILY.portalGroupIdx = 0;
+    // Reset waiting (timer/expedition) quests so a leftover from a previous run
+    // can't later complete and push a uid into THIS run's completedQuests
+    // (cross-run counter inflation). clearAllTimeouts() below only clears
+    // setTimeouts, not these setInterval handles, so clear them explicitly:
+    // a stale _waitingCheckInterval could otherwise tick on the fresh run
+    // (stop=false, waitingQuests empty) and fire a premature stop() at ~1468.
+    DAILY.waitingQuests = [];
+    DAILY._processingWaitingQuest = false;
+    if (DAILY._waitingCheckInterval) { clearInterval(DAILY._waitingCheckInterval); DAILY._waitingCheckInterval = null; }
+    if (DAILY._timerUpdateInterval) { clearInterval(DAILY._timerUpdateInterval); DAILY._timerUpdateInterval = null; }
     DAILY._dialogAttempts = 0;
+    DAILY._verifyReopen = false;
     DAILY._currentQuest = null;
 
     // Reset Anielska batch state so a restart never stays stuck on a stale
@@ -1278,7 +1289,13 @@ const AFO_DAILY = {
     this.renderQuestList();
 
     const completed = DAILY.completedQuests.length;
-    const total = DAILY.questQueue.length;
+    // questQueue collapses each portal group into ONE entry (the group-start
+    // quest holds the whole group on _portalGroup); the other members are
+    // completed inside the portal and counted individually in completedQuests.
+    // Count group members so the denominator matches the individual quests
+    // (e.g. 52, not 46). Non-portal entries have no _portalGroup -> weight 1.
+    const total = DAILY.questQueue.reduce(
+      (acc, q) => acc + (q._portalGroup ? q._portalGroup.length : 1), 0);
     GAME.komunikat(`[DZIENNE] ${reason}. Wykonano: ${completed}/${total}`);
   },
 
@@ -2273,8 +2290,17 @@ const AFO_DAILY = {
     // Track dialog attempts to prevent infinite loop
     DAILY._dialogAttempts = (DAILY._dialogAttempts || 0) + 1;
     if (DAILY._dialogAttempts > 10) {
-      console.warn('[AFO_DAILY] Too many dialog attempts, skipping quest');
       DAILY._dialogAttempts = 0;
+      if (DAILY._verifyReopen) {
+        // We were reopening the dialog during completion verification and it
+        // never opened — the quest is finished, map_quests just lagged. Re-poll
+        // (and eventually mark complete) instead of dropping it uncounted.
+        DAILY._verifyReopen = false;
+        console.warn('[AFO_DAILY] Verify reopen could not open dialog - re-polling instead of skipping:', quest.name);
+        this.verifyAndCompleteQuest(quest);
+        return;
+      }
+      console.warn('[AFO_DAILY] Too many dialog attempts, skipping quest');
       this.skipCurrentQuest('Nie udało się otworzyć dialogu');
       return;
     }
@@ -2292,6 +2318,7 @@ const AFO_DAILY = {
     // Check if dialog appeared
     if ($('#quest_con').is(':visible')) {
       DAILY._dialogAttempts = 0;
+      DAILY._verifyReopen = false;  // dialog opened -> genuine, handle normally
       console.log('[AFO_DAILY] Dialog visible, processing');
       setTimeout(() => this.processDialog(quest), 200);
     } else {
@@ -2299,6 +2326,7 @@ const AFO_DAILY = {
       setTimeout(() => {
         if ($('#quest_con').is(':visible')) {
           DAILY._dialogAttempts = 0;
+          DAILY._verifyReopen = false;  // dialog opened -> genuine, handle normally
           this.processDialog(quest);
         } else {
           // Try to open dialog again
@@ -5205,12 +5233,19 @@ const AFO_DAILY = {
         return;
       }
 
-      // Quest exists - try to continue it
-      if (currentQuestData.qb_id) {
-        console.log('[AFO_DAILY] Restarting dialog for incomplete quest, attempt:', DAILY._verifyMapAttempts);
+      // On the FIRST map-verify attempt, reopen the dialog ONCE to recover a
+      // genuine multi-stage quest whose next stage only appears on reopen. If
+      // the dialog fails to open (already-finished quest, server lag), the
+      // attempt-cap in startDialog routes back here via _verifyReopen instead of
+      // silently dropping the quest uncounted (the "9/10" bug). Later attempts
+      // just re-poll map_quests (it's lag, not a pending stage).
+      if (DAILY._verifyMapAttempts === 1 && currentQuestData.qb_id) {
+        console.log('[AFO_DAILY] Reopening dialog once to check for a pending stage:', quest.name);
+        DAILY._dialogAttempts = 0;
+        DAILY._verifyReopen = true;
         setTimeout(() => this.startDialog(quest, currentQuestData.qb_id), 800);
       } else {
-        // Weird state, just wait and verify again
+        console.log('[AFO_DAILY] Quest gone from UI, still in map_quests - re-polling for lag, attempt:', DAILY._verifyMapAttempts);
         setTimeout(() => this.verifyAndCompleteQuest(quest), 800);
       }
       return;
@@ -5363,6 +5398,7 @@ const AFO_DAILY = {
     DAILY._verifyAttempts = 0;
     DAILY._verifyMapAttempts = 0;
     DAILY._studniaAttempts = 0;
+    DAILY._verifyReopen = false;
 
     // Check if there are quests at current location that should be done first.
     // Only reorder when the next quest is at a DIFFERENT location — otherwise the
