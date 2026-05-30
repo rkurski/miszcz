@@ -34,6 +34,7 @@ const AFO_DAILY = {
     this.loadEasyStar();
     this.bindSocketHandler();
     this.injectCSS();
+    this.startDailyResetWatcher();
     console.log('[AFO_DAILY] Module initialized');
   },
 
@@ -83,6 +84,38 @@ const AFO_DAILY = {
     this._pendingTimeouts.forEach(id => clearTimeout(id));
     this._pendingTimeouts = [];
     console.log('[AFO_DAILY] Cleared all pending timeouts');
+  },
+
+  // ============================================
+  // RESPONSE-DRIVEN PRIMITIVES (async/await)
+  // ============================================
+  // These let flow functions await actual events (dialog appearing, a condition
+  // becoming true) instead of guessing with fixed setTimeout delays — which is
+  // what made the old spine fragile under lag. EVERY primitive ALWAYS resolves
+  // (never rejects, never hangs): on success, on timeout, or on stop/pause. The
+  // caller is responsible for re-checking DAILY.stop/paused after the await.
+
+  // Promise-based delay. Always resolves (callers check stop/paused afterwards).
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  },
+
+  // Resolve true as soon as predicate() is truthy (polled every `interval` ms),
+  // false on timeout or when stopped/paused. Never throws — a predicate that
+  // throws is treated as not-yet-true.
+  waitUntil(predicate, { timeout = 8000, interval = 120 } = {}) {
+    return new Promise(resolve => {
+      const start = Date.now();
+      const tick = () => {
+        if (DAILY.stop || DAILY.paused) return resolve(false);
+        let ok = false;
+        try { ok = !!predicate(); } catch (e) { ok = false; }
+        if (ok) return resolve(true);
+        if (Date.now() - start >= timeout) return resolve(false);
+        setTimeout(tick, interval);
+      };
+      tick();
+    });
   },
 
   injectCSS() {
@@ -169,6 +202,23 @@ const AFO_DAILY = {
         background: rgba(63, 193, 201, 0.2);
         color: #3fc1c9;
         border-color: #3fc1c9;
+      }
+
+      /* Locked while a run is actively executing (edit only while paused) */
+      #daily_Panel .daily_select_all button:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        background: rgba(255, 255, 255, 0.05);
+        color: #777;
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+      #daily_Panel .daily_select_all button:disabled:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #777;
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+      #daily_Panel .daily_quest_item input[type="checkbox"]:disabled {
+        cursor: not-allowed;
       }
 
       #daily_Panel .daily_quest_list {
@@ -289,6 +339,24 @@ const AFO_DAILY = {
         border: 1px solid #ffb74d;
       }
       #daily_Panel .daily_quest_item .quest_variant:hover { filter: brightness(1.3); }
+
+      /* User favorite star (leading). Empty = #555, filled/hover = gold. */
+      #daily_Panel .daily_quest_item .quest_fav {
+        font-size: 14px;
+        line-height: 1;
+        margin-right: 8px;
+        color: #555;
+        cursor: pointer;
+        user-select: none;
+        flex-shrink: 0;
+        transition: color 0.15s ease, transform 0.15s ease;
+      }
+      #daily_Panel .daily_quest_item .quest_fav:hover { color: #ffd700; transform: scale(1.2); }
+      #daily_Panel .daily_quest_item .quest_fav.active { color: #ffd700; }
+      /* Bigger tap target on touch screens so the star is easy to hit on mobile */
+      @media (max-width: 768px) {
+        #daily_Panel .daily_quest_item .quest_fav { font-size: 16px; margin-right: 10px; padding: 2px; }
+      }
 
       #daily_Panel .daily_controls {
         display: flex;
@@ -692,13 +760,20 @@ const AFO_DAILY = {
     $('body').append(html);
     $('#daily_Panel').show().draggable({ handle: '.daily_dragg', containment: 'window' });
 
+    // Auto-reset completed/failed when a new daily period (>= 00:05) has begun,
+    // BEFORE loading them, so the panel opens already reflecting the fresh day.
+    this.checkDailyReset();
+
     this.loadCompletedQuests();
     this.loadSkippedQuests();
     this.loadFailedQuests();
     this.loadQuestRollModes();
     this.loadQuestVariants();
+    this.loadFavoriteQuests();
     this.renderQuestList();
     this.bindUIHandlers();
+    // Keep the edit-lock consistent if the panel is (re)opened mid-run.
+    this.setQueueButtonsEnabled(!(DAILY.stop === false && !DAILY.paused));
   },
 
   hidePanel() {
@@ -725,6 +800,13 @@ const AFO_DAILY = {
     const quests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q));
+
+    // Lock checkbox editing while a run is ACTIVELY executing (not paused). The
+    // queue is a frozen snapshot built at start(); editing mid-flight would not
+    // take effect, which was confusing. Rule: edit only while paused — changes
+    // are applied on WZNÓW (reconcileQueueWithSelection). Computed once here so
+    // every re-render (waiting-quest ticks, daily reset, etc.) keeps it correct.
+    const editingLocked = (DAILY.stop === false && !DAILY.paused);
 
     let html = '';
     quests.forEach((quest, idx) => {
@@ -797,10 +879,16 @@ const AFO_DAILY = {
         variantHtml = `<span class="quest_variant" title="Wariant nagrody (klik aby zmienić)">💰${sel.label}</span>`;
       }
 
+      // Per-quest USER favorite star (independent of completion). The ULUBIONE
+      // button selects exactly these. Leading position = recognizable affordance,
+      // same inline pattern as the roll/variant toggles (works on PC + mobile).
+      const isFav = (DAILY.favoriteQuests || []).includes(quest.uid);
+      const favHtml = `<span class="quest_fav ${isFav ? 'active' : ''}" title="Ulubiony (klik aby przełączyć)">${isFav ? '★' : '☆'}</span>`;
+
       html += `
         <div class="daily_quest_item ${completedClass} ${failedClass} ${currentClass} ${premiumClass} ${waitingClass}" data-quest-uid="${quest.uid}">
-          <input type="checkbox" ${checked} ${isCompleted || isFailed ? 'disabled' : ''} data-idx="${idx}">
-          ${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
+          <input type="checkbox" ${checked} ${isCompleted || isFailed || editingLocked ? 'disabled' : ''} data-idx="${idx}">
+          ${favHtml}${bornHtml}${iconHtml}<span class="quest_name">${quest.name}</span>
           ${waitingInfo}
           <span class="quest_loc">${quest.location.name || ''}</span>
           ${rollHtml}${variantHtml}
@@ -809,6 +897,95 @@ const AFO_DAILY = {
     });
 
     $('#daily_quest_list').html(html);
+  },
+
+  // Enable/disable the queue-editing buttons (PRZEŁĄCZ / ULUBIONE / ZERUJ).
+  // Disabled while a run is actively executing so the locked-list rule is
+  // consistent with the checkboxes (edit only while paused or stopped).
+  setQueueButtonsEnabled(enabled) {
+    $('#daily_toggle_all_btn, #daily_important_btn, #daily_reset_btn').prop('disabled', !enabled);
+  },
+
+  // Snapshot of the checked-quest set, taken on PAUZA. reconcile diffs against
+  // it on WZNÓW so we apply ONLY what the user toggled during the pause. Must be
+  // a DELTA, not a full recompute: start() resets completedQuests=[] (so the
+  // per-run counter works), which makes quests completed in a PRIOR session look
+  // "checked & not done" again — a full recompute would wrongly re-add all of
+  // them (the "+13" bug). Set of quest uids.
+  snapshotCheckedSelection() {
+    const currentBorn = GAME.char_data.reborn;
+    return new Set(
+      DAILY.questData
+        .filter(q => q.born.includes(currentBorn))
+        .filter(q => this.isQuestAvailable(q))
+        .filter(q => this.isQuestChecked(q))
+        .map(q => q.uid)
+    );
+  },
+
+  // Apply checkbox edits made while paused to the live queue (called on WZNÓW).
+  // The queue is a frozen snapshot from start(); without this, ticking a quest
+  // mid-run did nothing. Works on the DELTA vs the pause snapshot so it only ever
+  // touches quests the user actually toggled. Safe by construction:
+  //   - never touches the already-processed head (0..currentQuestIdx) or the
+  //     current quest, so an in-flight quest is never disturbed;
+  //   - ADD (newly ticked, not yet queued) always appends to the end — safe
+  //     regardless of position, even inside a portal/special flow;
+  //   - REMOVE (only quests the user explicitly unticked) trims the not-yet-
+  //     reached tail, and only when not inside a portal/anielska/bounty/
+  //     expedition flow (too risky to restructure mid-flow — deferred to STOP).
+  reconcileQueueWithSelection() {
+    const before = DAILY._pauseChecked instanceof Set ? DAILY._pauseChecked : null;
+    DAILY._pauseChecked = null;
+    if (!before || !Array.isArray(DAILY.questQueue)) return;
+
+    const nowChecked = this.snapshotCheckedSelection();
+    const addedUids = [...nowChecked].filter(uid => !before.has(uid));      // newly ticked
+    const removedUids = new Set([...before].filter(uid => !nowChecked.has(uid)));  // newly unticked
+    if (!addedUids.length && !removedUids.size) return;
+
+    // uids already represented in the queue (including portal-group members)
+    const inQueue = new Set();
+    DAILY.questQueue.forEach(q => {
+      if (q._portalGroup) q._portalGroup.forEach(m => inQueue.add(m.uid));
+      else inQueue.add(q.uid);
+    });
+
+    const safeToRemove = !DAILY.inPortal
+      && !DAILY._anielskaBatchActive && !DAILY._bountyQuest && !DAILY._expeditionQuest;
+
+    let added = 0, removed = 0;
+
+    if (removedUids.size && safeToRemove) {
+      const cut = DAILY.currentQuestIdx + 1;            // keep head + current
+      const head = DAILY.questQueue.slice(0, cut);
+      const tail = DAILY.questQueue.slice(cut).filter(q => {
+        // Drop only entries the user explicitly unticked (whole group for portals).
+        const drop = q._portalGroup
+          ? q._portalGroup.every(m => removedUids.has(m.uid))
+          : removedUids.has(q.uid);
+        if (drop) removed++;
+        return !drop;
+      });
+      DAILY.questQueue = head.concat(tail);
+    }
+
+    const toAddQuests = addedUids
+      .filter(uid => !inQueue.has(uid))
+      .map(uid => DAILY.questData.find(q => q.uid === uid))
+      .filter(Boolean);
+    if (toAddQuests.length) {
+      DAILY.questQueue = DAILY.questQueue.concat(this.groupPortalQuests(toAddQuests));
+      added = toAddQuests.length;
+    }
+
+    if (added || removed) {
+      console.log(`[AFO_DAILY] Queue reconciled on resume: +${added} / -${removed}, length ${DAILY.questQueue.length}`);
+      GAME.komunikat(`[DZIENNE] Lista zaktualizowana: +${added}${removed ? ' / -' + removed : ''}`);
+    }
+    if (removedUids.size && !safeToRemove) {
+      console.log('[AFO_DAILY] Reconcile: in special flow, removals deferred to STOP');
+    }
   },
 
   updateStatus(text) {
@@ -938,6 +1115,79 @@ const AFO_DAILY = {
     }
   },
 
+  // Per-character USER favorites (array of quest uids). A user preference, NOT
+  // run state: untouched by start(), ZERUJ, and the daily auto-reset. The
+  // ULUBIONE button selects exactly these (falling back to the dev-curated
+  // worth:true list only when the user hasn't starred anything yet).
+  loadFavoriteQuests() {
+    try {
+      const saved = localStorage.getItem('daily_favorites_' + GAME.char_id);
+      DAILY.favoriteQuests = saved ? (JSON.parse(saved) || []) : [];
+    } catch (e) {
+      DAILY.favoriteQuests = [];
+    }
+  },
+
+  saveFavoriteQuests() {
+    try {
+      localStorage.setItem('daily_favorites_' + GAME.char_id, JSON.stringify(DAILY.favoriteQuests || []));
+    } catch (e) {
+      console.warn('[AFO_DAILY] Failed to save favorites:', e);
+    }
+  },
+
+  // ============================================
+  // DAILY AUTO-RESET (00:05 local)
+  // ============================================
+  // The game re-issues daily quests each day, but the bot's localStorage
+  // (daily_completed_/daily_failed_) otherwise persists until the user hits
+  // ZERUJ. Auto-clear them once per day at 00:05 local time. Manual ZERUJ stays.
+
+  // Period key for "today" with the boundary at 00:05 local time: shifting the
+  // clock back 5 minutes makes the calendar date roll over at 00:05, not 00:00.
+  _dailyResetDayKey() {
+    const d = new Date(Date.now() - 5 * 60 * 1000);
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  },
+
+  // Clear completed/failed for a fresh day. Keeps favorites and per-quest prefs
+  // (roll/variant) and session state (skipped/enabled) — those aren't "done today".
+  performDailyReset() {
+    DAILY.completedQuests = [];
+    DAILY.failedQuests = [];
+    this.saveCompletedQuests();
+    this.saveFailedQuests();
+    if ($('#daily_Panel').length) this.renderQuestList();
+    GAME.komunikat('[DZIENNE] Nowy dzień — automatyczny reset questów (00:05)');
+    console.log('[AFO_DAILY] Auto daily reset for period', this._dailyResetDayKey());
+  },
+
+  // Reset once when crossing into a new 00:05 period. No-op while a run is active
+  // (don't wipe counters mid-flight — deferred to the next tick after stop) and
+  // on the very first run (just record the period, nothing to reset yet).
+  checkDailyReset() {
+    if (!GAME || !GAME.char_id) return;
+    try {
+      const key = this._dailyResetDayKey();
+      const storageKey = 'daily_lastReset_' + GAME.char_id;
+      const stored = localStorage.getItem(storageKey);
+      if (stored === key) return;
+      if (DAILY.stop === false) return;  // run in progress -> defer
+      if (stored !== null) this.performDailyReset();
+      localStorage.setItem(storageKey, key);
+    } catch (e) {
+      console.warn('[AFO_DAILY] checkDailyReset failed:', e);
+    }
+  },
+
+  // Poll every minute so the reset fires across midnight even with the panel
+  // open and no user interaction. Idempotent (single interval).
+  startDailyResetWatcher() {
+    this.checkDailyReset();
+    if (this._dailyResetInterval) return;
+    this._dailyResetInterval = setInterval(() => this.checkDailyReset(), 60 * 1000);
+  },
+
   markQuestCurrent(quest) {
     const uid = quest && quest.uid;
     $('.daily_quest_item').removeClass('current');
@@ -1031,6 +1281,19 @@ const AFO_DAILY = {
       this.renderQuestList();
     });
 
+    // Per-quest favorite star toggle — adds/removes the uid from user favorites.
+    $('#daily_quest_list').on('click', '.quest_fav', (e) => {
+      e.stopPropagation();
+      const uid = $(e.target).closest('.daily_quest_item').data('quest-uid');
+      if (!uid) return;
+      if (!DAILY.favoriteQuests) DAILY.favoriteQuests = [];
+      const i = DAILY.favoriteQuests.indexOf(uid);
+      if (i >= 0) DAILY.favoriteQuests.splice(i, 1);
+      else DAILY.favoriteQuests.push(uid);
+      this.saveFavoriteQuests();
+      this.renderQuestList();
+    });
+
     // Toggle all button - if any unchecked, select all; otherwise deselect all
     $('#daily_toggle_all_btn').on('click', () => {
       const $checkboxes = $('#daily_quest_list input[type="checkbox"]:not(:disabled)');
@@ -1040,16 +1303,23 @@ const AFO_DAILY = {
       });
     });
 
-    // Important quests button - select only quests with worth: true flag (respecting born filter)
+    // ULUBIONE button - select only the user's favorite quests (starred via ☆).
+    // Falls back to the dev-curated worth:true list when the user hasn't starred
+    // anything yet, so the button is still useful out of the box.
     $('#daily_important_btn').on('click', () => {
+      const favs = DAILY.favoriteQuests || [];
+      const useDefaults = favs.length === 0;
       $('#daily_quest_list input[type="checkbox"]:not(:disabled)').each((_, el) => {
         const $item = $(el).closest('.daily_quest_item');
         const uid = $item.data('quest-uid');
         const quest = DAILY.questData?.find(q => q.uid === uid);
-        const isImportant = quest?.worth === true;
+        const isFav = useDefaults ? (quest?.worth === true) : favs.includes(uid);
 
-        $(el).prop('checked', isImportant).trigger('change');
+        $(el).prop('checked', isFav).trigger('change');
       });
+      if (useDefaults) {
+        GAME.komunikat('[DZIENNE] Brak własnych ulubionych — użyto domyślnych. Oznacz questy gwiazdką ☆.');
+      }
     });
 
     // Reset button - clear all completed and failed
@@ -1172,6 +1442,7 @@ const AFO_DAILY = {
     if (DAILY._timerUpdateInterval) { clearInterval(DAILY._timerUpdateInterval); DAILY._timerUpdateInterval = null; }
     DAILY._dialogAttempts = 0;
     DAILY._verifyReopen = false;
+    DAILY._pauseChecked = null;  // drop any stale pause snapshot
     DAILY._currentQuest = null;
 
     // Reset Anielska batch state so a restart never stays stuck on a stale
@@ -1185,6 +1456,12 @@ const AFO_DAILY = {
     $('#daily_start_btn').addClass('hidden');
     $('#daily_pause_btn').removeClass('hidden').text('PAUZA');
     $('#daily_stop_btn').removeClass('hidden');
+
+    // Lock the list while running: re-render (disables checkboxes via the
+    // editingLocked rule) and disable the queue-editing buttons. The user edits
+    // by pausing; changes apply on WZNÓW.
+    this.renderQuestList();
+    this.setQueueButtonsEnabled(false);
 
     this.updateStatus(`Rozpoczynam... (${DAILY.questQueue.length} questów)`);
     console.log('[AFO_DAILY] Started with', DAILY.questQueue.length, 'quests');
@@ -1209,7 +1486,13 @@ const AFO_DAILY = {
     this.stopLPVM();  // Stop LPVM if running (bounty quests)
     this.stopAutoExpeditions();  // Stop auto expeditions if running
     $('#daily_pause_btn').text('WZNÓW');
-    this.updateStatus('⏸ Wstrzymano');
+    // Snapshot the current selection so WZNÓW can apply ONLY the user's edits
+    // (delta), not a full recompute (which would re-add prior-session completions).
+    DAILY._pauseChecked = this.snapshotCheckedSelection();
+    // Unlock the list so the user can edit it while paused; changes apply on WZNÓW.
+    this.renderQuestList();
+    this.setQueueButtonsEnabled(true);
+    this.updateStatus('⏸ Wstrzymano — możesz edytować listę, WZNÓW zastosuje zmiany');
     console.log('[AFO_DAILY] Paused');
   },
 
@@ -1220,6 +1503,12 @@ const AFO_DAILY = {
     $('#daily_pause_btn').text('PAUZA');
     this.updateStatus('Wznawianie...');
     console.log('[AFO_DAILY] Resumed');
+
+    // Apply any checkbox edits made while paused (add/remove), then re-lock the
+    // list (re-render disables checkboxes via editingLocked) and the buttons.
+    this.reconcileQueueWithSelection();
+    this.renderQuestList();
+    this.setQueueButtonsEnabled(false);
 
     // Handle Anielska karta batch - resume combat loop
     if (DAILY._anielskaBatchActive) {
@@ -1246,10 +1535,15 @@ const AFO_DAILY = {
     if (DAILY.isInCombat && DAILY._combatQuest) {
       setTimeout(() => this.combatLoop(), 300);
     } else {
-      // Continue from where we were - don't process next, continue current
+      // Continue from where we were. Re-route via processQuest (NOT
+      // navigateToQuestNPC): processQuest re-establishes the full location
+      // routing — teleport if off-location, portal entry for portal quests,
+      // already-on-location shortcut otherwise. navigateToQuestNPC assumed the
+      // NPC was on the CURRENT map, so resuming mid-approach to a portal/teleport
+      // quest sent it to stale JSON coords and crashed easystar (out-of-grid).
       const quest = DAILY._currentQuest || DAILY.questQueue[DAILY.currentQuestIdx];
       if (quest) {
-        setTimeout(() => this.navigateToQuestNPC(quest), 300);
+        setTimeout(() => this.processQuest(quest), 300);
       } else {
         setTimeout(() => this.processNextQuest(), 500);
       }
@@ -1287,6 +1581,7 @@ const AFO_DAILY = {
 
     this.updateStatus(`Zatrzymano: ${reason}`);
     this.renderQuestList();
+    this.setQueueButtonsEnabled(true);  // run over -> list editable again
 
     const completed = DAILY.completedQuests.length;
     // questQueue collapses each portal group into ONE entry (the group-start
@@ -2119,6 +2414,24 @@ const AFO_DAILY = {
       return;
     }
 
+    // Guard against out-of-grid start/end. easystar THROWS synchronously
+    // ("start or end point is outside the scope of your grid"), which would kill
+    // the whole run. This happens e.g. when resuming/navigating with coords that
+    // belong to a different map than the one currently loaded. Abort pathfinding
+    // gracefully and let the caller's callback decide the next step.
+    const maxX = parseInt(GAME.map.max_x);
+    const maxY = parseInt(GAME.map.max_y);
+    const sx = GAME.char_data.x - 1, sy = GAME.char_data.y - 1;
+    const tx = targetX - 1, ty = targetY - 1;
+    const inGrid = (x, y) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < maxX && y < maxY;
+    if (!inGrid(sx, sy) || !inGrid(tx, ty)) {
+      console.warn('[AFO_DAILY] navigateToCoords: coords outside grid — start', sx, sy, 'target', tx, ty, 'grid', maxX + 'x' + maxY, '- aborting pathfinding');
+      DAILY.isNavigating = false;
+      DAILY._navCallback = null;
+      if (typeof callback === 'function') callback();
+      return;
+    }
+
     DAILY.isNavigating = true;
     DAILY._navCallback = callback;
 
@@ -2275,7 +2588,13 @@ const AFO_DAILY = {
   // DIALOG HANDLING
   // ============================================
 
-  startDialog(quest, qb_id) {
+  // Response-driven dialog open. Emits a:22 and AWAITS #quest_con actually
+  // appearing (polling the real DOM up to a timeout), instead of the old fixed
+  // 500ms recursive poll that drove the global _dialogAttempts counter. Bounded
+  // retries; each re-emits. This is the spine where the lag bugs lived: the
+  // deflation "11x Starting dialog -> skip" came from that recursive spin.
+  // async + fire-and-forget: every caller invokes it without awaiting.
+  async startDialog(quest, qb_id) {
     if (DAILY.stop || DAILY.paused) return;
 
     this.updateStatus(`Dialog: ${quest.name}`);
@@ -2287,53 +2606,36 @@ const AFO_DAILY = {
       DAILY._originalQbId = qb_id;
     }
 
-    // Track dialog attempts to prevent infinite loop
-    DAILY._dialogAttempts = (DAILY._dialogAttempts || 0) + 1;
-    if (DAILY._dialogAttempts > 10) {
-      DAILY._dialogAttempts = 0;
-      if (DAILY._verifyReopen) {
-        // We were reopening the dialog during completion verification and it
-        // never opened — the quest is finished, map_quests just lagged. Re-poll
-        // (and eventually mark complete) instead of dropping it uncounted.
-        DAILY._verifyReopen = false;
-        console.warn('[AFO_DAILY] Verify reopen could not open dialog - re-polling instead of skipping:', quest.name);
-        this.verifyAndCompleteQuest(quest);
+    const OPEN_TRIES = 3;
+    for (let attempt = 1; attempt <= OPEN_TRIES; attempt++) {
+      if (DAILY.stop || DAILY.paused) return;
+      GAME.emitOrder({ a: 22, type: 1, id: qb_id });
+      const opened = await this.waitUntil(() => $('#quest_con').is(':visible'), { timeout: 2500, interval: 100 });
+      if (DAILY.stop || DAILY.paused) return;
+      if (opened) {
+        DAILY._dialogAttempts = 0;
+        DAILY._verifyReopen = false;  // dialog opened -> genuine, handle normally
+        console.log('[AFO_DAILY] Dialog visible, processing');
+        await this.sleep(300);        // small settle for dialog buttons to render (Android-safe)
+        if (DAILY.stop || DAILY.paused) return;
+        this.processDialog(quest);
         return;
       }
-      console.warn('[AFO_DAILY] Too many dialog attempts, skipping quest');
-      this.skipCurrentQuest('Nie udało się otworzyć dialogu');
+      console.log(`[AFO_DAILY] Dialog not open yet (try ${attempt}/${OPEN_TRIES}):`, quest.name);
+    }
+
+    // Dialog never opened after all retries.
+    if (DAILY._verifyReopen) {
+      // We were reopening during completion verification and it never opened —
+      // the quest is finished, map_quests just lagged. Re-poll (and eventually
+      // mark complete) instead of dropping it uncounted (the "9/10" bug).
+      DAILY._verifyReopen = false;
+      console.warn('[AFO_DAILY] Verify reopen could not open dialog - re-polling instead of skipping:', quest.name);
+      this.verifyAndCompleteQuest(quest);
       return;
     }
-
-    // Open quest dialog
-    GAME.emitOrder({ a: 22, type: 1, id: qb_id });
-
-    // Wait for dialog to appear with proper delay
-    this.waitForDialog(quest, qb_id);
-  },
-
-  waitForDialog(quest, qb_id) {
-    if (DAILY.stop || DAILY.paused) return;
-
-    // Check if dialog appeared
-    if ($('#quest_con').is(':visible')) {
-      DAILY._dialogAttempts = 0;
-      DAILY._verifyReopen = false;  // dialog opened -> genuine, handle normally
-      console.log('[AFO_DAILY] Dialog visible, processing');
-      setTimeout(() => this.processDialog(quest), 200);
-    } else {
-      // Wait more
-      setTimeout(() => {
-        if ($('#quest_con').is(':visible')) {
-          DAILY._dialogAttempts = 0;
-          DAILY._verifyReopen = false;  // dialog opened -> genuine, handle normally
-          this.processDialog(quest);
-        } else {
-          // Try to open dialog again
-          this.startDialog(quest, qb_id);
-        }
-      }, 500);
-    }
+    console.warn('[AFO_DAILY] Dialog did not open after retries, skipping quest:', quest.name);
+    this.skipCurrentQuest('Nie udało się otworzyć dialogu');
   },
 
   // Trigger the existing game-overrides quest-roll loop for any rollable quest
@@ -4659,8 +4961,10 @@ const AFO_DAILY = {
 
     // Reset _dialogAttempts ONLY if we actually fought. If combat completed
     // without any fight (sanity check skipped, or stale DOM said "met" instantly),
-    // it's a false positive — keep the counter rising so startDialog's >10 guard
-    // eventually skips this broken quest instead of looping forever.
+    // it's a false positive — keep the counter rising so processDialog's limbo
+    // cap (>=10) eventually skips this broken quest instead of looping forever.
+    // (If the quest is effectively done the reopened dialog won't appear and the
+    // response-driven startDialog bounded retry skips it on its own.)
     if (DAILY._combatHadFight) {
       DAILY._dialogAttempts = 0;
       DAILY._combatHadFight = false;
