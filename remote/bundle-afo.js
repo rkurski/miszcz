@@ -7505,6 +7505,16 @@ const AFO_DAILY = {
     DAILY.inPortal = false;
     DAILY.portalGroup = [];
     DAILY.portalGroupIdx = 0;
+    // Reset waiting (timer/expedition) quests so a leftover from a previous run
+    // can't later complete and push a uid into THIS run's completedQuests
+    // (cross-run counter inflation). clearAllTimeouts() below only clears
+    // setTimeouts, not these setInterval handles, so clear them explicitly:
+    // a stale _waitingCheckInterval could otherwise tick on the fresh run
+    // (stop=false, waitingQuests empty) and fire a premature stop() at ~1468.
+    DAILY.waitingQuests = [];
+    DAILY._processingWaitingQuest = false;
+    if (DAILY._waitingCheckInterval) { clearInterval(DAILY._waitingCheckInterval); DAILY._waitingCheckInterval = null; }
+    if (DAILY._timerUpdateInterval) { clearInterval(DAILY._timerUpdateInterval); DAILY._timerUpdateInterval = null; }
     DAILY._dialogAttempts = 0;
     DAILY._currentQuest = null;
 
@@ -7623,7 +7633,13 @@ const AFO_DAILY = {
     this.renderQuestList();
 
     const completed = DAILY.completedQuests.length;
-    const total = DAILY.questQueue.length;
+    // questQueue collapses each portal group into ONE entry (the group-start
+    // quest holds the whole group on _portalGroup); the other members are
+    // completed inside the portal and counted individually in completedQuests.
+    // Count group members so the denominator matches the individual quests
+    // (e.g. 52, not 46). Non-portal entries have no _portalGroup -> weight 1.
+    const total = DAILY.questQueue.reduce(
+      (acc, q) => acc + (q._portalGroup ? q._portalGroup.length : 1), 0);
     GAME.komunikat(`[DZIENNE] ${reason}. Wykonano: ${completed}/${total}`);
   },
 
