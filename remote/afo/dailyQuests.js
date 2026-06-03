@@ -118,6 +118,36 @@ const AFO_DAILY = {
     });
   },
 
+  // Emit the portal-exit command (a:6) and resolve once the character actually
+  // LEAVES the inner location (loc changes away from innerLocId), retrying the
+  // emit a few times. Response-driven replacement for the old fixed
+  // setTimeout-then-assume-exited, which left the bot stuck inside the portal on
+  // lag — the next quest's teleport then failed ("Current: <innerLocId>").
+  // Resolves true if it left, false if it never did within the retries.
+  async usePortalExit(innerLocId, { settle = 300, timeout = 4000, retries = 2, cooldown = 1500 } = {}) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (DAILY.stop || DAILY.paused) return false;
+      await this.sleep(settle);
+      if (DAILY.stop || DAILY.paused) return false;
+      console.log('[AFO_DAILY] Emitting portal exit command (attempt', (attempt + 1) + ')');
+      GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
+      const left = await this.waitUntil(
+        () => innerLocId == null || Number(GAME.char_data.loc) !== Number(innerLocId),
+        { timeout, interval: 200 }
+      );
+      if (left) {
+        // The exit (a:6) is itself a teleport. Wait out the server teleport
+        // cooldown before the caller fires the NEXT teleport — otherwise that
+        // a:12 is rejected (char stays put) and only recovers via the slow
+        // verify-retry. The old fixed-delay exit happened to absorb this.
+        await this.sleep(cooldown);
+        return true;
+      }
+      console.warn('[AFO_DAILY] Portal exit did not change loc yet (still', GAME.char_data.loc, ')');
+    }
+    return false;
+  },
+
   injectCSS() {
     const css = `
       /* ========================================
@@ -1013,6 +1043,11 @@ const AFO_DAILY = {
       DAILY.failedQuests.push(uid);
       this.saveFailedQuests();
     }
+    // Per-run skip log (names) for the end-of-run report. Reset in start().
+    if (!DAILY._runSkipped) DAILY._runSkipped = [];
+    if (quest.name && !DAILY._runSkipped.includes(quest.name)) {
+      DAILY._runSkipped.push(quest.name);
+    }
     $(`.daily_quest_item[data-quest-uid="${uid}"]`)
       .addClass('skipped')
       .removeClass('current')
@@ -1399,15 +1434,43 @@ const AFO_DAILY = {
     }
 
     // Build quest queue from CHECKED quests only. isQuestChecked() is the exact
-    // same predicate renderQuestList() uses for the checkbox, so what runs always
-    // matches what's ticked — unchecked / struck-through (failed) / completed are
-    // ignored regardless of how we got there (PRZEŁĄCZ / ULUBIONE / ZERUJ).
+    // same predicate renderQuestList() uses for the checkbox. As a hard guarantee
+    // that "what runs" never diverges from "what the user SEES ticked", we also
+    // intersect with the live checkbox DOM: any box the user left UNCHECKED is
+    // excluded even if some state desynced. (A box can only ADD exclusions here,
+    // never re-include — so it's strictly conservative.) Falls back to
+    // isQuestChecked alone if the panel list isn't rendered.
     const currentBorn = GAME.char_data.reborn;
+
+    const $boxes = $('#daily_quest_list input[type="checkbox"]');
+    const uncheckedInDom = new Set();
+    if ($boxes.length > 0) {
+      $boxes.each((_, el) => {
+        if (!el.checked) {
+          const uid = $(el).closest('.daily_quest_item').data('quest-uid');
+          if (uid) uncheckedInDom.add(uid);
+        }
+      });
+    }
+
     const availableQuests = DAILY.questData
       .filter(q => q.born.includes(currentBorn))
       .filter(q => this.isQuestAvailable(q))
       .filter(q => this.isQuestChecked(q))
+      .filter(q => !uncheckedInDom.has(q.uid))  // visible uncheck always wins
       .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+
+    // Diagnostic: log exactly what will run, and flag any desync (isQuestChecked
+    // said yes but the UI box was unchecked — the reported "pobrało mimo
+    // odznaczenia" bug). With once-a-day testing this pins it down in one run.
+    const desync = DAILY.questData
+      .filter(q => q.born.includes(currentBorn) && this.isQuestAvailable(q))
+      .filter(q => this.isQuestChecked(q) && uncheckedInDom.has(q.uid))
+      .map(q => q.name);
+    if (desync.length) {
+      console.warn('[AFO_DAILY] Selection desync — isQuestChecked=true but UI unchecked (EXCLUDED):', desync);
+    }
+    console.log('[AFO_DAILY] Queue selection:', availableQuests.map(q => q.name));
 
     if (availableQuests.length === 0) {
       GAME.komunikat('[DZIENNE] Brak questów do wykonania!');
@@ -1423,6 +1486,7 @@ const AFO_DAILY = {
     DAILY.currentQuestIdx = 0;
     DAILY.currentStageIdx = 0;
     DAILY.completedQuests = [];  // Reset completed quests!
+    DAILY._runSkipped = [];      // Per-run skip log for the end-of-run report
     DAILY.ownEmpire = GAME.char_data.empire;
     DAILY.isNavigating = false;
     DAILY.isTeleporting = false;
@@ -1592,6 +1656,19 @@ const AFO_DAILY = {
     const total = DAILY.questQueue.reduce(
       (acc, q) => acc + (q._portalGroup ? q._portalGroup.length : 1), 0);
     GAME.komunikat(`[DZIENNE] ${reason}. Wykonano: ${completed}/${total}`);
+
+    // End-of-run report. With once-a-day testing this is the cheapest way to see
+    // exactly what happened in the single run — names of anything the bot
+    // skipped/failed (it can only test once, so maximize diagnostic signal).
+    const skipped = DAILY._runSkipped || [];
+    if (skipped.length) {
+      GAME.komunikat(`[DZIENNE] Pominięto ${skipped.length}: ${skipped.join(', ')}`);
+    }
+    console.log('[AFO_DAILY] Run report —',
+      'ukończono:', completed, '/', total,
+      '| pominięto:', skipped.length, skipped,
+      '| kolejka(wpisy):', DAILY.questQueue.length,
+      '| idx:', DAILY.currentQuestIdx);
   },
 
   // ============================================
@@ -2010,17 +2087,17 @@ const AFO_DAILY = {
     const prevPortal = prevQuest?.location?.portal;
     if (DAILY.inPortal && prevPortal?.innerLocId && GAME.char_data.loc === prevPortal.innerLocId) {
       console.log('[AFO_DAILY] Still inside portal at', prevPortal.innerLocId, '- exiting first before teleporting to', locId);
-      this.navigateToCoords(prevPortal.exit.x, prevPortal.exit.y, () => {
+      this.navigateToCoords(prevPortal.exit.x, prevPortal.exit.y, async () => {
         console.log('[AFO_DAILY] At portal exit, using portal to leave');
-        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
-
-        setTimeout(() => {
-          if (DAILY.stop || DAILY.paused) return;
-          console.log('[AFO_DAILY] Portal exit complete, now continuing to quest location');
-          DAILY.inPortal = false;
-          // Now proceed with normal teleport - call goToNormalLocation again
-          this.goToNormalLocation(quest);
-        }, 1500);
+        // Wait for the actual loc change instead of a blind 1500ms (prevents
+        // teleporting to the next quest while still stuck inside the portal).
+        const left = await this.usePortalExit(prevPortal.innerLocId);
+        if (DAILY.stop || DAILY.paused) return;
+        DAILY.inPortal = false;
+        if (!left) console.warn('[AFO_DAILY] Portal exit unconfirmed (loc:', GAME.char_data.loc, ') - continuing anyway');
+        else console.log('[AFO_DAILY] Portal exit complete, now continuing to quest location (loc:', GAME.char_data.loc, ')');
+        // Now proceed with normal teleport - call goToNormalLocation again
+        this.goToNormalLocation(quest);
       });
       return;
     }
@@ -2252,25 +2329,24 @@ const AFO_DAILY = {
     }
 
     this.updateStatus('Wychodzę z portalu...');
-    this.navigateToCoords(portal.exit.x, portal.exit.y, () => {
+    this.navigateToCoords(portal.exit.x, portal.exit.y, async () => {
       // We've arrived at portal exit - use the portal to exit!
       console.log('[AFO_DAILY] Arrived at portal exit, using portal');
       DAILY.isTeleporting = true;
 
-      // Small delay before using portal, then emit via socket
-      setTimeout(() => {
-        console.log('[AFO_DAILY] Emitting portal exit command');
-        GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
-
-        // Wait for map to load after portal transition
-        setTimeout(() => {
-          if (DAILY.stop || DAILY.paused) return;
-          console.log('[AFO_DAILY] Portal exit complete');
-          DAILY.isTeleporting = false;
-          DAILY.inPortal = false;
-          this.advanceQuestQueue();
-        }, 2000);
-      }, 300);
+      // Wait for the character to ACTUALLY leave the portal (loc changes away
+      // from innerLocId) instead of a blind 2s. Prevents the "stuck inside
+      // portal -> next teleport fails" bug.
+      const left = await this.usePortalExit(portal.innerLocId);
+      if (DAILY.stop || DAILY.paused) return;
+      DAILY.isTeleporting = false;
+      DAILY.inPortal = false;
+      if (!left) {
+        console.warn('[AFO_DAILY] Portal exit unconfirmed after retries (loc:', GAME.char_data.loc, ') - advancing anyway (pause/resume recovers if stuck)');
+      } else {
+        console.log('[AFO_DAILY] Portal exit complete (loc:', GAME.char_data.loc, ')');
+      }
+      this.advanceQuestQueue();
     });
   },
 
@@ -5464,8 +5540,13 @@ const AFO_DAILY = {
   // QUEST COMPLETION
   // ============================================
 
-  // Verify quest is actually complete (not visible in field_opts_con anymore)
-  verifyAndCompleteQuest(quest) {
+  // Verify quest is actually complete (not visible in field_opts_con anymore).
+  // Response-driven: waits for the dialog to actually render / the quest to
+  // actually disappear from map_quests, instead of blind fixed delays. All
+  // decision logic, caps and flags (_verifyAttempts/_verifyMapAttempts/
+  // _verifyReopen, new-requirements, finish-click) are preserved 1:1.
+  // async + fire-and-forget: every caller invokes it without awaiting.
+  async verifyAndCompleteQuest(quest) {
     if (DAILY.stop || DAILY.paused) return;
 
     // Get quest qb_id
@@ -5478,40 +5559,69 @@ const AFO_DAILY = {
     if (questInField.length > 0 && questInField.is(':visible')) {
       console.log('[AFO_DAILY] Quest still visible in field_opts_con, needs final click');
 
-      // Track verification attempts
+      // Track verification attempts. Budget is generous (8) because a genuine
+      // multi-stage quest (intro -> give PSK -> give item -> ...) needs one
+      // finish-click per stage and each click goes through this loop.
       DAILY._verifyAttempts = (DAILY._verifyAttempts || 0) + 1;
-      if (DAILY._verifyAttempts > 5) {
-        console.warn('[AFO_DAILY] Too many verify attempts, marking complete anyway');
+      if (DAILY._verifyAttempts > 8) {
+        // Still showing in field_opts_con after 8+ finish clicks. The OLD code
+        // unconditionally marked it complete here — which FALSELY completed a
+        // multi-stage quest stuck on a stage the bot can't satisfy (e.g. "Oddaj
+        // przedmiot" for a rare item the player lacks): the silent catastrophe.
+        // Decide by the authoritative map data instead:
+        //   - gone from map_quests  => genuinely done, UI just lingered -> COMPLETE
+        //   - still in map_quests    => stuck on an unsatisfiable stage  -> SKIP (failed)
+        // A false skip is visible (orange) and recoverable; a false complete is not.
         DAILY._verifyAttempts = 0;
-        this.onQuestComplete(quest);
+        const stillOnMap = qbId ? this.findQuestByQbId(qbId) : this.findQuestByName(quest.name);
+        if (stillOnMap) {
+          console.warn('[AFO_DAILY] Verify exhausted, quest STILL in map_quests - stuck, skipping:', quest.name);
+          this.skipQuestWithMark(quest, 'Nie mogę ukończyć (utknięto na etapie)');
+        } else {
+          console.warn('[AFO_DAILY] Verify exhausted but quest gone from map_quests - completing:', quest.name);
+          this.onQuestComplete(quest);
+        }
         return;
       }
 
       // Try to open dialog and check for requirements
       if (qbId) {
         GAME.socket.emit('ga', { a: 22, type: 1, id: qbId });
-        setTimeout(() => {
-          // First check if there are new requirements in the dialog
-          const newRequires = this.parseQuestRequirements();
-          if (newRequires && newRequires.type !== 'ACTION' && newRequires.current < newRequires.target) {
-            console.log('[AFO_DAILY] Found new requirements during verification:', newRequires.type);
-            DAILY._verifyAttempts = 0;
-            $('#quest_con').hide();
-            this.handleQuestRequirement(quest, newRequires);
-            return;
-          }
+        // Wait for the dialog to be visible AND give the server a beat to refresh
+        // its CONTENT. The dialog is usually ALREADY open here (we re-open it each
+        // verify cycle of a multi-stage quest), so waitUntil(visible) returns
+        // instantly — parsing/clicking right away would hit the PREVIOUS stage's
+        // stale content/button before the a:22 response updates it, so the finish
+        // click lands on nothing and the stage never advances (this regressed
+        // multi-stage quests like "Scalacze Hiper" in batch/lag — solo was fast
+        // enough to dodge it). The fixed settle restores the old 500ms beat.
+        await this.waitUntil(() => $('#quest_con').is(':visible'), { timeout: 2500, interval: 100 });
+        if (DAILY.stop || DAILY.paused) return;
+        await this.sleep(600);
+        if (DAILY.stop || DAILY.paused) return;
 
-          // No new requirements - click finish if available
-          const finishBtn = $('button[data-option=finish_quest]').first();
-          if (finishBtn.length > 0) {
-            const btnQbId = finishBtn.attr('data-qb_id');
-            const button = parseInt(finishBtn.attr('data-button')) || 1;
-            console.log('[AFO_DAILY] Clicking final finish button');
-            GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: btnQbId });
-          }
-          // Check again after delay
-          setTimeout(() => this.verifyAndCompleteQuest(quest), 800);
-        }, 500);
+        // First check if there are new requirements in the dialog
+        const newRequires = this.parseQuestRequirements();
+        if (newRequires && newRequires.type !== 'ACTION' && newRequires.current < newRequires.target) {
+          console.log('[AFO_DAILY] Found new requirements during verification:', newRequires.type);
+          DAILY._verifyAttempts = 0;
+          $('#quest_con').hide();
+          this.handleQuestRequirement(quest, newRequires);
+          return;
+        }
+
+        // No new requirements - click finish if available
+        const finishBtn = $('button[data-option=finish_quest]').first();
+        if (finishBtn.length > 0) {
+          const btnQbId = finishBtn.attr('data-qb_id');
+          const button = parseInt(finishBtn.attr('data-button')) || 1;
+          console.log('[AFO_DAILY] Clicking final finish button');
+          GAME.socket.emit('ga', { a: 22, type: 2, button: button, id: btnQbId });
+        }
+        // Re-verify after a short settle for the finish to propagate.
+        await this.sleep(800);
+        if (DAILY.stop || DAILY.paused) return;
+        this.verifyAndCompleteQuest(quest);
         return;
       }
     }
@@ -5520,9 +5630,10 @@ const AFO_DAILY = {
     // Use qb_id for exact match to avoid matching similar-named quests
     // (e.g., "Zadanie" vs "Zadanie PvM" in Pałac Wszechmogącego)
     const qbIdToCheck = qbId || DAILY._originalQbId;
-    const currentQuestData = qbIdToCheck
+    const stillOnMap = () => qbIdToCheck
       ? this.findQuestByQbId(qbIdToCheck)
       : this.findQuestByName(quest.name);
+    const currentQuestData = stillOnMap();
 
     if (currentQuestData) {
       console.warn('[AFO_DAILY] Quest still exists in GAME.map_quests - NOT complete:', quest.name, 'qb_id:', qbIdToCheck);
@@ -5547,11 +5658,16 @@ const AFO_DAILY = {
         console.log('[AFO_DAILY] Reopening dialog once to check for a pending stage:', quest.name);
         DAILY._dialogAttempts = 0;
         DAILY._verifyReopen = true;
-        setTimeout(() => this.startDialog(quest, currentQuestData.qb_id), 800);
-      } else {
-        console.log('[AFO_DAILY] Quest gone from UI, still in map_quests - re-polling for lag, attempt:', DAILY._verifyMapAttempts);
-        setTimeout(() => this.verifyAndCompleteQuest(quest), 800);
+        this.startDialog(quest, currentQuestData.qb_id);
+        return;
       }
+      // Response-driven re-poll: wait for the quest to actually drop out of
+      // map_quests (server catching up after finish) instead of a blind 800ms.
+      // Resolves as soon as it clears; otherwise the >5 cap above bounds it.
+      console.log('[AFO_DAILY] Quest gone from UI, still in map_quests - re-polling for lag, attempt:', DAILY._verifyMapAttempts);
+      await this.waitUntil(() => !stillOnMap(), { timeout: 900, interval: 150 });
+      if (DAILY.stop || DAILY.paused) return;
+      this.verifyAndCompleteQuest(quest);
       return;
     }
 
@@ -5670,17 +5786,16 @@ const AFO_DAILY = {
         DAILY.isNavigating = false;
         DAILY._navCallback = null;
 
-        this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, () => {
+        this.navigateToCoords(completedPortal.exit.x, completedPortal.exit.y, async () => {
           console.log('[AFO_DAILY] At portal exit, using portal to leave');
-          GAME.socket.emit('ga', { a: 6 });  // Use portal to exit
-
-          setTimeout(() => {
-            if (DAILY.stop || DAILY.paused) return;
-            console.log('[AFO_DAILY] Portal exit complete, now advancing queue');
-            DAILY.inPortal = false;
-            // Now actually advance the queue (recursive call with inPortal=false)
-            this.advanceQuestQueue();
-          }, 1500);
+          // Wait for the actual loc change instead of a blind 1500ms.
+          const left = await this.usePortalExit(completedPortal.innerLocId);
+          if (DAILY.stop || DAILY.paused) return;
+          DAILY.inPortal = false;
+          if (!left) console.warn('[AFO_DAILY] Portal exit unconfirmed (loc:', GAME.char_data.loc, ') - advancing anyway');
+          else console.log('[AFO_DAILY] Portal exit complete, now advancing queue (loc:', GAME.char_data.loc, ')');
+          // Now actually advance the queue (recursive call with inPortal=false)
+          this.advanceQuestQueue();
         });
       }, 300);
       return;
@@ -5703,6 +5818,10 @@ const AFO_DAILY = {
     DAILY._verifyMapAttempts = 0;
     DAILY._studniaAttempts = 0;
     DAILY._verifyReopen = false;
+    // Clear the saved qb_id so a stale value from the previous quest can't be
+    // used as a fallback for the next one (findQuestByQbId would match the wrong
+    // quest). The next quest's startDialog sets it fresh before any use.
+    DAILY._originalQbId = null;
 
     // Check if there are quests at current location that should be done first.
     // Only reorder when the next quest is at a DIFFERENT location — otherwise the
@@ -5744,7 +5863,14 @@ const AFO_DAILY = {
     if (quest) {
       console.warn('[AFO_DAILY] Skipping quest:', quest.name, '-', reason);
       GAME.komunikat(`[DZIENNE] Pomijam: ${quest.name} - ${reason}`);
+      // Record the skip so the quest is VISIBLE (orange/failed) and shows up in
+      // the run report, instead of silently vanishing from both completed AND
+      // failed. Safe now that the lag/finished case is routed away from here via
+      // the verify re-poll (_verifyReopen) — only genuine "can't open dialog"
+      // (NPC unreachable, quest truly gone) reaches this path.
+      this.markQuestSkipped(quest);
     }
+    DAILY._dialogAttempts = 0;
     this.advanceQuestQueue();
   },
 
