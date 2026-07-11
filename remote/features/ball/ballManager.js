@@ -236,6 +236,9 @@
 
   window.BALL_NAMES = BALL_NAMES;
 
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
+
   // Inject CSS
   $('body').append(`<style>${CSS}</style>`);
 

@@ -97,37 +97,58 @@ if (_serverMatch && window.location.pathname.startsWith('/auth')) {
   const server = parseInt(_serverMatch[1]);
   console.log('[Gieniobot] Auth error page detected on server', server);
 
-  chrome.storage.local.get(
-    ['afo_reconnect_target', 'gieniobot_state_s' + server],
-    (result) => {
-      let charId = null;
+  // The redirect must ALWAYS happen, even if chrome.storage hangs or fails —
+  // otherwise we get stuck on the auth error page forever. Save target best-effort,
+  // but guarantee the redirect via a single-shot guard + timeout fallback.
+  let _redirected = false;
+  const _goMain = () => {
+    if (_redirected) return;
+    _redirected = true;
+    console.log('[Gieniobot] Redirecting to main page for re-login...');
+    window.location.href = 'https://kosmiczni.pl/';
+  };
+  // Hard fallback: never wait more than 1.5s on storage
+  setTimeout(_goMain, 1500);
 
-      // From existing target (if disconnect monitor saved it before redirect)
-      const existingTarget = result['afo_reconnect_target'];
-      if (existingTarget && existingTarget.charId) {
-        charId = existingTarget.charId;
-      }
+  try {
+    chrome.storage.local.get(
+      ['afo_reconnect_target', 'gieniobot_state_s' + server],
+      (result) => {
+        try {
+          let charId = null;
 
-      // From saved state (fallback - state key is per-server, contains charId inside)
-      if (!charId) {
-        const state = result['gieniobot_state_s' + server];
-        if (state && state.charId) {
-          charId = state.charId;
+          // From existing target (if disconnect monitor saved it before redirect)
+          const existingTarget = result && result['afo_reconnect_target'];
+          if (existingTarget && existingTarget.charId) {
+            charId = existingTarget.charId;
+          }
+
+          // From saved state (fallback - state key is per-server, contains charId inside)
+          if (!charId) {
+            const state = result && result['gieniobot_state_s' + server];
+            if (state && state.charId) {
+              charId = state.charId;
+            }
+          }
+
+          chrome.storage.local.set({
+            'afo_reconnect_target': {
+              server: server,
+              charId: charId,
+              savedAt: Date.now()
+            }
+          }, () => {
+            console.log('[Gieniobot] Reconnect target saved (server:', server, 'char:', charId, ')');
+            _goMain();
+          });
+        } catch (e) {
+          _goMain();
         }
       }
-
-      chrome.storage.local.set({
-        'afo_reconnect_target': {
-          server: server,
-          charId: charId,
-          savedAt: Date.now()
-        }
-      }, () => {
-        console.log('[Gieniobot] Reconnect target saved (server:', server, 'char:', charId, '), redirecting to main page...');
-        window.location.href = 'https://kosmiczni.pl/';
-      });
-    }
-  );
+    );
+  } catch (e) {
+    _goMain();
+  }
 } else {
   // Normal flow: inject the main loader
   injectCode(chrome.runtime.getURL('/content_script1.js'));

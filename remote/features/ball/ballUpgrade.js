@@ -110,21 +110,24 @@
 
     window.BALL_UPGRADE = BALL_UPGRADE;
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_UPGRADE._showCheckboxes();
-        BALL_UPGRADE._showButton();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
-        BALL_UPGRADE._hideCheckboxes();
-        BALL_UPGRADE._hideButton();
-    });
-    $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
-        if (BALL_UPGRADE.isRunning) {
-            BALL_UPGRADE.stop();
-        } else {
-            BALL_UPGRADE.run();
-        }
-    });
+    // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+    if (typeof $ !== 'undefined') {
+        // UI event handlers
+        $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+            BALL_UPGRADE._showCheckboxes();
+            BALL_UPGRADE._showButton();
+        });
+        $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+            if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
+            BALL_UPGRADE._hideCheckboxes();
+            BALL_UPGRADE._hideButton();
+        });
+        $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
+            if (BALL_UPGRADE.isRunning) {
+                BALL_UPGRADE.stop();
+            } else {
+                BALL_UPGRADE.run();
+            }
+        });
+    }
 })();

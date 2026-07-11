@@ -90,15 +90,13 @@ const AFO_RECONNECT = {
     console.log('[AFO_RECONNECT] Starting...');
 
     try {
-      // Any non-root path on server domain = error page (auth, expired session, etc.)
-      // Always redirect to main page to restart login flow
-      if (this.isServerPage && window.location.pathname !== '/') {
-        console.log('[AFO_RECONNECT] Non-game page detected on server:', window.location.pathname, '- redirecting to main page...');
+      // Auth/session-error page detection. The game may serve this either at a
+      // non-root path (e.g. /auth?sid=) OR at '/' with only an error message.
+      // Detect by BOTH pathname and DOM content so we never get stuck here.
+      if (this.isServerPage && (window.location.pathname !== '/' || this.isAuthErrorPage())) {
+        console.log('[AFO_RECONNECT] Non-game/auth-error page detected on server (path:', window.location.pathname, ', authError:', this.isAuthErrorPage(), ') - recovering...');
         if (!this.targetServer) this.targetServer = this.currentServer;
-        // Brief delay to avoid rapid-fire redirects if server is still restarting
-        await this.sleep(3000);
-        await this.saveReconnectTarget();
-        window.location.href = 'https://kosmiczni.pl/';
+        await this.recoverFromAuthError();
         return;
       }
 
@@ -226,11 +224,24 @@ const AFO_RECONNECT = {
       // Retry server select detection
       const MAX_SERVER_ATTEMPTS = 8;
       for (let i = 0; i < MAX_SERVER_ATTEMPTS; i++) {
-        if (this.needsServerSelect() && this.targetServer) {
-          console.log('[AFO_RECONNECT] Selecting server', this.targetServer);
-          await this.selectServer(this.targetServer);
-          // After server select, page will redirect to server page
-          return;
+        if (this.needsServerSelect()) {
+          // Wrong-account guard: the shared-IP glitch sometimes auto-logs a DIFFERENT
+          // account. If the shown login (#logged_login) mismatches our credentials,
+          // log out and re-login as the correct account before selecting a server.
+          const loggedLogin = (document.getElementById('logged_login')?.innerText || '').trim();
+          if (loggedLogin && creds.login && loggedLogin.toLowerCase() !== creds.login.toLowerCase()) {
+            console.warn('[AFO_RECONNECT] Wrong account on server-select: logged="' + loggedLogin + '" expected="' + creds.login + '"');
+            await this.handleWrongAccount(creds);
+            continue; // re-evaluate fresh (login/server-select for the correct account)
+          }
+
+          if (this.targetServer) {
+            console.log('[AFO_RECONNECT] Server-select ready (logged="' + loggedLogin + '"). Selecting server', this.targetServer);
+            await this.selectServer(this.targetServer);
+            // After server select, page will redirect to server page
+            return;
+          }
+          console.warn('[AFO_RECONNECT] Server-select ready but no targetServer known - waiting...');
         }
 
         // Check if we've already been redirected (no longer on main page)
@@ -239,7 +250,7 @@ const AFO_RECONNECT = {
           return;
         }
 
-        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ')...');
+        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ', targetServer=' + this.targetServer + ')...');
         await this.sleep(2000);
       }
 
@@ -278,6 +289,14 @@ const AFO_RECONNECT = {
     // Start disconnect monitor immediately (always, regardless of reconnect mode)
     this.startDisconnectMonitor();
 
+    // FAST PATH: auth/session-error page (detected by content) — recover instantly
+    // instead of waiting 30s for a GAME that will never load.
+    if (this.isAuthErrorPage()) {
+      console.log('[AFO_RECONNECT] Auth/error page detected by content in handleServerPage — recovering...');
+      await this.recoverFromAuthError();
+      return;
+    }
+
     // Wait for GAME to be available (longer timeout for mobile)
     const waitStart = Date.now();
     const gameReady = await this.waitForGame(30000);
@@ -290,10 +309,8 @@ const AFO_RECONNECT = {
 
       if (!hasGameStructure) {
         // Not the game page - likely auth error or session expired page
-        // Redirect to main page to trigger auto-login flow
-        console.log('[AFO_RECONNECT] Auth/error page detected (no #game_win). Redirecting to main page for re-login...');
-        await this.saveReconnectTarget();
-        window.location.href = 'https://kosmiczni.pl/';
+        console.log('[AFO_RECONNECT] No #game_win after 30s - treating as auth/error page. Recovering...');
+        await this.recoverFromAuthError();
         return;
       }
 
@@ -386,7 +403,9 @@ const AFO_RECONNECT = {
 
     // Check if fully logged in
     if (this.isFullyLoggedIn()) {
-      console.log('[AFO_RECONNECT] Already logged in');
+      console.log('[AFO_RECONNECT] Already logged in (char_id:', GAME.char_id, 'server:', GAME.server, 'login:', GAME.login, ')');
+      // Confirmed logged in → reset the auth-error loop guard
+      this.clearReconnectAttempts();
       if (this.savedStateToRestore && this.isReconnecting) {
         // Validate server/char match before restoring
         if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
@@ -570,20 +589,24 @@ const AFO_RECONNECT = {
     const serverSelect = document.getElementById('server_choose');
     const loginButton = document.getElementById('cg_login_button2');
 
-    if (!serverSelect) {
-      console.log('[AFO_RECONNECT] Server select not found');
-      return;
+    if (serverSelect) {
+      serverSelect.value = server.toString();
+      serverSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log('[AFO_RECONNECT] Selected server', server, ', submitting...');
+      await this.sleep(this.TIMING.SERVER_SELECT_WAIT);
+      if (loginButton) loginButton.click();
+      // Give the click a moment to trigger navigation
+      await this.sleep(2500);
+    } else {
+      console.log('[AFO_RECONNECT] Server select not found - will try direct navigation');
     }
 
-    serverSelect.value = server.toString();
-    serverSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-    console.log('[AFO_RECONNECT] Selected server', server, ', submitting...');
-
-    await this.sleep(this.TIMING.SERVER_SELECT_WAIT);
-
-    if (loginButton) {
-      loginButton.click();
+    // Robust fallback: if we're still on the main page (click didn't navigate — common
+    // on mobile/touch), navigate directly the same way the game does on server select
+    // (bigcode.html: window.location.href = GAME.main_page + '/login/' + server).
+    if (window.location.hostname === 'kosmiczni.pl' || window.location.hostname === 'www.kosmiczni.pl') {
+      console.log('[AFO_RECONNECT] Still on main page — navigating directly to /login/' + server);
+      window.location.href = 'https://kosmiczni.pl/login/' + server;
     }
   },
 
@@ -648,6 +671,124 @@ const AFO_RECONNECT = {
   isFullyLoggedIn() {
     if (typeof GAME === 'undefined') return false;
     return GAME.pid > 0 && GAME.char_id > 0 && GAME.char_data;
+  },
+
+  /**
+   * Detect the server-side auth/session-expired error page by CONTENT (not just URL).
+   * After a server restart the game sometimes serves this page even at pathname '/'
+   * (see auth.html): <div class="kom"><div class="content">Uwierzytelnienie sesji nie
+   * powiodło się lub sesja wygasła!</div><a class="newBtn" href="https://kosmiczni.pl">
+   * Strona Głowna</a></div>. It has NO #game_win, no jQuery and no GAME.
+   */
+  isAuthErrorPage() {
+    try {
+      // Real game page always has #game_win in its static HTML → never an error page
+      if (document.getElementById('game_win')) return false;
+
+      const kom = document.querySelector('div.kom .content');
+      if (kom) {
+        const t = (kom.innerText || kom.textContent || '').toLowerCase();
+        if (t.includes('uwierzytelnienie') || t.includes('sesja wygas') ||
+            t.includes('sesji nie') || t.includes('nie powiod')) {
+          return true;
+        }
+      }
+
+      // Fallback: the "Strona Głowna" recovery link back to the main page
+      const btn = document.querySelector('a.newBtn[href*="kosmiczni.pl"]');
+      if (btn) return true;
+    } catch (e) {
+      // DOM not ready / access error — treat as not-an-error-page
+    }
+    return false;
+  },
+
+  /**
+   * Recover from an auth/session-error page: register the attempt (loop guard),
+   * back off progressively if we're bouncing, then redirect to the main page to
+   * restart the login flow. Always redirects even if storage fails.
+   */
+  async recoverFromAuthError() {
+    if (this._recovering) return;
+    this._recovering = true;
+
+    if (!this.targetServer && this.currentServer) this.targetServer = this.currentServer;
+
+    const backoff = await this.registerReconnectAttempt();
+    if (backoff > 0) {
+      console.warn('[AFO_RECONNECT] ⏳ Reconnect loop detected — backing off ' + Math.round(backoff / 1000) + 's before retry');
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        try { AFO_RECONNECT_UI.showToast('Pętla reconnectu — odczekuję ' + Math.round(backoff / 1000) + 's', 'warning'); } catch (e) { }
+      }
+      await this.sleep(backoff);
+    } else {
+      // Brief settle so the server finishes restarting before we hammer login
+      await this.sleep(2000);
+    }
+
+    await this.saveReconnectTarget();
+    window.location.href = 'https://kosmiczni.pl/';
+  },
+
+  /**
+   * Loop guard for auth-error recovery. Counts attempts in a 5-min window and
+   * returns EXTRA backoff ms once we exceed a small threshold (0 = normal).
+   */
+  async registerReconnectAttempt() {
+    if (typeof AFO_STORAGE === 'undefined') return 0;
+    const KEY = 'afo_reconnect_attempts';
+    const WINDOW = 5 * 60 * 1000; // 5 min
+    try {
+      const now = Date.now();
+      const res = await AFO_STORAGE.get(KEY);
+      let rec = res[KEY];
+      if (!rec || (now - (rec.firstAt || 0)) > WINDOW) {
+        rec = { count: 0, firstAt: now };
+      }
+      rec.count++;
+      rec.lastAt = now;
+      await AFO_STORAGE.set({ [KEY]: rec });
+      console.log('[AFO_RECONNECT] Reconnect attempt #' + rec.count + ' in current window');
+      // After 3 quick attempts, back off: 10s, 20s, 40s, 80s ... cap 120s
+      if (rec.count > 3) {
+        return Math.min(120000, 10000 * Math.pow(2, rec.count - 4));
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
+  },
+
+  /** Reset the loop-guard counter after a confirmed successful login. */
+  async clearReconnectAttempts() {
+    if (typeof AFO_STORAGE === 'undefined') return;
+    try { await AFO_STORAGE.remove('afo_reconnect_attempts'); } catch (e) { }
+  },
+
+  /**
+   * Wrong-account guard (game glitch): on shared IP the server sometimes auto-logs
+   * a DIFFERENT account. If the login shown on the server-select screen (#logged_login)
+   * doesn't match our saved credentials, log out, wait, and log back in correctly.
+   * Returns true if a re-login was performed.
+   */
+  async handleWrongAccount(creds) {
+    const logoutBtn = document.getElementById('logout');
+    console.warn('[AFO_RECONNECT] 🔁 Wrong account detected — logging out and re-logging as', creds.login);
+    if (logoutBtn) logoutBtn.click();
+    await this.sleep(2500);
+
+    // Login form should reappear after logout
+    for (let i = 0; i < 8; i++) {
+      if (this.needsCredentialsLogin()) {
+        console.log('[AFO_RECONNECT] Re-filling correct credentials (attempt ' + (i + 1) + ')...');
+        await this.fillCredentials(creds);
+        await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
+        return true;
+      }
+      await this.sleep(1000);
+    }
+    console.warn('[AFO_RECONNECT] Login form did not reappear after logout');
+    return false;
   },
 
   // ============================================
@@ -775,10 +916,18 @@ const AFO_RECONNECT = {
       return;
     }
 
-    // Validate server/char match
+    // Must be fully logged in with a real character before restoring (char_id > 0)
+    if (!this.isFullyLoggedIn() || !(GAME.char_id > 0)) {
+      console.warn('[AFO_RECONNECT] Not fully logged in (char_id > 0 required) - aborting restore. char_id:', typeof GAME !== 'undefined' ? GAME.char_id : 'GAME undefined');
+      this.savedStateToRestore = null;
+      return;
+    }
+
+    // Validate server/char/account match
     if (typeof GAME !== 'undefined') {
       const stateServer = this.savedStateToRestore.server;
       const stateChar = this.savedStateToRestore.charId;
+      const stateLogin = this.savedStateToRestore.login;
 
       if (stateServer && GAME.server && stateServer != GAME.server) {
         console.warn('[AFO_RECONNECT] Server mismatch! State:', stateServer, 'Current:', GAME.server, '- aborting restore');
@@ -791,7 +940,17 @@ const AFO_RECONNECT = {
         this.savedStateToRestore = null;
         return;
       }
+
+      // Account cross-check (wrong-account glitch): never restore onto a different account
+      if (stateLogin && GAME.login && String(stateLogin).toLowerCase() !== String(GAME.login).toLowerCase()) {
+        console.warn('[AFO_RECONNECT] Account mismatch! State login:', stateLogin, 'Current:', GAME.login, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
     }
+
+    // We're confirmed logged in on the correct account/char → clear the loop guard
+    this.clearReconnectAttempts();
 
     console.log('[AFO_RECONNECT] Waiting for scripts to load...');
     await this.sleep(this.TIMING.SCRIPTS_LOAD_WAIT);

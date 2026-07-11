@@ -1730,7 +1730,8 @@ class chestOpener {
 }
 
 // Initialize chest opener
-new chestOpener();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new chestOpener();
 
 class itemUpgrader {
   constructor() {
@@ -2377,7 +2378,8 @@ class itemUpgrader {
 }
 
 // Initialize item upgrader
-new itemUpgrader();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new itemUpgrader();
 
 class cardPackOpener {
   static CARD_PACK_IDS = [1784, 2235, 2083];
@@ -3016,4 +3018,5 @@ class cardPackOpener {
 }
 
 // Initialize card pack opener
-new cardPackOpener();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new cardPackOpener();

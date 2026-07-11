@@ -66,28 +66,31 @@
 
     window.BALL_EXP = BALL_EXP;
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_EXP._showButtons();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_EXP.isRunning) BALL_EXP.stop();
-        BALL_EXP._hideButtons();
-    });
-    $('body').on('click', '#ss_lvlup_next', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = false;
-            BALL_EXP.run();
-        }
-    });
-    $('body').on('click', '#ss_lvlup_nonstop', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = true;
-            BALL_EXP.run();
-        }
-    });
+    // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+    if (typeof $ !== 'undefined') {
+        // UI event handlers
+        $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+            BALL_EXP._showButtons();
+        });
+        $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+            if (BALL_EXP.isRunning) BALL_EXP.stop();
+            BALL_EXP._hideButtons();
+        });
+        $('body').on('click', '#ss_lvlup_next', () => {
+            if (BALL_EXP.isRunning) {
+                BALL_EXP.stop();
+            } else {
+                BALL_EXP.nonStop = false;
+                BALL_EXP.run();
+            }
+        });
+        $('body').on('click', '#ss_lvlup_nonstop', () => {
+            if (BALL_EXP.isRunning) {
+                BALL_EXP.stop();
+            } else {
+                BALL_EXP.nonStop = true;
+                BALL_EXP.run();
+            }
+        });
+    }
 })();
