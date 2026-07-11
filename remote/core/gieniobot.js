@@ -69,7 +69,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.5.0';
+  var version = '2.6.0';
 
   // ============================================
   // SOCKET DETECTION

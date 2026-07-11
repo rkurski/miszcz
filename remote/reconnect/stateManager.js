@@ -83,6 +83,18 @@ const AFO_STATE_MANAGER = {
   // ============================================
 
   /**
+   * Was a module actually turned ON by the user (Start pressed)?
+   * ON == its stop flag is strictly false. LPVM uses 'Stop', others use 'stop'.
+   * Used to decide whether a module's config is worth persisting.
+   */
+  _wasModuleActive(moduleName, moduleObj) {
+    const obj = moduleObj || window[moduleName];
+    if (!obj) return false;
+    const stopProp = (moduleName === 'LPVM') ? 'Stop' : 'stop';
+    return obj[stopProp] === false;
+  },
+
+  /**
    * Serialize current state of all modules
    * Returns object with all module states
    */
@@ -91,14 +103,21 @@ const AFO_STATE_MANAGER = {
       savedAt: Date.now(),
       server: typeof GAME !== 'undefined' ? GAME.server : null,
       charId: typeof GAME !== 'undefined' ? GAME.char_id : null,
+      // Account login — cross-check on restore so we never restore onto a wrong
+      // account (shared-IP auto-login glitch). See reconnect.js restoreState().
+      login: typeof GAME !== 'undefined' ? GAME.login : null,
       modules: {},
       extra: {}
     };
 
-    // Serialize each module
+    // Serialize each module — but ONLY those actually turned ON (user pressed Start).
+    // Rationale: if a user configures flags (buffs/senzu) in e.g. PVM but never starts
+    // it, we must NOT persist those flags, otherwise they "leak" and fire on the next
+    // manual start after a restore. Always-save automations (arena/expeditions/assists/
+    // kukla) are handled in the dedicated blocks below, independent of this loop.
     for (const [moduleName, properties] of Object.entries(this.MODULES)) {
       const moduleObj = window[moduleName];
-      if (moduleObj) {
+      if (moduleObj && this._wasModuleActive(moduleName, moduleObj)) {
         state.modules[moduleName] = {};
         for (const prop of properties) {
           if (prop in moduleObj) {

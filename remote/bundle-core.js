@@ -86,6 +86,4092 @@ function getCharacters() {
 var kwsLocalCharacters = undefined;
 getCharacters();
 
+// ========== remote/reconnect/storage.js ==========
+/**
+ * ============================================================================
+ * AFO - Storage Bridge
+ * ============================================================================
+ * 
+ * Provides chrome.storage.local access from page context via custom events.
+ * Content script (content_script.js) handles the actual storage operations.
+ * 
+ * ============================================================================
+ */
+
+const AFO_STORAGE = {
+  // Request ID counter for matching responses
+  _requestId: 0,
+
+  // Pending requests waiting for response
+  _pending: new Map(),
+
+  // Initialize listener for responses
+  _initialized: false,
+
+  /**
+   * Initialize the response listener
+   */
+  init() {
+    if (this._initialized) return;
+
+    window.addEventListener('__GIENIOBOT_STORAGE_RESULT__', (event) => {
+      const { requestId, success, data, error } = event.detail;
+      const pending = this._pending.get(requestId);
+
+      if (pending) {
+        this._pending.delete(requestId);
+        if (success) {
+          pending.resolve(data);
+        } else {
+          pending.reject(new Error(error || 'Storage operation failed'));
+        }
+      }
+    });
+
+    this._initialized = true;
+    console.log('[AFO_STORAGE] Bridge initialized');
+  },
+
+  /**
+   * Generate unique request ID
+   */
+  _nextRequestId() {
+    return `req_${++this._requestId}_${Date.now()}`;
+  },
+
+  /**
+   * Send request and wait for response
+   */
+  _request(eventName, detail, timeout = 10000) {
+    this.init(); // Ensure initialized
+
+    const requestId = this._nextRequestId();
+
+    return new Promise((resolve, reject) => {
+      // Set timeout
+      const timer = setTimeout(() => {
+        this._pending.delete(requestId);
+        reject(new Error('Storage request timeout'));
+      }, timeout);
+
+      // Store pending request
+      this._pending.set(requestId, {
+        resolve: (data) => {
+          clearTimeout(timer);
+          resolve(data);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+
+      // Dispatch request event
+      window.dispatchEvent(new CustomEvent(eventName, {
+        detail: { requestId, ...detail }
+      }));
+    });
+  },
+
+  // ============================================
+  // PUBLIC API (mirrors chrome.storage.local)
+  // ============================================
+
+  /**
+   * Get data from storage
+   * @param {string|string[]|null} keys - Keys to get, or null for all
+   * @returns {Promise<Object>} - Storage data
+   */
+  async get(keys) {
+    const result = await this._request('__GIENIOBOT_STORAGE_GET__', { keys });
+    return result || {};
+  },
+
+  /**
+   * Set data in storage
+   * @param {Object} data - Key-value pairs to set
+   * @returns {Promise<void>}
+   */
+  async set(data) {
+    await this._request('__GIENIOBOT_STORAGE_SET__', { data });
+  },
+
+  /**
+   * Remove keys from storage
+   * @param {string|string[]} keys - Keys to remove
+   * @returns {Promise<void>}
+   */
+  async remove(keys) {
+    await this._request('__GIENIOBOT_STORAGE_REMOVE__', { keys });
+  }
+};
+
+// Auto-initialize
+AFO_STORAGE.init();
+
+// Export
+window.AFO_STORAGE = AFO_STORAGE;
+console.log('[AFO] Storage bridge module loaded');
+
+
+// ========== remote/reconnect/credentials.js ==========
+/**
+ * ============================================================================
+ * AFO - Credentials Manager
+ * ============================================================================
+ *
+ * Manages user login credentials with simple base64 obfuscation.
+ * Credentials are global (one per account) - stored via AFO_STORAGE bridge.
+ *
+ * ============================================================================
+ */
+
+const AFO_CREDENTIALS = {
+  // Storage key - single global key for the account
+  STORAGE_KEY: 'gieniobot_creds',
+
+  // Legacy prefix for cleanup
+  LEGACY_PREFIX: 'gieniobot_creds_',
+
+  // ============================================
+  // ENCODING/DECODING (base64 + reverse)
+  // ============================================
+
+  /**
+   * Simple obfuscation: reverse string + base64
+   */
+  encode(str) {
+    if (!str) return '';
+    try {
+      // Reverse the string and encode to base64
+      const reversed = str.split('').reverse().join('');
+      return btoa(unescape(encodeURIComponent(reversed)));
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Encode error:', e);
+      return '';
+    }
+  },
+
+  /**
+   * Decode: base64 decode + reverse
+   */
+  decode(str) {
+    if (!str) return '';
+    try {
+      // Decode from base64 and reverse
+      const decoded = decodeURIComponent(escape(atob(str)));
+      return decoded.split('').reverse().join('');
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Decode error:', e);
+      return '';
+    }
+  },
+
+  // ============================================
+  // SAVE / LOAD / DELETE
+  // ============================================
+
+  /**
+   * Save credentials (global, one per account)
+   */
+  async save(login, password) {
+    const data = {
+      login: this.encode(login),
+      password: this.encode(password),
+      savedAt: Date.now()
+    };
+
+    try {
+      await AFO_STORAGE.set({ [this.STORAGE_KEY]: data });
+      console.log('[AFO_CREDENTIALS] Saved credentials');
+      return true;
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Save error:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Get saved credentials
+   */
+  async get() {
+    try {
+      const result = await AFO_STORAGE.get(this.STORAGE_KEY);
+      if (result[this.STORAGE_KEY]) {
+        return {
+          login: this.decode(result[this.STORAGE_KEY].login),
+          password: this.decode(result[this.STORAGE_KEY].password),
+          savedAt: result[this.STORAGE_KEY].savedAt
+        };
+      }
+
+      // Try legacy format migration
+      return await this._tryLegacyMigration();
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Get error:', e);
+      return null;
+    }
+  },
+
+  /**
+   * Check if credentials exist
+   */
+  async exists() {
+    const creds = await this.get();
+    return creds !== null && creds.login && creds.password;
+  },
+
+  /**
+   * Clear credentials
+   */
+  async clear() {
+    try {
+      await AFO_STORAGE.remove(this.STORAGE_KEY);
+      console.log('[AFO_CREDENTIALS] Cleared credentials');
+      return true;
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Clear error:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Migrate from legacy per-server+char format if exists
+   */
+  async _tryLegacyMigration() {
+    try {
+      const result = await AFO_STORAGE.get(null);
+      for (const key in result) {
+        if (key.startsWith(this.LEGACY_PREFIX) && result[key].login) {
+          console.log('[AFO_CREDENTIALS] Migrating legacy credentials from', key);
+          const login = this.decode(result[key].login);
+          const password = this.decode(result[key].password);
+          if (login && password) {
+            await this.save(login, password);
+            // Clean up legacy key
+            await AFO_STORAGE.remove(key);
+            return { login, password, savedAt: result[key].savedAt };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[AFO_CREDENTIALS] Legacy migration error:', e);
+    }
+    return null;
+  }
+};
+
+// Export
+window.AFO_CREDENTIALS = AFO_CREDENTIALS;
+console.log('[AFO] Credentials module loaded');
+
+
+// ========== remote/reconnect/stateManager.js ==========
+/**
+ * ============================================================================
+ * AFO - State Manager
+ * ============================================================================
+ * 
+ * Manages serialization and deserialization of all AFO module states.
+ * Saves/loads state per server + character via AFO_STORAGE bridge.
+ * 
+ * ============================================================================
+ */
+
+const AFO_STATE_MANAGER = {
+  // Storage key prefix
+  KEY_PREFIX: 'gieniobot_state_',
+
+  // ============================================
+  // MODULE DEFINITIONS
+  // ============================================
+
+  /**
+   * Defines which properties to save for each module.
+   * Only non-transient, user-configurable properties.
+   */
+  MODULES: {
+    // PVM (Respawn)
+    RESP: [
+      'stop', 'wait', 'loc', 'code', 'kontoTP', 'codeTP',
+      'bless', 'checkSSJ', 'checkOST', 'jaka', 'zmiana', 'multifight',
+      'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10',
+      'b11', 'b12', 'b13', 'b14', 'b15', 'b16', 'b17', 'b18',
+      'buff_imp', 'buff_clan', 'CONF_SENZU'
+    ],
+
+    // PVP
+    PVP: [
+      'stop', 'wait', 'wait2', 'loc', 'x', 'y', 'startX', 'startY',
+      'code', 'autoWars', 'autoClanWars', 'g', 'speed', 'speedMultiplier',
+      'higherRebornAvoid', 'dogory', 'tele', 'kontoTP', 'codeTP',
+      'buff_imp', 'buff_clan'
+    ],
+
+    // LPVM (Listy gończe)
+    LPVM: [
+      'Stop', 'Born', 'limit', 'limit2', 'wait', 'Map', 'pvm_killed'
+    ],
+
+    // GLEBIA (Głębia)
+    GLEBIA: [
+      'stop', 'code', 'kontoTP', 'speed', 'rajskaSala', 'higherRebornAvoid'
+    ],
+
+    // CODE (Kody/Trening)
+    CODE: [
+      'stop', 'what_to_train', 'what_to_traintime', 'acc', 'zast',
+      'b1', 'b2', 'checkSSJ'
+    ],
+
+    // DAILY (Daily quests)
+    DAILY: [
+      'stop', 'enabledQuests', 'combatLoc', 'substance', 'useCompressor'
+    ],
+
+    // RES (Resources/Mining) - optional
+    RES: [
+      'stop', 'loc', 'speed', 'mined_id', 'buff_speed', 'buff_chance'
+    ]
+  },
+
+  // ============================================
+  // STORAGE KEY
+  // ============================================
+
+  /**
+   * Generate storage key for server (one state per server)
+   * charId parameter kept for backward compatibility but ignored in key
+   */
+  getKey(server, charId) {
+    return `${this.KEY_PREFIX}s${server}`;
+  },
+
+  // ============================================
+  // SERIALIZE / DESERIALIZE
+  // ============================================
+
+  /**
+   * Was a module actually turned ON by the user (Start pressed)?
+   * ON == its stop flag is strictly false. LPVM uses 'Stop', others use 'stop'.
+   * Used to decide whether a module's config is worth persisting.
+   */
+  _wasModuleActive(moduleName, moduleObj) {
+    const obj = moduleObj || window[moduleName];
+    if (!obj) return false;
+    const stopProp = (moduleName === 'LPVM') ? 'Stop' : 'stop';
+    return obj[stopProp] === false;
+  },
+
+  /**
+   * Serialize current state of all modules
+   * Returns object with all module states
+   */
+  serialize() {
+    const state = {
+      savedAt: Date.now(),
+      server: typeof GAME !== 'undefined' ? GAME.server : null,
+      charId: typeof GAME !== 'undefined' ? GAME.char_id : null,
+      // Account login — cross-check on restore so we never restore onto a wrong
+      // account (shared-IP auto-login glitch). See reconnect.js restoreState().
+      login: typeof GAME !== 'undefined' ? GAME.login : null,
+      modules: {},
+      extra: {}
+    };
+
+    // Serialize each module — but ONLY those actually turned ON (user pressed Start).
+    // Rationale: if a user configures flags (buffs/senzu) in e.g. PVM but never starts
+    // it, we must NOT persist those flags, otherwise they "leak" and fire on the next
+    // manual start after a restore. Always-save automations (arena/expeditions/assists/
+    // kukla) are handled in the dedicated blocks below, independent of this loop.
+    for (const [moduleName, properties] of Object.entries(this.MODULES)) {
+      const moduleObj = window[moduleName];
+      if (moduleObj && this._wasModuleActive(moduleName, moduleObj)) {
+        state.modules[moduleName] = {};
+        for (const prop of properties) {
+          if (prop in moduleObj) {
+            // Deep clone arrays and objects
+            const value = moduleObj[prop];
+            if (Array.isArray(value)) {
+              state.modules[moduleName][prop] = [...value];
+            } else if (typeof value === 'object' && value !== null) {
+              state.modules[moduleName][prop] = JSON.parse(JSON.stringify(value));
+            } else {
+              state.modules[moduleName][prop] = value;
+            }
+          }
+        }
+      }
+    }
+
+    // Save extra GAME data
+    if (typeof GAME !== 'undefined') {
+      // spawnerIgnore - important for PVM
+      if (GAME.spawner && GAME.spawner[1]) {
+        state.extra.spawnerIgnore = [...GAME.spawner[1]];
+      }
+      // usePaToSpawn - PA limit for spawner
+      if (GAME.spawner && GAME.spawner[0] !== undefined) {
+        state.extra.usePaToSpawn = GAME.spawner[0];
+      } else {
+        // Fallback: try reading from input
+        const paInput = $('#kws_pa_max').val();
+        if (paInput) {
+          state.extra.usePaToSpawn = parseInt(paInput, 10) || 1000;
+        }
+      }
+    }
+
+    // Save kws automation states (arena, expeditions, abyss)
+    if (typeof kws !== 'undefined') {
+      state.kws = {
+        auto_arena: kws.auto_arena || false,
+        autoExpeditions: kws.autoExpeditions || false,
+        auto_abyss: kws.auto_abyss || false,
+        // Settings for expeditions
+        aeCodes: kws.settings?.aeCodes || false
+      };
+    }
+
+    // Save Kukla Guardian state (Strażnik Kukli)
+    if (typeof KUKLA_GUARDIAN !== 'undefined') {
+      state.kuklaGuardian = {
+        enabled: KUKLA_GUARDIAN.enabled || false
+      };
+    }
+
+    // Save Clan Assist state (Automatyczne Asysty)
+    if (typeof CLAN_ASSIST !== 'undefined') {
+      state.clanAssist = {
+        enabled: CLAN_ASSIST.enabled !== false
+      };
+    }
+
+    // Save activities state if available
+    if (window.AFO_ACTIVITIES_STATE) {
+      state.activities = {
+        enabled: window.AFO_ACTIVITIES_STATE.enabled || false,
+        selectedActivities: window.AFO_ACTIVITIES_STATE.selectedActivities || [],
+        substance: window.AFO_ACTIVITIES_STATE.substance || 'x3'
+      };
+    }
+
+    return state;
+  },
+
+  /**
+   * Deserialize and apply state to modules
+   * @param {Object} state - State object from serialize()
+   * @param {boolean} startModules - Whether to start active modules after restore
+   */
+  deserialize(state, startModules = false) {
+    if (!state || !state.modules) {
+      console.warn('[AFO_STATE_MANAGER] Invalid state object');
+      return false;
+    }
+
+    console.log('[AFO_STATE_MANAGER] Deserialize called, startModules:', startModules);
+
+    // If starting modules, we need to defer the actual restore until AFO is loaded
+    // because AFO creates fresh module objects that would overwrite our restored values
+    if (startModules) {
+      console.log('[AFO_STATE_MANAGER] Deferring restore until AFO is loaded...');
+      this._pendingState = state;
+      this.startActiveModules(state);
+      return true;
+    }
+
+    // Otherwise restore immediately (for manual restore when AFO is already loaded)
+    return this._doRestore(state);
+  },
+
+  /**
+   * Internal: Actually restore state to module objects
+   * Called after AFO is loaded
+   */
+  _doRestore(state) {
+    console.log('[AFO_STATE_MANAGER] Restoring state from', new Date(state.savedAt).toLocaleTimeString());
+
+    // Log what we're restoring for debugging
+    if (state.modules.PVP) {
+      console.log('[AFO_STATE_MANAGER] PVP state to restore:', {
+        stop: state.modules.PVP.stop,
+        code: state.modules.PVP.code,
+        kontoTP: state.modules.PVP.kontoTP,
+        speed: state.modules.PVP.speed,
+        speedMultiplier: state.modules.PVP.speedMultiplier
+      });
+    }
+
+    // Restore each module
+    for (const [moduleName, moduleState] of Object.entries(state.modules)) {
+      const moduleObj = window[moduleName];
+      if (moduleObj && this.MODULES[moduleName]) {
+        console.log(`[AFO_STATE_MANAGER] Restoring ${moduleName}...`);
+
+        for (const [prop, value] of Object.entries(moduleState)) {
+          // Only restore properties we know about
+          if (this.MODULES[moduleName].includes(prop)) {
+            // Deep clone arrays and objects
+            if (Array.isArray(value)) {
+              moduleObj[prop] = [...value];
+            } else if (typeof value === 'object' && value !== null) {
+              moduleObj[prop] = JSON.parse(JSON.stringify(value));
+            } else {
+              moduleObj[prop] = value;
+            }
+          }
+        }
+      }
+    }
+
+    // Restore extra GAME data
+    if (state.extra && typeof GAME !== 'undefined') {
+      if (state.extra.spawnerIgnore && GAME.spawner) {
+        GAME.spawner[1] = [...state.extra.spawnerIgnore];
+      }
+      // Restore usePaToSpawn
+      if (state.extra.usePaToSpawn !== undefined) {
+        if (GAME.spawner) {
+          GAME.spawner[0] = state.extra.usePaToSpawn;
+        }
+        $('#kws_pa_max').val(state.extra.usePaToSpawn);
+        console.log('[AFO_STATE_MANAGER] usePaToSpawn restored:', state.extra.usePaToSpawn);
+      }
+    }
+
+    // Restore activities state
+    if (state.activities && window.AFO_ACTIVITIES_STATE) {
+      window.AFO_ACTIVITIES_STATE.enabled = state.activities.enabled;
+      window.AFO_ACTIVITIES_STATE.selectedActivities = state.activities.selectedActivities || [];
+      window.AFO_ACTIVITIES_STATE.substance = state.activities.substance || 'x3';
+    }
+
+    return true;
+  },
+
+  /**
+   * Sync UI elements with restored state
+   * Updates checkboxes, status labels, inputs etc.
+   */
+  syncUI(state) {
+    if (!state || !state.modules) return;
+
+    console.log('[AFO_STATE_MANAGER] Syncing UI with restored state...');
+
+    // Helper: set status span to On/Off with correct class
+    const setStatus = (selector, isOn) => {
+      const el = $(selector);
+      if (el.length) {
+        el.removeClass('red green').addClass(isOn ? 'green' : 'red').html(isOn ? 'On' : 'Off');
+      }
+    };
+
+    // Helper: set status span to custom text with green class
+    const setStatusText = (selector, text) => {
+      const el = $(selector);
+      if (el.length) {
+        el.removeClass('red').addClass('green').html(text);
+      }
+    };
+
+    // ========================
+    // RESP (PVM) UI
+    // Selectors from: remote/afo/respawn.js:384-550
+    // ========================
+    if (state.modules.RESP) {
+      const resp = state.modules.RESP;
+
+      // Toggle statuses
+      setStatus('.resp_bless .resp_status', resp.bless);
+      setStatus('.resp_code .resp_status', resp.code);
+      setStatus('.resp_konto .resp_status', resp.kontoTP);
+      setStatus('.resp_multi .resp_status', resp.multifight);
+      setStatus('.resp_buff_imp .resp_status', resp.buff_imp);
+      setStatus('.resp_buff_clan .resp_status', resp.buff_clan);
+
+      // .resp_sub controls checkOST (NOT checkSSJ!)
+      // See respawn.js:461-471
+      setStatus('.resp_sub .resp_status', resp.checkOST);
+
+      // .resp_ssj controls checkSSJ (separate toggle)
+      // See respawn.js:491-494
+      setStatus('.resp_ssj .resp_status', resp.checkSSJ);
+
+      // Bless buffs b1-b18: show/hide based on bless state
+      if (resp.bless) {
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).show();
+        $('#resp_Panel .resp_on, #resp_Panel .resp_off').show();
+      } else {
+        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).hide();
+        $('#resp_Panel .resp_on, #resp_Panel .resp_off').hide();
+      }
+
+      // Buff statuses b1-b18 (set regardless of visibility)
+      for (let i = 1; i <= 18; i++) {
+        if (resp[`b${i}`] !== undefined) {
+          setStatus(`.resp_bh${i} .resp_status`, resp[`b${i}`]);
+        }
+      }
+
+      // Code -> konto visibility
+      if (resp.code) {
+        $('#resp_Panel .resp_konto').show();
+      } else {
+        $('#resp_Panel .resp_konto').hide();
+      }
+
+      // checkOST -> .resp_ost visibility; OST/x20 text (not On/Off!)
+      // See respawn.js:474-481 - uses .html("Ost") / .html("x20")
+      if (resp.checkOST) {
+        $('#resp_Panel .resp_ost').show();
+        const jakaText = resp.jaka === 0 ? 'Ost' : 'x20';
+        setStatusText('.resp_ost .resp_status', jakaText);
+      } else {
+        $('#resp_Panel .resp_ost').hide();
+      }
+
+      // Senzu: CONF_SENZU = false (off) or string like 'SENZU_RED'
+      // See respawn.js:496-511
+      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic', 'dark'];
+      if (resp.CONF_SENZU && resp.CONF_SENZU !== false) {
+        const activeType = resp.CONF_SENZU.replace('SENZU_', '').toLowerCase();
+        senzuTypes.forEach(t => {
+          if (t === activeType) {
+            $(`#resp_Panel .resp_${t}`).show();
+            setStatus(`.resp_${t} .resp_status`, true);
+          } else {
+            $(`#resp_Panel .resp_${t}`).hide();
+          }
+        });
+      } else {
+        senzuTypes.forEach(t => {
+          $(`#resp_Panel .resp_${t}`).show();
+          setStatus(`.resp_${t} .resp_status`, false);
+        });
+      }
+    }
+
+    // ========================
+    // PVP UI
+    // Selectors from: remote/afo/pvp.js:486-581
+    // ========================
+    if (state.modules.PVP) {
+      const pvp = state.modules.PVP;
+
+      setStatus('.pvp_Code .pvp_status', pvp.code);
+      setStatus('.pvpCODE_konto .pvp_status', pvp.kontoTP);
+      setStatus('.pvp_WI .pvp_status', pvp.autoWars);
+      setStatus('.pvp_WK .pvp_status', pvp.autoClanWars);
+      setStatus('.pvp_rb_avoid .pvp_status', pvp.higherRebornAvoid);
+      setStatus('.pvp_buff_imp .pvp_status', pvp.buff_imp);
+      setStatus('.pvp_buff_clan .pvp_status', pvp.buff_clan);
+
+      // Code -> konto visibility
+      if (pvp.code) {
+        $('#pvp_Panel .pvpCODE_konto').show();
+      } else {
+        $('#pvp_Panel .pvpCODE_konto').hide();
+      }
+
+      // Speed input
+      if (pvp.speed !== undefined) {
+        $('#pvp_Panel input[name=speed_capt]').val(pvp.speed);
+      }
+    }
+
+    // ========================
+    // CODE UI
+    // Selectors from: remote/afo/codes.js:165-218
+    // Note: bless toggles are .code_bh1, .code_bh2 (NOT .code_b1, .code_b2!)
+    // ========================
+    if (state.modules.CODE) {
+      const code = state.modules.CODE;
+
+      setStatus('.code_acc .code_status', code.acc);
+      setStatus('.code_zast .code_status', code.zast);
+      setStatus('.code_ssj .code_status', code.checkSSJ);
+      setStatus('.code_bh1 .code_status', code.b1);
+      setStatus('.code_bh2 .code_status', code.b2);
+
+      // Training selects
+      if (code.what_to_train !== undefined) {
+        $('#bot_what_to_train').val(code.what_to_train);
+      }
+      if (code.what_to_traintime !== undefined) {
+        $('#bot_what_to_traintime').val(code.what_to_traintime);
+      }
+    }
+
+    // ========================
+    // LPVM UI
+    // Selectors from: remote/afo/pvm.js:237-292
+    // ========================
+    if (state.modules.LPVM) {
+      const lpvm = state.modules.LPVM;
+
+      // Born level buttons: show only selected, hide others
+      // Born values: g=2, u=3, s=4, h=5, m=6
+      const bornMap = { 2: 'g', 3: 'u', 4: 's', 5: 'h', 6: 'm' };
+      const allBornKeys = ['g', 'u', 's', 'h', 'm'];
+
+      if (lpvm.Born !== undefined && bornMap[lpvm.Born]) {
+        const activeKey = bornMap[lpvm.Born];
+        allBornKeys.forEach(k => {
+          if (k === activeKey) {
+            $(`#lpvm_Panel .lpvm_${k}`).show();
+            setStatus(`.lpvm_${k} .lpvm_status`, true);
+          } else {
+            $(`#lpvm_Panel .lpvm_${k}`).hide();
+          }
+        });
+      }
+
+      // Limit toggle
+      if (lpvm.limit !== undefined) {
+        setStatus('.lpvm_limit .lpvm_status', lpvm.limit);
+      }
+
+      // Limit2 value input
+      if (lpvm.limit2 !== undefined) {
+        $('#lpvm_Panel input[name=lpvm_capt]').val(lpvm.limit2);
+      }
+
+      // pvm_killed counter
+      if (lpvm.pvm_killed !== undefined) {
+        $('#lpvm_Panel .pvm_killed b').text(lpvm.pvm_killed);
+        if (typeof LPVM !== 'undefined') {
+          LPVM.pvm_killed = lpvm.pvm_killed;
+        }
+      }
+    }
+
+    // ========================
+    // GLEBIA UI
+    // Selectors from: remote/afo/glebia.js:60-132
+    // Note: main toggle is .glebia_toggle (NOT .glebia_glebia!)
+    // ========================
+    if (state.modules.GLEBIA) {
+      const glebia = state.modules.GLEBIA;
+
+      setStatus('.glebia_code .glebia_status', glebia.code);
+      setStatus('.glebia_konto .glebia_status', glebia.kontoTP);
+      // Rajska Sala defaults to true if missing from older state snapshots.
+      setStatus('.glebia_sala .glebia_status', glebia.rajskaSala !== false);
+      setStatus('.glebia_rb_avoid .glebia_status', glebia.higherRebornAvoid);
+
+      // Code -> konto visibility
+      if (glebia.code) {
+        $('#glebia_Panel .glebia_konto').show();
+      } else {
+        $('#glebia_Panel .glebia_konto').hide();
+      }
+
+      // Speed input
+      if (glebia.speed !== undefined) {
+        $('#glebia_Panel input[name=glebia_speed]').val(glebia.speed);
+      }
+    }
+
+    // ========================
+    // RES (Zbierajka) UI
+    // Selectors from: remote/afo/resources.js:284-300
+    // No UI inputs to sync - speed/loc are set programmatically
+    // ========================
+
+    // ========================
+    // Spawner checkboxes (GAME.spawner[1])
+    // ========================
+    if (state.extra && state.extra.spawnerIgnore && Array.isArray(state.extra.spawnerIgnore) && state.extra.spawnerIgnore.length === 6) {
+      const ignore = state.extra.spawnerIgnore;
+      // Use rank index from value attribute, not DOM position
+      $('.kws_spawner_check').each((_, el) => {
+        const rankIndex = parseInt(el.value, 10);
+        if (rankIndex >= 0 && rankIndex < 6) {
+          $(el).prop('checked', ignore[rankIndex] === 1);
+        }
+      });
+      // Sync GAME.spawner[1] for consistency
+      if (GAME.spawner) {
+        GAME.spawner[1] = [...ignore];
+      }
+    }
+
+    console.log('[AFO_STATE_MANAGER] UI sync complete');
+  },
+
+  /**
+   * Start modules that were active when state was saved
+   */
+  startActiveModules(state) {
+    if (!state || !state.modules) return;
+
+    // First, make sure AFO is loaded
+    this.ensureAFOLoaded(state);
+  },
+
+  /**
+   * Load AFO if not loaded, then start modules
+   */
+  ensureAFOLoaded(state) {
+    console.log('[AFO_STATE_MANAGER] ensureAFOLoaded called');
+
+    // Check if AFO is already loaded
+    if (typeof AFO !== 'undefined' && AFO.loaded) {
+      console.log('[AFO_STATE_MANAGER] AFO already loaded and initialized');
+      this._prepareAndStart(state);
+      return;
+    }
+
+    // Check if AFO exists but not yet fully loaded
+    if (typeof AFO !== 'undefined') {
+      console.log('[AFO_STATE_MANAGER] AFO exists, waiting for .loaded flag...');
+      this._waitForAFOLoaded(state);
+      return;
+    }
+
+    // Check if kws (Gieniobot) has afo_is_loaded flag - means loading is in progress
+    if (typeof kws !== 'undefined' && kws.afo_is_loaded) {
+      console.log('[AFO_STATE_MANAGER] AFO loading in progress (kws.afo_is_loaded), waiting...');
+      this._waitForAFO(state);
+      return;
+    }
+
+    // Need to load AFO first
+    console.log('[AFO_STATE_MANAGER] Loading AFO...');
+    const loadAfoButton = document.querySelector('.qlink.load_afo');
+    if (loadAfoButton) {
+      loadAfoButton.click();
+      this._waitForAFO(state);
+    } else {
+      console.warn('[AFO_STATE_MANAGER] AFO load button not found!');
+      // Try waiting anyway in case AFO loads differently
+      this._waitForAFO(state);
+    }
+  },
+
+  /**
+   * Wait for AFO object to exist
+   */
+  _waitForAFO(state) {
+    console.log('[AFO_STATE_MANAGER] Waiting for AFO object...');
+    let resolved = false;
+    const startTime = Date.now();
+
+    const waitInterval = setInterval(() => {
+      if (resolved) return;
+
+      if (typeof AFO !== 'undefined') {
+        console.log('[AFO_STATE_MANAGER] AFO object found!');
+        resolved = true;
+        clearInterval(waitInterval);
+        this._waitForAFOLoaded(state);
+      } else if (Date.now() - startTime > 30000) {
+        console.warn('[AFO_STATE_MANAGER] Timeout waiting for AFO object (30s)');
+        resolved = true;
+        clearInterval(waitInterval);
+      }
+    }, 500);
+  },
+
+  /**
+   * Wait for AFO.loaded flag (full initialization)
+   */
+  _waitForAFOLoaded(state) {
+    console.log('[AFO_STATE_MANAGER] Waiting for AFO.loaded flag...');
+    let resolved = false;
+    const startTime = Date.now();
+
+    const waitInterval = setInterval(() => {
+      if (resolved) return;
+
+      if (typeof AFO !== 'undefined' && AFO.loaded) {
+        console.log('[AFO_STATE_MANAGER] AFO fully loaded!');
+        resolved = true;
+        clearInterval(waitInterval);
+        // Give a moment for all handlers to bind
+        setTimeout(() => {
+          this._prepareAndStart(state);
+        }, 500);
+      } else if (Date.now() - startTime > 30000) {
+        console.warn('[AFO_STATE_MANAGER] Timeout waiting for AFO.loaded (30s)');
+        resolved = true;
+        clearInterval(waitInterval);
+        // Try anyway
+        this._prepareAndStart(state);
+      }
+    }, 500);
+  },
+
+  /**
+   * Prepare game state and start modules
+   */
+  _prepareAndStart(state) {
+    console.log('[AFO_STATE_MANAGER] Preparing game state...');
+
+    // Switch to map page first (user request)
+    if (typeof GAME !== 'undefined' && GAME.page_switch) {
+      console.log('[AFO_STATE_MANAGER] Switching to game_map...');
+      GAME.page_switch('game_map');
+    }
+
+    // Wait 1s then start modules
+    setTimeout(() => {
+      this.doStartModules(state);
+    }, 1000);
+  },
+
+  /**
+   * Actually start the modules
+   */
+  doStartModules(state) {
+    console.log('[AFO_STATE_MANAGER] ========== doStartModules ==========');
+    console.log('[AFO_STATE_MANAGER] State to restore:', state);
+
+    // Check if panels exist
+    console.log('[AFO_STATE_MANAGER] Checking panels:');
+    console.log('  - #resp_Panel exists:', $('#resp_Panel').length > 0);
+    console.log('  - #pvp_Panel exists:', $('#pvp_Panel').length > 0);
+    console.log('  - #lpvm_Panel exists:', $('#lpvm_Panel').length > 0);
+    console.log('  - #glebia_Panel exists:', $('#glebia_Panel').length > 0);
+    console.log('  - #code_Panel exists:', $('#code_Panel').length > 0);
+
+    // NOW restore state - AFO has created the module objects
+    console.log('[AFO_STATE_MANAGER] Calling _doRestore...');
+    this._doRestore(state);
+
+    // Verify restoration
+    console.log('[AFO_STATE_MANAGER] After restore, checking global objects:');
+    console.log('  - PVP.stop:', typeof PVP !== 'undefined' ? PVP.stop : 'PVP undefined');
+    console.log('  - PVP.code:', typeof PVP !== 'undefined' ? PVP.code : 'PVP undefined');
+    console.log('  - RESP.stop:', typeof RESP !== 'undefined' ? RESP.stop : 'RESP undefined');
+
+    // Sync UI now that both AFO panels exist AND state is restored
+    console.log('[AFO_STATE_MANAGER] Calling syncUI...');
+    this.syncUI(state);
+
+    // Kick off safe start for each AFO module. These are async and wait
+    // (without timeout) for game-ready + handler-bound + module-specific
+    // prerequisites. Healthchecks self-heal if a module fails to start.
+    console.log('[AFO_STATE_MANAGER] Scheduling module starts in 500ms...');
+    setTimeout(() => {
+      console.log('[AFO_STATE_MANAGER] Starting module activation (safe-start, polled wait)...');
+
+      // Order matches old behavior so that competitor stops cascade correctly.
+      // Each call is fire-and-forget; the module-specific click handler stops
+      // its competitors via existing logic in pvp.js / respawn.js / etc.
+      this.startAfoModuleSafely('RESP', state);
+      this.startAfoModuleSafely('PVP', state);
+      this.startAfoModuleSafely('LPVM', state);
+      this.startAfoModuleSafely('GLEBIA', state);
+      this.startAfoModuleSafely('CODE', state);
+      this.startAfoModuleSafely('RES', state);
+
+      // Activities (arena, expeditions, etc.)
+      if (state.activities && state.activities.enabled) {
+        console.log('[AFO_STATE_MANAGER] Starting Activities...');
+        if (window.AFO_ACTIVITIES_STATE) {
+          window.AFO_ACTIVITIES_STATE.shouldAutoStart = true;
+        }
+      }
+
+      // kws automations (arena, expeditions, abyss) - click buttons to start
+      if (state.kws && typeof kws !== 'undefined') {
+        // Restore settings first
+        if (state.kws.aeCodes && kws.settings) {
+          kws.settings.aeCodes = state.kws.aeCodes;
+          $('#aeCodes').prop('checked', state.kws.aeCodes);
+        }
+
+        // Auto Arena
+        if (state.kws.auto_arena) {
+          console.log('[AFO_STATE_MANAGER] Starting Auto Arena...');
+          setTimeout(() => {
+            if (!kws.auto_arena) {
+              kws.auto_arena = true;
+              kws.manageAutoArena();
+              $('.qlink.manage_auto_arena').addClass('kws_active_icon');
+            }
+          }, 2000);
+        }
+
+        // Auto Expeditions
+        if (state.kws.autoExpeditions) {
+          console.log('[AFO_STATE_MANAGER] Starting Auto Expeditions...');
+          setTimeout(() => {
+            if (!kws.autoExpeditions) {
+              kws.manageAutoExpeditions();
+            }
+          }, 3000);
+        }
+
+        // Auto Abyss - just set the flag, it triggers on button click
+        if (state.kws.auto_abyss) {
+          console.log('[AFO_STATE_MANAGER] Starting Auto Abyss...');
+          setTimeout(() => {
+            kws.auto_abyss = true;
+            kws.manageAutoAbyss();
+            $('.qlink.manage_auto_abyss').addClass('kws_active_icon');
+          }, 4000);
+        }
+      }
+
+      // ============================================
+      // REINIT MODULES (reconnect-safe: restart dependency checks)
+      // ============================================
+      if (typeof CAMP_STATS !== 'undefined' && CAMP_STATS.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CAMP_STATS.reinit()');
+        CAMP_STATS.reinit();
+      }
+      if (typeof TRADER_AUTO !== 'undefined' && TRADER_AUTO.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling TRADER_AUTO.reinit()');
+        TRADER_AUTO.reinit();
+      }
+
+      // Kukla Guardian (Strażnik Kukli)
+      if (typeof KUKLA_GUARDIAN !== 'undefined' && KUKLA_GUARDIAN.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling KUKLA_GUARDIAN.reinit()');
+        KUKLA_GUARDIAN.reinit();
+      }
+      if (state.kuklaGuardian && state.kuklaGuardian.enabled && typeof KUKLA_GUARDIAN !== 'undefined') {
+        console.log('[AFO_STATE_MANAGER] Starting Kukla Guardian...');
+        // Set enabled immediately so parseQuickOpts renders with active class
+        KUKLA_GUARDIAN.enabled = true;
+        KUKLA_GUARDIAN._stateRestored = true;
+        setTimeout(() => {
+          if (!KUKLA_GUARDIAN.running) {
+            KUKLA_GUARDIAN.start();
+          }
+          // Ensure icon has active class after any re-render
+          $('.qlink.manage_kukla_guardian').addClass('kws_active_icon');
+        }, 4500);
+      }
+
+      // Clan Assist (Automatyczne Asysty)
+      if (typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.reinit) {
+        console.log('[AFO_STATE_MANAGER] Calling CLAN_ASSIST.reinit()');
+        CLAN_ASSIST.reinit();
+      }
+      if (state.clanAssist && state.clanAssist.enabled && typeof CLAN_ASSIST !== 'undefined') {
+        console.log('[AFO_STATE_MANAGER] Starting Clan Assist...');
+        // Set enabled immediately so parseQuickOpts renders with active class
+        CLAN_ASSIST.enabled = true;
+        setTimeout(() => {
+          if (!CLAN_ASSIST.running) {
+            CLAN_ASSIST.start();
+          }
+          // Ensure icon has active class after any re-render
+          $('.qlink.manage_auto_clanAssist').addClass('kws_active_icon');
+        }, 5000);
+      }
+
+      // Show toast after all modules have been started (longest delay is 5s for clan assist)
+      setTimeout(() => {
+        console.log('[AFO_STATE_MANAGER] ✅ All modules started, restore complete!');
+        if (typeof AFO_RECONNECT_UI !== 'undefined') {
+          AFO_RECONNECT_UI.showToast('Stan przywrócony!', 'success');
+          AFO_RECONNECT_UI.updateStatusFromStorage();
+        }
+      }, 5500);
+    }, 1000);
+  },
+
+  // ============================================
+  // MODULE STARTUP HELPERS (post-reconnect)
+  // Robust restart of AFO modules after server restart / reconnect.
+  // Waits indefinitely until game is fully ready, then triggers click,
+  // verifies, and self-heals via periodic healthcheck.
+  // ============================================
+
+  /**
+   * Per-module config for safe restart.
+   * Each entry describes: how to find module obj, how to check stop flag,
+   * panel selectors, prerequisite for click handler to take effect (e.g. RESP
+   * needs GAME.field_mobs, RES needs map_mines.mine_data).
+   */
+  AFO_MODULE_CONFIGS: {
+    RESP: {
+      stateKey: 'RESP',
+      panelClickSel: '#resp_Panel .resp_resp',
+      panelId: '#resp_Panel',
+      ghStatusSel: '.gh_resp .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof RESP !== 'undefined' ? RESP : null,
+      isInactiveInState: (s) => !s.modules.RESP || s.modules.RESP.stop,
+      // RESP click handler requires GAME.field_mobs to turn on
+      prerequisite: () => typeof GAME !== 'undefined' && !!GAME.field_mobs,
+      // Loop is "running" only when stop=false AND action() actually executed
+      // at least once (counter is reset to 0 in click handler ON branch and
+      // incremented inside action()). After _doRestore the stop flag is false
+      // but the loop hasn't started — this distinguishes those cases.
+      isRunning: () => typeof RESP !== 'undefined' && RESP.stop === false && (RESP._actionCallCount || 0) > 0
+    },
+    PVP: {
+      stateKey: 'PVP',
+      panelClickSel: '#pvp_Panel .pvp_pvp',
+      panelId: '#pvp_Panel',
+      ghStatusSel: '.gh_pvp .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof PVP !== 'undefined' ? PVP : null,
+      isInactiveInState: (s) => !s.modules.PVP || s.modules.PVP.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof PVP !== 'undefined' && PVP.stop === false && (PVP._startCallCount || 0) > 0
+    },
+    LPVM: {
+      stateKey: 'LPVM',
+      panelClickSel: '#lpvm_Panel .lpvm_lpvm',
+      panelId: '#lpvm_Panel',
+      ghStatusSel: '.gh_lpvm .gh_status',
+      stopProp: 'Stop',
+      getMod: () => typeof LPVM !== 'undefined' ? LPVM : null,
+      isInactiveInState: (s) => !s.modules.LPVM || s.modules.LPVM.Stop,
+      prerequisite: () => true,
+      isRunning: () => typeof LPVM !== 'undefined' && LPVM.Stop === false && (LPVM._startCallCount || 0) > 0
+    },
+    GLEBIA: {
+      stateKey: 'GLEBIA',
+      panelClickSel: '#glebia_Panel .glebia_toggle',
+      panelId: '#glebia_Panel',
+      ghStatusSel: '.gh_glebia .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof GLEBIA !== 'undefined' ? GLEBIA : null,
+      isInactiveInState: (s) => !s.modules.GLEBIA || s.modules.GLEBIA.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof GLEBIA !== 'undefined' && GLEBIA.stop === false && (GLEBIA._startCallCount || 0) > 0
+    },
+    CODE: {
+      stateKey: 'CODE',
+      panelClickSel: '#code_Panel .code_code',
+      panelId: '#code_Panel',
+      ghStatusSel: '.gh_code .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof CODE !== 'undefined' ? CODE : null,
+      isInactiveInState: (s) => !s.modules.CODE || s.modules.CODE.stop,
+      prerequisite: () => true,
+      isRunning: () => typeof CODE !== 'undefined' && CODE.stop === false && (CODE._startCallCount || 0) > 0
+    },
+    RES: {
+      stateKey: 'RES',
+      panelClickSel: '#res_Panel .res_res',
+      panelId: '#res_Panel',
+      ghStatusSel: '.gh_res .gh_status',
+      stopProp: 'stop',
+      getMod: () => typeof RES !== 'undefined' ? RES : null,
+      isInactiveInState: (s) => !s.modules.RES || s.modules.RES.stop,
+      // RES click handler requires GAME.map_mines.mine_data to be non-empty
+      prerequisite: () => typeof GAME !== 'undefined' && GAME.map_mines && GAME.map_mines.mine_data && Object.keys(GAME.map_mines.mine_data).length > 0,
+      isRunning: () => typeof RES !== 'undefined' && RES.stop === false && (RES._startCallCount || 0) > 0
+    }
+  },
+
+  /**
+   * Poll until predicate returns true. NEVER times out — restore must
+   * eventually happen even if it takes hours (server outage, no internet, etc).
+   * Logs progress every 30s so console shows it's still alive.
+   * @param {Function} predicate Returns true when ready
+   * @param {string} label Used for periodic progress logs
+   * @param {number} interval Polling interval in ms (default 500)
+   * @returns {Promise<void>}
+   */
+  _waitUntil(predicate, label, interval = 500, diagnoseFn = null) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now();
+      let lastLogAt = startedAt;
+      const tick = () => {
+        try {
+          if (predicate()) {
+            const waited = Date.now() - startedAt;
+            if (waited > 2000) {
+              console.log(`[AFO_STATE_MANAGER:wait] ${label} ready after ${Math.round(waited / 1000)}s`);
+            }
+            resolve();
+            return;
+          }
+        } catch (e) {
+          // predicate threw — keep waiting; log once
+          console.warn(`[AFO_STATE_MANAGER:wait] ${label} predicate threw:`, e?.message || e);
+        }
+        const now = Date.now();
+        if (now - lastLogAt >= 30000) {
+          let extra = '';
+          if (diagnoseFn) {
+            try { extra = ' ' + diagnoseFn(); } catch (e) { /* ignore diagnose error */ }
+          }
+          console.log(`[AFO_STATE_MANAGER:wait] still waiting for ${label} (${Math.round((now - startedAt) / 1000)}s)...${extra}`);
+          lastLogAt = now;
+        }
+        setTimeout(tick, interval);
+      };
+      tick();
+    });
+  },
+
+  /**
+   * Diagnose why _waitForGameReady is stuck — returns array of failed condition names.
+   */
+  _gameReadyDiagnose() {
+    const failed = [];
+    if (typeof GAME === 'undefined') failed.push('GAME=undefined');
+    else {
+      if (!GAME.char_id) failed.push('GAME.char_id=' + GAME.char_id);
+      if (!GAME.char_data) failed.push('GAME.char_data missing');
+      if (!GAME.socket) failed.push('GAME.socket missing');
+    }
+    if (typeof AFO === 'undefined') failed.push('AFO=undefined');
+    else if (!AFO.loaded) failed.push('AFO.loaded=' + AFO.loaded);
+    return failed;
+  },
+
+  /**
+   * Wait until the game engine is ready for module actions.
+   * Tolerant predicate — only requires what's strictly needed to click a panel.
+   * GAME.is_loading and GAME.char_data.x removed from check: post-game-optimization
+   * is_loading sometimes stays true indefinitely, and char_data.x may be undefined
+   * until the user actually moves on the map. Click handlers don't need either.
+   */
+  _waitForGameReady() {
+    return this._waitUntil(() => {
+      return typeof GAME !== 'undefined'
+        && GAME.char_id > 0
+        && GAME.char_data
+        && GAME.socket
+        && typeof AFO !== 'undefined'
+        && AFO.loaded === true;
+    }, 'GAME ready', 500, () => {
+      // Diagnostic on each 30s stuck-warning: show which conditions are false
+      const failed = this._gameReadyDiagnose();
+      return failed.length ? `failed: [${failed.join(', ')}]` : '';
+    });
+  },
+
+  /**
+   * Wait until jQuery click handler is bound to the panel selector.
+   */
+  _waitForHandlerBound(selector) {
+    return this._waitUntil(() => {
+      const $el = $(selector);
+      if (!$el.length) return false;
+      const events = $._data($el[0], 'events');
+      return !!(events && events.click && events.click.length);
+    }, `handler ${selector}`);
+  },
+
+  /**
+   * Safely (re)start an AFO module after reconnect.
+   * Waits for game ready, handler bound, prerequisites met.
+   * Sets stop=true (so click handler turns it ON), clicks the panel, then
+   * verifies via isRunning(). Schedules a healthcheck 5s later that re-tries
+   * indefinitely if module didn't actually start. Idempotent — if user already
+   * turned the module on manually, just skips.
+   *
+   * @param {string} name e.g. 'PVP', 'RESP', etc. (key into AFO_MODULE_CONFIGS)
+   * @param {object} state Saved state from storage
+   */
+  /**
+   * Has the module loop ever executed (counter > 0)?
+   * Used to distinguish "user stopped a working module" from "module never started".
+   */
+  _hasRunBefore(name) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return false;
+    const mod = cfg.getMod();
+    if (!mod) return false;
+    return ((mod._startCallCount || 0) + (mod._actionCallCount || 0)) > 0;
+  },
+
+  /**
+   * Detect that the user stopped the module while we were waiting / restoring.
+   * If module ran before AND its current stop flag is true, the user must have
+   * clicked OFF. We respect that and abort our restore attempt.
+   */
+  _userStopped(name) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return false;
+    const mod = cfg.getMod();
+    if (!mod) return false;
+    return mod[cfg.stopProp] === true && this._hasRunBefore(name);
+  },
+
+  async startAfoModuleSafely(name, state) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) {
+      console.warn(`[AFO_STATE_MANAGER:start:${name}] no config`);
+      return;
+    }
+    const log = (...args) => console.log(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
+    const warn = (...args) => console.warn(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
+
+    if (cfg.isInactiveInState(state)) {
+      log(`module not active in saved state, skipping`);
+      return;
+    }
+
+    log('beginning safe start');
+
+    // 1) Wait for game ready
+    await this._waitForGameReady();
+    log('game is ready');
+    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
+
+    // 2) Wait for handler bound
+    await this._waitForHandlerBound(cfg.panelClickSel);
+    log(`handler bound on ${cfg.panelClickSel}`);
+    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
+
+    // 3) Wait for module-specific prerequisite (e.g. GAME.field_mobs for RESP)
+    if (cfg.prerequisite) {
+      await this._waitUntil(cfg.prerequisite, `${name} prerequisite`);
+      log('prerequisite satisfied');
+      if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
+    }
+
+    // 4) Idempotent: if module is already running (user clicked it manually
+    //    while we were waiting), skip.
+    if (cfg.isRunning()) {
+      log('already running, skipping click');
+      this._scheduleHealthcheck(name, state);
+      return;
+    }
+
+    // 5) Set stop=true so click handler will toggle to ON
+    const mod = cfg.getMod();
+    if (mod) {
+      mod[cfg.stopProp] = true;
+    }
+
+    // 6) Click and force panel visible + status updated
+    log(`clicking ${cfg.panelClickSel}`);
+    $(cfg.panelClickSel).click();
+    $(cfg.panelId).show();
+    $(cfg.ghStatusSel).removeClass('red').addClass('green').html('On');
+
+    // 7) Verify after a short tick (click handler may bail if its own
+    //    prerequisite check fails, e.g. RESP needs GAME.field_mobs again).
+    setTimeout(() => {
+      if (cfg.isRunning()) {
+        log('confirmed running');
+      } else {
+        warn('NOT running 200ms after click — healthcheck will retry');
+      }
+      this._scheduleHealthcheck(name, state);
+    }, 200);
+  },
+
+  /**
+   * Periodically check that the module is still running. If not, re-trigger
+   * startAfoModuleSafely. Runs forever (cleared on user-initiated stop via
+   * canceling on healthcheck if module is missing from state).
+   */
+  /**
+   * One-shot verification 5s after startAfoModuleSafely's click. Sole purpose:
+   * confirm the restore actually took effect. After confirmation we get out of
+   * the user's way — no periodic polling, no nagging. User can toggle the
+   * module on/off freely without the state manager fighting back.
+   *
+   * If the module isn't running 5s after click, retry startAfoModuleSafely up
+   * to MAX_RETRIES times (each with its own 5s verification). After that, give
+   * up — manual intervention needed.
+   */
+  _scheduleHealthcheck(name, state) {
+    const cfg = this.AFO_MODULE_CONFIGS[name];
+    if (!cfg) return;
+    if (!this._healthcheckTimers) this._healthcheckTimers = {};
+    if (!this._healthcheckRetries) this._healthcheckRetries = {};
+    if (this._healthcheckTimers[name]) clearTimeout(this._healthcheckTimers[name]);
+
+    const MAX_RETRIES = 3;
+
+    this._healthcheckTimers[name] = setTimeout(() => {
+      if (cfg.isInactiveInState(state)) return;
+
+      if (cfg.isRunning()) {
+        console.log(`[AFO_STATE_MANAGER:healthcheck:${name}] confirmed running — done, leaving user alone`);
+        this._healthcheckRetries[name] = 0;
+        return;  // success — no further checks ever
+      }
+
+      const attempts = (this._healthcheckRetries[name] || 0) + 1;
+      this._healthcheckRetries[name] = attempts;
+      if (attempts > MAX_RETRIES) {
+        console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] gave up after ${MAX_RETRIES} retries — manual intervention needed`);
+        this._healthcheckRetries[name] = 0;
+        return;
+      }
+      console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] not running 5s after click, retry ${attempts}/${MAX_RETRIES}`);
+      this.startAfoModuleSafely(name, state);
+    }, 5000);
+  },
+
+  // ============================================
+  // SAVE / LOAD TO STORAGE
+  // ============================================
+
+  /**
+   * Save current state to chrome.storage.local
+   */
+  async save() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
+      console.warn('[AFO_STATE_MANAGER] GAME not available, cannot save state');
+      return false;
+    }
+
+    const key = this.getKey(GAME.server, GAME.char_id);
+    const state = this.serialize();
+
+    try {
+      await AFO_STORAGE.set({ [key]: state });
+      console.log(`[AFO_STATE_MANAGER] Saved state for server ${GAME.server}, char ${GAME.char_id}`);
+      return true;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] Save error:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Load state from chrome.storage.local
+   */
+  async load(server, charId) {
+    const key = this.getKey(server, charId);
+
+    try {
+      const result = await AFO_STORAGE.get(key);
+      if (result[key]) {
+        return result[key];
+      }
+      return null;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] Load error:', e);
+      return null;
+    }
+  },
+
+  /**
+   * Load and apply state for current character
+   * @param {boolean} startModules - Whether to start active modules
+   */
+  async loadCurrent(startModules = false) {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
+      console.warn('[AFO_STATE_MANAGER] GAME not available, cannot load state');
+      return false;
+    }
+
+    const state = await this.load(GAME.server, GAME.char_id);
+    if (state) {
+      return this.deserialize(state, startModules);
+    }
+    return false;
+  },
+
+  /**
+   * Check if state exists for server + character
+   */
+  async exists(server, charId) {
+    const state = await this.load(server, charId);
+    return state !== null;
+  },
+
+  /**
+   * Clear state for specific server + character
+   */
+  async clear(server, charId) {
+    const key = this.getKey(server, charId);
+
+    try {
+      await AFO_STORAGE.remove(key);
+      console.log(`[AFO_STATE_MANAGER] Cleared state for server ${server}, char ${charId}`);
+      return true;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] Clear error:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Clear state for current character
+   */
+  async clearCurrent() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
+      return false;
+    }
+    return await this.clear(GAME.server, GAME.char_id);
+  },
+
+  /**
+   * Clear all saved states (all servers)
+   */
+  async clearAll() {
+    try {
+      const result = await AFO_STORAGE.get(null);
+      const keysToRemove = [];
+
+      for (const key in result) {
+        if (key.startsWith(this.KEY_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      for (const key of keysToRemove) {
+        await AFO_STORAGE.remove(key);
+      }
+
+      console.log(`[AFO_STATE_MANAGER] Cleared all states (${keysToRemove.length} keys)`);
+      return true;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] ClearAll error:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Get all saved states (for listing)
+   */
+  async getAll() {
+    try {
+      const result = await AFO_STORAGE.get(null);
+      const states = [];
+
+      for (const key in result) {
+        if (key.startsWith(this.KEY_PREFIX)) {
+          const state = result[key];
+          states.push({
+            key: key,
+            server: state.server,
+            charId: state.charId,
+            savedAt: state.savedAt,
+            activeModules: this.getActiveModulesList(state)
+          });
+        }
+      }
+
+      return states;
+    } catch (e) {
+      console.error('[AFO_STATE_MANAGER] GetAll error:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Get list of active modules from state
+   */
+  getActiveModulesList(state) {
+    const active = [];
+    if (!state || !state.modules) return active;
+
+    if (state.modules.RESP && !state.modules.RESP.stop) active.push('PVM');
+    if (state.modules.PVP && !state.modules.PVP.stop) active.push('PVP');
+    if (state.modules.LPVM && !state.modules.LPVM.Stop) active.push('LPVM');
+    if (state.modules.GLEBIA && !state.modules.GLEBIA.stop) active.push('GŁĘBIA');
+    if (state.modules.CODE && !state.modules.CODE.stop) active.push('KODY');
+    if (state.modules.RES && !state.modules.RES.stop) active.push('ZBIERAJKA');
+    if (state.activities && state.activities.enabled) active.push('Activities');
+
+    // kws automations
+    if (state.kws) {
+      if (state.kws.auto_arena) active.push('Arena');
+      if (state.kws.autoExpeditions) active.push('Expeditions');
+      if (state.kws.auto_abyss) active.push('Otchłań');
+    }
+
+    return active;
+  },
+
+  // ============================================
+  // UTILITY
+  // ============================================
+
+  /**
+   * Get human-readable summary of current state
+   */
+  getSummary() {
+    const state = this.serialize();
+    const active = this.getActiveModulesList(state);
+
+    return {
+      server: state.server,
+      charId: state.charId,
+      activeModules: active,
+      hasAnyActive: active.length > 0
+    };
+  }
+};
+
+// Export
+window.AFO_STATE_MANAGER = AFO_STATE_MANAGER;
+console.log('[AFO] State Manager module loaded');
+
+
+// ========== remote/reconnect/ui.js ==========
+/**
+ * ============================================================================
+ * AFO - Reconnect UI
+ * ============================================================================
+ * 
+ * UI components for auto-reconnect feature:
+ * - Status icon in top-right corner
+ * - Dropdown menu with state info
+ * - Credentials form
+ * 
+ * Mobile-friendly design.
+ * 
+ * ============================================================================
+ */
+
+const AFO_RECONNECT_UI = {
+  // State
+  isMenuOpen: false,
+  isHistoryOpen: false,
+  currentStatus: 'neutral', // 'neutral', 'saved', 'error', 'unsaved'
+  lastSaveTime: null,
+  reconnectHistory: [],
+
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+
+  init() {
+    this.injectCSS();
+    this.injectIcon();
+    this.injectMenu();
+    this.bindEvents();
+    this.setupDraggable();
+    this.loadHistory();
+    this.updateStatusFromStorage();
+    this.startStatusMonitor();
+    console.log('[AFO_RECONNECT_UI] Initialized');
+  },
+
+  /**
+   * Periodically update icon border color based on current state
+   * Green = saved state matches current char, credentials exist
+   * Orange = unsaved / state for different char / no state
+   * Red = error or no credentials
+   */
+  startStatusMonitor() {
+    this._lastCharId = null;
+
+    this.statusMonitorInterval = setInterval(async () => {
+      if (typeof GAME === 'undefined' || !GAME.server) return;
+
+      // Detect char change
+      const currentCharId = GAME.char_id;
+      if (currentCharId !== this._lastCharId) {
+        this._lastCharId = currentCharId;
+        await this.updateStatusFromStorage();
+      }
+    }, 2000);
+  },
+
+  // ============================================
+  // HISTORY
+  // ============================================
+
+  loadHistory() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+    try {
+      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
+      const data = localStorage.getItem(key);
+      if (data) {
+        this.reconnectHistory = JSON.parse(data);
+      }
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to load history:', e);
+    }
+  },
+
+  saveHistory() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+    try {
+      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
+      localStorage.setItem(key, JSON.stringify(this.reconnectHistory));
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to save history:', e);
+    }
+  },
+
+  addReconnectTimestamp(timestamp = Date.now()) {
+    // Add to beginning
+    this.reconnectHistory.unshift(timestamp);
+    // Keep max 5
+    if (this.reconnectHistory.length > 5) {
+      this.reconnectHistory = this.reconnectHistory.slice(0, 5);
+    }
+    this.saveHistory();
+    this.renderHistory();
+  },
+
+  // ============================================
+  // CSS INJECTION
+  // ============================================
+
+  injectCSS() {
+    const css = `
+      /* Reconnect Icon */
+      #afo-reconnect-icon {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        width: 40px;
+        height: 40px;
+        cursor: pointer;
+        z-index: 9999;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 6px;
+        box-sizing: border-box;
+        transition: all 0.3s ease;
+        border: 3px solid transparent;
+      }
+
+      #afo-reconnect-icon:hover {
+        transform: scale(1.1);
+        background: rgba(0, 0, 0, 0.9);
+      }
+
+      /* Prevent hover transform when dragging */
+      #afo-reconnect-icon.dragging {
+        transform: none !important;
+        transition: none !important;
+      }
+
+      #afo-reconnect-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* Status colors via border */
+      #afo-reconnect-icon.status-neutral {
+        border-color: #888;
+      }
+
+      #afo-reconnect-icon.status-saved {
+        border-color: #4CAF50;
+        box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+      }
+
+      #afo-reconnect-icon.status-unsaved {
+        border-color: #FFC107;
+      }
+
+      #afo-reconnect-icon.status-error {
+        border-color: #f44336;
+        animation: pulse-error 2s infinite;
+      }
+
+      @keyframes pulse-error {
+        0%, 100% { box-shadow: 0 0 5px rgba(244, 67, 54, 0.5); }
+        50% { box-shadow: 0 0 15px rgba(244, 67, 54, 0.8); }
+      }
+
+      /* Menu Overlay */
+      #afo-reconnect-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 9998;
+      }
+
+      #afo-reconnect-overlay.open {
+        display: block;
+      }
+
+      /* Menu Panel */
+      #afo-reconnect-menu {
+        display: none;
+        position: fixed;
+        top: 60px;
+        right: 10px;
+        width: 320px;
+        max-width: calc(100vw - 20px);
+        max-height: calc(100vh - 80px);
+        background: linear-gradient(145deg, #1a1a2e, #16213e);
+        border: 1px solid #0f3460;
+        border-radius: 12px;
+        z-index: 10000;
+        overflow: hidden;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      #afo-reconnect-menu.open {
+        display: flex;
+        flex-direction: column;
+        animation: slideIn 0.2s ease;
+      }
+
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Menu Header */
+      .afo-menu-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+        background: linear-gradient(90deg, #0f3460, #1a1a2e);
+        border-bottom: 1px solid #0f3460;
+      }
+
+      .afo-menu-header h3 {
+        margin: 0;
+        font-size: 16px;
+        color: #e94560;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .afo-menu-close {
+        width: 28px;
+        height: 28px;
+        border: none;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+      }
+
+      .afo-menu-close:hover {
+        background: rgba(233, 69, 96, 0.5);
+      }
+
+      /* Menu Content */
+      .afo-menu-content {
+        padding: 15px;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      /* Status Section */
+      .afo-status-section {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 15px;
+      }
+
+      .afo-status-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .afo-status-row:last-child {
+        margin-bottom: 0;
+      }
+
+      .afo-status-label {
+        color: #888;
+        font-size: 13px;
+      }
+
+      .afo-status-value {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .afo-status-value.saved { color: #4CAF50; }
+      .afo-status-value.unsaved { color: #FFC107; }
+      .afo-status-value.error { color: #f44336; }
+      .afo-status-value.neutral { color: #888; }
+
+      /* History List */
+      .afo-history-toggle {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: color 0.2s;
+      }
+      .afo-history-toggle:hover {
+        color: #fff;
+      }
+      .afo-history-arrow {
+        display: inline-block;
+        font-size: 10px;
+        transition: transform 0.2s;
+      }
+      .afo-history-arrow.open {
+        transform: rotate(90deg);
+      }
+      #afo-history-list {
+        display: none;
+        margin-top: 5px;
+        padding-left: 10px;
+        border-left: 2px solid #0f3460;
+      }
+      #afo-history-list.open {
+        display: block;
+      }
+      .afo-history-item {
+        font-size: 12px;
+        color: #aaa;
+        padding: 2px 0;
+      }
+
+
+      /* Modules List */
+      .afo-modules-section {
+        margin-bottom: 15px;
+      }
+
+      .afo-modules-title {
+        color: #e94560;
+        font-size: 12px;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+      }
+
+      .afo-module-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: #ccc;
+      }
+
+      .afo-module-item .icon {
+        font-size: 16px;
+      }
+
+      .afo-module-item.active {
+        background: rgba(76, 175, 80, 0.2);
+        border-left: 3px solid #4CAF50;
+      }
+
+      .afo-module-item.inactive {
+        opacity: 0.6;
+      }
+
+      .afo-module-item .info {
+        font-size: 11px;
+        color: #888;
+        margin-left: auto;
+      }
+
+      /* Buttons */
+      .afo-buttons-section {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .afo-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 16px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .afo-btn-primary {
+        background: linear-gradient(135deg, #e94560, #ff6b6b);
+        color: white;
+      }
+
+      .afo-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(233, 69, 96, 0.4);
+      }
+
+      .afo-btn-secondary {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ccc;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .afo-btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .afo-btn-danger {
+        background: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        border: 1px solid rgba(244, 67, 54, 0.3);
+      }
+
+      .afo-btn-danger:hover {
+        background: rgba(244, 67, 54, 0.3);
+      }
+
+      /* Credentials Form */
+      .afo-creds-section {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 15px;
+        display: none;
+      }
+
+      .afo-creds-section.open {
+        display: block;
+      }
+
+      .afo-creds-title {
+        color: #e94560;
+        font-size: 12px;
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+      }
+
+      .afo-input-group {
+        margin-bottom: 12px;
+      }
+
+      .afo-input-group label {
+        display: block;
+        color: #888;
+        font-size: 12px;
+        margin-bottom: 5px;
+      }
+
+      .afo-input-group input {
+        width: 100%;
+        padding: 10px 12px;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+
+      .afo-input-group input:focus {
+        outline: none;
+        border-color: #e94560;
+      }
+
+      .afo-creds-info {
+        font-size: 11px;
+        color: #666;
+        margin-top: 10px;
+        line-height: 1.4;
+      }
+
+      /* Toast Notification */
+      .afo-toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: #1a1a2e;
+        border: 1px solid #0f3460;
+        border-radius: 8px;
+        color: #fff;
+        font-size: 14px;
+        z-index: 10001;
+        animation: toastIn 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .afo-toast.success { border-left: 4px solid #4CAF50; }
+      .afo-toast.error { border-left: 4px solid #f44336; }
+      .afo-toast.warning { border-left: 4px solid #FFC107; }
+
+      @keyframes toastIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Mobile adjustments */
+      @media (max-width: 480px) {
+        #afo-reconnect-menu {
+          right: 5px;
+          left: 5px;
+          width: auto;
+          top: 55px;
+        }
+
+        #afo-reconnect-icon {
+          width: 36px;
+          height: 36px;
+          top: 8px;
+          right: 8px;
+        }
+      }
+    `;
+
+    const style = document.createElement('style');
+    style.id = 'afo-reconnect-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  },
+
+  // ============================================
+  // ICON
+  // ============================================
+
+  injectIcon() {
+    // Get extension URL for image
+    const configEl = document.getElementById('__gieniobot_config__');
+    const extensionUrl = configEl ? configEl.dataset.extensionUrl : '';
+    const imgSrc = extensionUrl ? `${extensionUrl}images/reconnect.png` : '';
+
+    const icon = document.createElement('div');
+    icon.id = 'afo-reconnect-icon';
+    icon.className = 'status-neutral';
+    icon.innerHTML = imgSrc
+      ? `<img src="${imgSrc}" alt="Reconnect" title="Auto-Reconnect">`
+      : '🔄';
+    icon.title = 'Auto-Reconnect - Kliknij aby otworzyć menu';
+
+    document.body.appendChild(icon);
+  },
+
+  // ============================================
+  // MENU
+  // ============================================
+
+  injectMenu() {
+    // Overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'afo-reconnect-overlay';
+    document.body.appendChild(overlay);
+
+    // Menu
+    const menu = document.createElement('div');
+    menu.id = 'afo-reconnect-menu';
+    menu.innerHTML = `
+      <div class="afo-menu-header">
+        <h3>🔄 Auto-Reconnect</h3>
+        <button class="afo-menu-close" id="afo-menu-close">×</button>
+      </div>
+      <div class="afo-menu-content">
+        <!-- Status -->
+        <div class="afo-status-section">
+          <div class="afo-status-row">
+            <span class="afo-status-label">Status:</span>
+            <span class="afo-status-value neutral" id="afo-status-text">Nie zapisano</span>
+          </div>
+          <div class="afo-status-row">
+            <span class="afo-status-label">Ostatni zapis:</span>
+            <span class="afo-status-value" id="afo-last-save">-</span>
+          </div>
+          <div class="afo-status-row">
+            <span class="afo-status-label">Serwer / Postać:</span>
+            <span class="afo-status-value" id="afo-server-char">-</span>
+          </div>
+          <div class="afo-status-row">
+            <span class="afo-status-label">Ostatni reconnect:</span>
+            <span class="afo-status-value">
+              <span id="afo-last-reconnect" class="afo-history-toggle">-</span>
+              <div id="afo-history-list"></div>
+            </span>
+          </div>
+        </div>
+
+        <!-- Modules -->
+        <div class="afo-modules-section">
+          <div class="afo-modules-title">Zapisane moduły</div>
+          <div id="afo-modules-list">
+            <div class="afo-module-item inactive">
+              <span class="icon">📭</span>
+              Brak zapisanego stanu
+            </div>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="afo-buttons-section">
+          <button class="afo-btn afo-btn-primary" id="afo-btn-save">
+            💾 Zapisz obecny stan
+          </button>
+          <button class="afo-btn afo-btn-secondary" id="afo-btn-credentials">
+            👤 Ustawienia
+          </button>
+          <button class="afo-btn afo-btn-danger" id="afo-btn-clear">
+            🗑️ Wyczyść stan (serwer)
+          </button>
+          <button class="afo-btn afo-btn-danger" id="afo-btn-clear-all">
+            🗑️ Wyczyść stan (wszystkie)
+          </button>
+        </div>
+
+        <!-- Credentials Form -->
+        <div class="afo-creds-section" id="afo-creds-section">
+          <div class="afo-creds-title">Dane logowania</div>
+          <div class="afo-input-group">
+            <label for="afo-creds-login">Login</label>
+            <input type="text" id="afo-creds-login" placeholder="Twój login">
+          </div>
+          <div class="afo-input-group">
+            <label for="afo-creds-password">Hasło</label>
+            <input type="password" id="afo-creds-password" placeholder="Twoje hasło">
+          </div>
+          <button class="afo-btn afo-btn-primary" id="afo-btn-save-creds" style="margin-top: 10px;">
+            💾 Zapisz credentials
+          </button>
+          <div class="afo-creds-info">
+            ⚠️ Dane są przechowywane lokalnie w przeglądarce. 
+            Używane tylko do automatycznego logowania po rozłączeniu.
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(menu);
+  },
+
+  // ============================================
+  // EVENTS
+  // ============================================
+
+  bindEvents() {
+    // Icon click
+    document.getElementById('afo-reconnect-icon').addEventListener('click', () => {
+      this.toggleMenu();
+    });
+
+    // Close button
+    document.getElementById('afo-menu-close').addEventListener('click', () => {
+      this.closeMenu();
+    });
+
+    // Overlay click
+    document.getElementById('afo-reconnect-overlay').addEventListener('click', () => {
+      this.closeMenu();
+    });
+
+    // Save state button
+    document.getElementById('afo-btn-save').addEventListener('click', async () => {
+      await this.saveState();
+    });
+
+    // Credentials toggle
+    document.getElementById('afo-btn-credentials').addEventListener('click', () => {
+      this.toggleCredentialsForm();
+    });
+
+    // Save credentials button
+    document.getElementById('afo-btn-save-creds').addEventListener('click', async () => {
+      await this.saveCredentials();
+    });
+
+    // History toggle
+    document.getElementById('afo-last-reconnect').addEventListener('click', () => {
+      this.toggleHistory();
+    });
+
+    // Clear button (server)
+    document.getElementById('afo-btn-clear').addEventListener('click', async () => {
+      await this.clearState();
+    });
+
+    // Clear button (global)
+    document.getElementById('afo-btn-clear-all').addEventListener('click', async () => {
+      await this.clearAllStates();
+    });
+
+    // ESC key to close
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isMenuOpen) {
+        this.closeMenu();
+      }
+    });
+  },
+
+  // ============================================
+  // MENU TOGGLE
+  // ============================================
+
+  toggleMenu() {
+    if (this.isMenuOpen) {
+      this.closeMenu();
+    } else {
+      this.openMenu();
+    }
+  },
+
+  openMenu() {
+    this.isMenuOpen = true;
+    document.getElementById('afo-reconnect-menu').classList.add('open');
+    document.getElementById('afo-reconnect-overlay').classList.add('open');
+    this.refreshMenuContent();
+  },
+
+  closeMenu() {
+    this.isMenuOpen = false;
+    document.getElementById('afo-reconnect-menu').classList.remove('open');
+    document.getElementById('afo-reconnect-overlay').classList.remove('open');
+    // Close credentials form
+    document.getElementById('afo-creds-section').classList.remove('open');
+  },
+
+  toggleCredentialsForm() {
+    const section = document.getElementById('afo-creds-section');
+    section.classList.toggle('open');
+
+    // Load existing credentials if available
+    if (section.classList.contains('open')) {
+      this.loadExistingCredentials();
+    }
+  },
+
+  // ============================================
+  // REFRESH MENU CONTENT
+  // ============================================
+
+  async refreshMenuContent() {
+    // Server / Char info
+    const serverChar = document.getElementById('afo-server-char');
+    if (typeof GAME !== 'undefined' && GAME.server && GAME.char_id) {
+      const charName = GAME.char_data?.name || `ID: ${GAME.char_id}`;
+      serverChar.textContent = `S${GAME.server} / ${charName}`;
+    } else {
+      serverChar.textContent = '-';
+    }
+
+    // Load saved state
+    this.loadHistory();
+    this.renderHistory();
+    await this.updateStatusFromStorage();
+  },
+
+  async updateStatusFromStorage() {
+    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
+      this.setStatus('neutral', 'Oczekiwanie na grę');
+      return;
+    }
+
+    try {
+      // Check credentials
+      const hasCreds = typeof AFO_CREDENTIALS !== 'undefined' && await AFO_CREDENTIALS.exists();
+
+      const state = await AFO_STATE_MANAGER.load(GAME.server, GAME.char_id);
+
+      if (!hasCreds) {
+        this.setStatus('error', 'Brak credentials');
+        this.updateLastSaveTime(state ? state.savedAt : null);
+        this.updateModulesList(state);
+        return;
+      }
+
+      if (state) {
+        this.lastSaveTime = state.savedAt;
+        // Check if saved state matches current character
+        if (state.charId && state.charId != GAME.char_id) {
+          const savedCharName = state.charId;
+          this.setStatus('unsaved', `Stan innej postaci (${savedCharName})`);
+        } else {
+          this.setStatus('saved', 'Zsynchronizowane');
+        }
+        this.updateLastSaveTime(state.savedAt);
+        this.updateModulesList(state);
+      } else {
+        this.setStatus('unsaved', 'Nie zapisano');
+        this.updateLastSaveTime(null);
+        this.updateModulesList(null);
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Error loading state:', e);
+      this.setStatus('error', 'Błąd');
+    }
+  },
+
+  // ============================================
+  // STATUS UPDATES
+  // ============================================
+
+  setStatus(status, text) {
+    this.currentStatus = status;
+
+    // Update icon
+    const icon = document.getElementById('afo-reconnect-icon');
+    icon.className = `status-${status}`;
+
+    // Update status text in menu
+    const statusText = document.getElementById('afo-status-text');
+    if (statusText) {
+      statusText.textContent = text;
+      statusText.className = `afo-status-value ${status}`;
+    }
+  },
+
+  updateLastSaveTime(timestamp) {
+    const el = document.getElementById('afo-last-save');
+    if (!el) return;
+
+    if (timestamp) {
+      const date = new Date(timestamp);
+      el.textContent = date.toLocaleTimeString('pl-PL');
+    } else {
+      el.textContent = '-';
+    }
+  },
+
+  renderHistory() {
+    const label = document.getElementById('afo-last-reconnect');
+    const list = document.getElementById('afo-history-list');
+    if (!label || !list) return;
+
+    if (this.reconnectHistory.length === 0) {
+      label.textContent = '-';
+      label.classList.remove('afo-history-toggle');
+      list.innerHTML = '';
+      return;
+    }
+
+    const latest = new Date(this.reconnectHistory[0]);
+    const arrow = this.reconnectHistory.length > 1
+      ? `<span class="afo-history-arrow ${this.isHistoryOpen ? 'open' : ''}">▶</span>`
+      : '';
+
+    label.innerHTML = `${latest.toLocaleString('pl-PL')} ${arrow}`;
+
+    if (this.reconnectHistory.length > 1) {
+      label.classList.add('afo-history-toggle');
+      // Render other items (skip first)
+      const others = this.reconnectHistory.slice(1);
+      list.innerHTML = others.map(ts => {
+        const d = new Date(ts);
+        return `<div class="afo-history-item">${d.toLocaleString('pl-PL')}</div>`;
+      }).join('');
+
+      if (this.isHistoryOpen) {
+        list.classList.add('open');
+      } else {
+        list.classList.remove('open');
+      }
+    } else {
+      label.classList.remove('afo-history-toggle');
+      list.classList.remove('open');
+      list.innerHTML = '';
+    }
+  },
+
+  toggleHistory() {
+    if (this.reconnectHistory.length <= 1) return;
+    this.isHistoryOpen = !this.isHistoryOpen;
+    this.renderHistory();
+  },
+
+  updateModulesList(state) {
+    const container = document.getElementById('afo-modules-list');
+    if (!container) return;
+
+    if (!state || !state.modules) {
+      container.innerHTML = `
+        <div class="afo-module-item inactive">
+          <span class="icon">📭</span>
+          Brak zapisanego stanu
+        </div>
+      `;
+      return;
+    }
+
+    const modules = [
+      { key: 'RESP', name: 'PVM', icon: '⚔️', stopKey: 'stop' },
+      { key: 'PVP', name: 'PVP', icon: '🗡️', stopKey: 'stop' },
+      { key: 'LPVM', name: 'LPVM', icon: '📜', stopKey: 'Stop' },
+      { key: 'GLEBIA', name: 'GŁĘBIA', icon: '🔪', stopKey: 'stop' },
+      { key: 'CODE', name: 'KODY', icon: '🔑', stopKey: 'stop' },
+      { key: 'RES', name: 'ZBIERAJKA', icon: '💎', stopKey: 'stop' },
+    ];
+
+    let html = '';
+
+    for (const mod of modules) {
+      const modState = state.modules[mod.key];
+      const isActive = modState && !modState[mod.stopKey];
+      const activeClass = isActive ? 'active' : 'inactive';
+
+      let info = '';
+      if (isActive) {
+        // Add extra info based on module
+        if (mod.key === 'RESP' && modState.loc) {
+          info = `loc: ${modState.loc}`;
+        } else if (mod.key === 'CODE' && modState.what_to_train) {
+          const stats = ['', 'Siła', 'Wyt.', 'Zręcz.', 'Energia'];
+          info = stats[modState.what_to_train] || '';
+        }
+      }
+
+      html += `
+        <div class="afo-module-item ${activeClass}">
+          <span class="icon">${mod.icon}</span>
+          ${mod.name}
+          ${info ? `<span class="info">${info}</span>` : ''}
+        </div>
+      `;
+    }
+
+    // Activities
+    if (state.activities && state.activities.enabled) {
+      html += `
+        <div class="afo-module-item active">
+          <span class="icon">🎮</span>
+          Activities
+          <span class="info">${state.activities.selectedActivities?.length || 0} aktywności</span>
+        </div>
+      `;
+    }
+
+    // kws automations
+    if (state.kws) {
+      if (state.kws.auto_arena) {
+        html += `
+          <div class="afo-module-item active">
+            <span class="icon">🏆</span>
+            Arena
+          </div>
+        `;
+      }
+      if (state.kws.autoExpeditions) {
+        html += `
+          <div class="afo-module-item active">
+            <span class="icon">🚀</span>
+            Wyprawy
+          </div>
+        `;
+      }
+      if (state.kws.auto_abyss) {
+        html += `
+          <div class="afo-module-item active">
+            <span class="icon">🌀</span>
+            Otchłań
+          </div>
+        `;
+      }
+    }
+
+    // Kukla Guardian (Obserwator)
+    if (state.kuklaGuardian && state.kuklaGuardian.enabled) {
+      html += `
+        <div class="afo-module-item active">
+          <span class="icon">🛡️</span>
+          Obserwator
+        </div>
+      `;
+    }
+
+    // Clan Assist (Automatyczne Asysty)
+    if (state.clanAssist && state.clanAssist.enabled) {
+      html += `
+        <div class="afo-module-item active">
+          <span class="icon">🤝</span>
+          Asysty
+        </div>
+      `;
+    }
+
+    container.innerHTML = html || `
+      <div class="afo-module-item inactive">
+        <span class="icon">😴</span>
+        Żadne moduły nieaktywne
+      </div>
+    `;
+  },
+
+  // ============================================
+  // ACTIONS
+  // ============================================
+
+  async saveState() {
+    try {
+      const success = await AFO_STATE_MANAGER.save();
+
+      if (success) {
+        this.showToast('Stan zapisany pomyślnie!', 'success');
+        await this.updateStatusFromStorage();
+      } else {
+        this.showToast('Nie udało się zapisać stanu', 'error');
+        this.setStatus('error', 'Błąd zapisu');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Save error:', e);
+      this.showToast('Błąd: ' + e.message, 'error');
+    }
+  },
+
+  async clearState() {
+    if (!confirm('Czy na pewno chcesz wyczyścić zapisany stan?')) {
+      return;
+    }
+
+    try {
+      const success = await AFO_STATE_MANAGER.clearCurrent();
+
+      if (success) {
+        this.showToast('Stan wyczyszczony', 'success');
+        await this.updateStatusFromStorage();
+      } else {
+        this.showToast('Nie udało się wyczyścić stanu', 'error');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Clear error:', e);
+      this.showToast('Błąd: ' + e.message, 'error');
+    }
+  },
+
+  async clearAllStates() {
+    if (!confirm('Czy na pewno chcesz wyczyścić zapisany stan ze WSZYSTKICH serwerów?')) {
+      return;
+    }
+
+    try {
+      const success = await AFO_STATE_MANAGER.clearAll();
+
+      if (success) {
+        this.showToast('Wyczyszczono stany ze wszystkich serwerów', 'success');
+        await this.updateStatusFromStorage();
+      } else {
+        this.showToast('Nie udało się wyczyścić stanów', 'error');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Clear all error:', e);
+      this.showToast('Błąd: ' + e.message, 'error');
+    }
+  },
+
+  async loadExistingCredentials() {
+    try {
+      const creds = await AFO_CREDENTIALS.get();
+
+      if (creds) {
+        document.getElementById('afo-creds-login').value = creds.login || '';
+        document.getElementById('afo-creds-password').value = creds.password || '';
+      } else {
+        // Try to get login from GAME
+        if (typeof GAME !== 'undefined' && GAME.login) {
+          document.getElementById('afo-creds-login').value = GAME.login;
+        }
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Load credentials error:', e);
+    }
+  },
+
+  async saveCredentials() {
+    const login = document.getElementById('afo-creds-login').value.trim();
+    const password = document.getElementById('afo-creds-password').value;
+
+    if (!login || !password) {
+      this.showToast('Wpisz login i hasło', 'warning');
+      return;
+    }
+
+    try {
+      const success = await AFO_CREDENTIALS.save(login, password);
+
+      if (success) {
+        this.showToast('Credentials zapisane!', 'success');
+        document.getElementById('afo-creds-section').classList.remove('open');
+      } else {
+        this.showToast('Nie udało się zapisać credentials', 'error');
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT_UI] Save credentials error:', e);
+      this.showToast('Błąd: ' + e.message, 'error');
+    }
+  },
+
+  // ============================================
+  // DRAGGABLE ICON
+  // ============================================
+
+  setupDraggable() {
+    const icon = document.getElementById('afo-reconnect-icon');
+    if (!icon) return;
+
+    let isDragging = false;
+    let hasMoved = false;
+    let startX, startY, startLeft, startTop;
+
+    // Load saved position or use default
+    this.loadIconPosition(icon);
+
+    const getPos = (e) => {
+      if (e.touches && e.touches.length) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+      return { x: e.clientX, y: e.clientY };
+    };
+
+    const onStart = (e) => {
+      const pos = getPos(e);
+      startX = pos.x;
+      startY = pos.y;
+
+      const rect = icon.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      isDragging = true;
+      hasMoved = false;
+    };
+
+    const onMove = (e) => {
+      if (!isDragging) return;
+
+      const pos = getPos(e);
+      const dx = pos.x - startX;
+      const dy = pos.y - startY;
+
+      // Only start dragging after 5px threshold
+      if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+
+      hasMoved = true;
+      icon.classList.add('dragging');
+      e.preventDefault();
+
+      // Clamp within viewport
+      const maxX = window.innerWidth - icon.offsetWidth;
+      const maxY = window.innerHeight - icon.offsetHeight;
+      const newLeft = Math.max(0, Math.min(maxX, startLeft + dx));
+      const newTop = Math.max(0, Math.min(maxY, startTop + dy));
+
+      icon.style.left = newLeft + 'px';
+      icon.style.top = newTop + 'px';
+      icon.style.right = 'auto';
+    };
+
+    const onEnd = () => {
+      isDragging = false;
+      icon.classList.remove('dragging');
+
+      // If we moved, save position and suppress the click (menu open)
+      if (hasMoved) {
+        this.saveIconPosition(icon);
+        const suppress = (e) => { e.stopImmediatePropagation(); };
+        icon.addEventListener('click', suppress, { once: true, capture: true });
+      }
+    };
+
+    // Mouse events
+    icon.addEventListener('mousedown', onStart);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+
+    // Touch events
+    icon.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+
+    // Clamp position on window resize
+    window.addEventListener('resize', () => {
+      this.clampIconToViewport(icon);
+    });
+  },
+
+  /**
+   * Load saved icon position from localStorage
+   */
+  loadIconPosition(icon) {
+    try {
+      const saved = localStorage.getItem('afo_reconnect_icon_pos');
+      if (saved) {
+        const pos = JSON.parse(saved);
+        icon.style.left = pos.left + 'px';
+        icon.style.top = pos.top + 'px';
+        icon.style.right = 'auto';
+        // Clamp to ensure it's visible
+        this.clampIconToViewport(icon);
+      }
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to load icon position:', e);
+    }
+  },
+
+  /**
+   * Save icon position to localStorage
+   */
+  saveIconPosition(icon) {
+    try {
+      const rect = icon.getBoundingClientRect();
+      localStorage.setItem('afo_reconnect_icon_pos', JSON.stringify({
+        left: rect.left,
+        top: rect.top
+      }));
+    } catch (e) {
+      console.warn('[AFO_RECONNECT_UI] Failed to save icon position:', e);
+    }
+  },
+
+  /**
+   * Clamp icon to viewport (prevent going off-screen)
+   */
+  clampIconToViewport(icon) {
+    const rect = icon.getBoundingClientRect();
+    const maxX = window.innerWidth - icon.offsetWidth;
+    const maxY = window.innerHeight - icon.offsetHeight;
+
+    let newLeft = rect.left;
+    let newTop = rect.top;
+    let changed = false;
+
+    if (newLeft < 0) {
+      newLeft = 0;
+      changed = true;
+    } else if (newLeft > maxX) {
+      newLeft = maxX;
+      changed = true;
+    }
+
+    if (newTop < 0) {
+      newTop = 0;
+      changed = true;
+    } else if (newTop > maxY) {
+      newTop = maxY;
+      changed = true;
+    }
+
+    if (changed) {
+      icon.style.left = newLeft + 'px';
+      icon.style.top = newTop + 'px';
+      icon.style.right = 'auto';
+      this.saveIconPosition(icon);
+    }
+  },
+
+  // ============================================
+  // TOAST NOTIFICATIONS
+  // ============================================
+
+  showToast(message, type = 'success') {
+    // Remove existing toasts
+    document.querySelectorAll('.afo-toast').forEach(t => t.remove());
+
+    const toast = document.createElement('div');
+    toast.className = `afo-toast ${type}`;
+    toast.innerHTML = `
+      <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️'}</span>
+      <span>${message}</span>
+    `;
+
+    document.body.appendChild(toast);
+
+    // Auto-remove after 3s
+    setTimeout(() => {
+      toast.style.animation = 'toastIn 0.3s ease reverse';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+};
+
+// Export
+window.AFO_RECONNECT_UI = AFO_RECONNECT_UI;
+console.log('[AFO] Reconnect UI module loaded');
+
+
+// ========== remote/reconnect/reconnect.js ==========
+/**
+ * ============================================================================
+ * AFO - Reconnect Module
+ * ============================================================================
+ * 
+ * Aggressive auto-reconnection:
+ * - On main page: immediately tries to login if credentials exist
+ * - On server page: monitors for disconnect and redirects to main page
+ * - Always restores saved state after successful login
+ * 
+ * URL Structure:
+ * - https://kosmiczni.pl/ - main/login page  
+ * - https://s1.kosmiczni.pl/ - game on server 1 (s1-sXX)
+ * 
+ * ============================================================================
+ */
+
+const AFO_RECONNECT = {
+  // ============================================
+  // TIMING CONSTANTS (milliseconds)
+  // ============================================
+  TIMING: {
+    CHECK_INTERVAL: 3000,         // How often to check connection (3s)
+    INIT_DELAY: 2000,             // Initial delay before starting
+    LOGIN_FORM_WAIT: 1000,        // Wait after filling login form
+    LOGIN_SUBMIT_WAIT: 2500,      // Wait after submitting login
+    LOGIN_PAGE_DELAY: 4000,       // Wait on login page before auto-fill (user reaction time)
+    SERVER_SELECT_WAIT: 1500,     // Wait after selecting server
+    CHAR_SELECT_DELAY: 5000,      // Wait BEFORE selecting character (user reaction time)
+    CHAR_SELECT_WAIT: 2500,       // Wait after selecting character
+    SCRIPTS_LOAD_WAIT: 5000,      // Wait for Gieniobot scripts to load
+    GAME_READY_CHECK: 500,        // How often to check if GAME is ready
+    MAX_WAIT: 60000,              // Max time to wait for any operation
+    RETRY_DELAY: 3000             // Delay between retries
+  },
+
+  // State
+  isInitialized: false,
+  isProcessing: false,
+  isReconnecting: false,        // true ONLY after disconnect redirect
+  monitorRunning: false,
+  targetServer: null,
+  targetCharId: null,
+  savedStateToRestore: null,
+
+  // Page context
+  isMainPage: false,
+  isServerPage: false,
+  currentServer: null,
+
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+
+  init() {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+
+    console.log('[AFO_RECONNECT] Initializing...');
+
+    // Detect page context
+    this.detectPageContext();
+
+    // Start after brief delay to let page load
+    setTimeout(() => {
+      this.start();
+    }, this.TIMING.INIT_DELAY);
+  },
+
+  detectPageContext() {
+    const hostname = window.location.hostname;
+    console.log('[AFO_RECONNECT] Hostname:', hostname);
+
+    this.isMainPage = hostname === 'kosmiczni.pl' || hostname === 'www.kosmiczni.pl';
+    this.isServerPage = /^s\d+\.kosmiczni\.pl$/.test(hostname);
+
+    if (this.isServerPage) {
+      const match = hostname.match(/^s(\d+)\./);
+      this.currentServer = match ? parseInt(match[1]) : null;
+    }
+
+    console.log('[AFO_RECONNECT] Context:', {
+      isMainPage: this.isMainPage,
+      isServerPage: this.isServerPage,
+      currentServer: this.currentServer
+    });
+  },
+
+  async start() {
+    console.log('[AFO_RECONNECT] Starting...');
+
+    try {
+      // Auth/session-error page detection. The game may serve this either at a
+      // non-root path (e.g. /auth?sid=) OR at '/' with only an error message.
+      // Detect by BOTH pathname and DOM content so we never get stuck here.
+      if (this.isServerPage && (window.location.pathname !== '/' || this.isAuthErrorPage())) {
+        console.log('[AFO_RECONNECT] Non-game/auth-error page detected on server (path:', window.location.pathname, ', authError:', this.isAuthErrorPage(), ') - recovering...');
+        if (!this.targetServer) this.targetServer = this.currentServer;
+        await this.recoverFromAuthError();
+        return;
+      }
+
+      // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
+      await this.loadReconnectTarget();
+
+      // Load credentials
+      const creds = await this.getCredentials();
+      if (!creds) {
+        console.log('[AFO_RECONNECT] No credentials saved, passive mode');
+        // Still monitor for disconnect on server page
+        if (this.isServerPage) {
+          this.startDisconnectMonitor();
+        }
+        return;
+      }
+
+      // On server page: set targetServer from URL if not already set
+      if (this.isServerPage && this.currentServer && !this.targetServer) {
+        this.targetServer = this.currentServer;
+      }
+
+      // Load saved state (on server page always, on main page only when reconnecting)
+      if (this.isServerPage || this.isReconnecting) {
+        await this.loadSavedState();
+      }
+
+      // MAIN PAGE: Auto-login when reconnecting or when recent state exists
+      if (this.isMainPage) {
+        if (this.isReconnecting) {
+          console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
+          await this.handleMainPage(creds);
+        } else {
+          // Infer reconnect from recent saved state (catches server restart redirects
+          // where disconnect monitor didn't have time to save reconnect target)
+          const inferred = await this.inferReconnectFromState();
+          if (inferred) {
+            console.log('[AFO_RECONNECT] On main page, inferred reconnect from recent state - initiating login...');
+            this.isReconnecting = true;
+            await this.handleMainPage(creds);
+          } else {
+            console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
+          }
+        }
+      }
+
+      // SERVER PAGE: Always handle (monitor + auto-select if saved state exists)
+      if (this.isServerPage) {
+        await this.handleServerPage(creds);
+      }
+    } catch (error) {
+      console.error('[AFO_RECONNECT] start() failed:', error, '- retrying in 5s...');
+      this.isInitialized = false;
+      this.isProcessing = false;
+      setTimeout(() => {
+        this.init();
+      }, 5000);
+    }
+  },
+
+  async loadReconnectTarget() {
+    if (typeof AFO_STORAGE === 'undefined') return;
+
+    try {
+      const result = await AFO_STORAGE.get('afo_reconnect_target');
+      const target = result['afo_reconnect_target'];
+
+      if (target && target.server) {
+        this.targetServer = parseInt(target.server);
+        this.targetCharId = target.charId ? parseInt(target.charId) : null;
+        this.isReconnecting = true;
+        console.log('[AFO_RECONNECT] Loaded reconnect target (reconnect mode):', this.targetServer, this.targetCharId);
+
+        // Only clear on server page (where we consume it).
+        // On main page we keep it so the flag survives the redirect to server page.
+        if (this.isServerPage) {
+          await AFO_STORAGE.remove('afo_reconnect_target');
+        }
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT] Error loading reconnect target:', e);
+    }
+  },
+
+  // ============================================
+  // MAIN PAGE HANDLER
+  // ============================================
+
+  async handleMainPage(creds) {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+
+    try {
+      // Wait for page to be ready + give user time to react
+      console.log('[AFO_RECONNECT] Waiting before auto-login (giving user time to react)...');
+      await this.sleep(this.TIMING.LOGIN_PAGE_DELAY);
+
+      // Retry login form detection (DOM may not be ready on mobile)
+      const MAX_LOGIN_ATTEMPTS = 8;
+      let loginDone = false;
+
+      for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
+        if (this.needsCredentialsLogin()) {
+          console.log('[AFO_RECONNECT] Filling credentials (attempt ' + (i + 1) + ')...');
+          await this.fillCredentials(creds);
+          await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
+          loginDone = true;
+          break;
+        }
+
+        // Already past login (server select visible or redirected)?
+        if (this.needsServerSelect()) {
+          loginDone = true;
+          break;
+        }
+
+        console.log('[AFO_RECONNECT] Main page: waiting for login form (attempt ' + (i + 1) + '/' + MAX_LOGIN_ATTEMPTS + ')...');
+        await this.sleep(2000);
+      }
+
+      if (!loginDone) {
+        console.warn('[AFO_RECONNECT] Login form not found after ' + MAX_LOGIN_ATTEMPTS + ' attempts');
+      }
+
+      // Retry server select detection
+      const MAX_SERVER_ATTEMPTS = 8;
+      for (let i = 0; i < MAX_SERVER_ATTEMPTS; i++) {
+        if (this.needsServerSelect()) {
+          // Wrong-account guard: the shared-IP glitch sometimes auto-logs a DIFFERENT
+          // account. If the shown login (#logged_login) mismatches our credentials,
+          // log out and re-login as the correct account before selecting a server.
+          const loggedLogin = (document.getElementById('logged_login')?.innerText || '').trim();
+          if (loggedLogin && creds.login && loggedLogin.toLowerCase() !== creds.login.toLowerCase()) {
+            console.warn('[AFO_RECONNECT] Wrong account on server-select: logged="' + loggedLogin + '" expected="' + creds.login + '"');
+            await this.handleWrongAccount(creds);
+            continue; // re-evaluate fresh (login/server-select for the correct account)
+          }
+
+          if (this.targetServer) {
+            console.log('[AFO_RECONNECT] Server-select ready (logged="' + loggedLogin + '"). Selecting server', this.targetServer);
+            await this.selectServer(this.targetServer);
+            // After server select, page will redirect to server page
+            return;
+          }
+          console.warn('[AFO_RECONNECT] Server-select ready but no targetServer known - waiting...');
+        }
+
+        // Check if we've already been redirected (no longer on main page)
+        if (window.location.hostname !== 'kosmiczni.pl' && window.location.hostname !== 'www.kosmiczni.pl') {
+          console.log('[AFO_RECONNECT] Already redirected to', window.location.hostname);
+          return;
+        }
+
+        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ', targetServer=' + this.targetServer + ')...');
+        await this.sleep(2000);
+      }
+
+      // Not found - fall through to retry below
+      console.warn('[AFO_RECONNECT] Server select not found after ' + MAX_SERVER_ATTEMPTS + ' attempts');
+
+    } catch (error) {
+      console.error('[AFO_RECONNECT] Main page error:', error);
+    } finally {
+      this.isProcessing = false;
+    }
+
+    // Never give up - retry after delay (both "not found" and error paths end up here)
+    console.log('[AFO_RECONNECT] Retrying main page login in 15s...');
+    await this.sleep(15000);
+    return this.handleMainPage(creds);
+  },
+
+  // ============================================
+  // SERVER PAGE HANDLER  
+  // ============================================
+
+  async handleServerPage(creds, _attempt) {
+    // Track attempts to prevent infinite loop
+    if (_attempt === undefined) _attempt = 0;
+    const MAX_ATTEMPTS = 60; // max ~3 minutes of retrying (60 * 3s)
+
+    console.log('[AFO_RECONNECT] handleServerPage attempt ' + (_attempt + 1) + '/' + MAX_ATTEMPTS + ' (reconnecting:', this.isReconnecting, ')');
+
+    if (_attempt >= MAX_ATTEMPTS) {
+      console.error('[AFO_RECONNECT] handleServerPage: max attempts reached (' + MAX_ATTEMPTS + '), giving up. GAME state:',
+        typeof GAME !== 'undefined' ? { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected } : 'GAME undefined');
+      return;
+    }
+
+    // Start disconnect monitor immediately (always, regardless of reconnect mode)
+    this.startDisconnectMonitor();
+
+    // FAST PATH: auth/session-error page (detected by content) — recover instantly
+    // instead of waiting 30s for a GAME that will never load.
+    if (this.isAuthErrorPage()) {
+      console.log('[AFO_RECONNECT] Auth/error page detected by content in handleServerPage — recovering...');
+      await this.recoverFromAuthError();
+      return;
+    }
+
+    // Wait for GAME to be available (longer timeout for mobile)
+    const waitStart = Date.now();
+    const gameReady = await this.waitForGame(30000);
+
+    if (!gameReady) {
+      // Check if this is actually the game page or a server-rendered error/auth page
+      // #game_win is in the static HTML of the game client (bigcode.html line 31), always present
+      // On auth error pages (e.g. session expired after server restart) it does NOT exist
+      const hasGameStructure = document.getElementById('game_win');
+
+      if (!hasGameStructure) {
+        // Not the game page - likely auth error or session expired page
+        console.log('[AFO_RECONNECT] No #game_win after 30s - treating as auth/error page. Recovering...');
+        await this.recoverFromAuthError();
+        return;
+      }
+
+      // Game page structure exists but GAME JS not loaded yet - keep retrying
+      console.warn('[AFO_RECONNECT] GAME not available after 30s (game structure present, JS still loading). Retrying...');
+      await this.sleep(3000);
+      return this.handleServerPage(creds, _attempt + 1);
+    }
+
+    console.log('[AFO_RECONNECT] GAME ready after ' + (Date.now() - waitStart) + 'ms');
+
+    // Check if disconnected (GAME exists but connection lost)
+    if (this.isDisconnected()) {
+      if (this.savedStateToRestore) {
+        // We have saved state - initiate reconnect regardless of isReconnecting flag
+        console.log('[AFO_RECONNECT] Disconnected on server page with saved state, redirecting...');
+        await this.saveReconnectTarget();
+        window.location.href = 'https://kosmiczni.pl/';
+      } else {
+        console.log('[AFO_RECONNECT] Disconnected, no saved state - monitor will handle future disconnects');
+      }
+      return;
+    }
+
+    // Check if on character select
+    if (this.isCharacterSelectScreen()) {
+      if (!this.isReconnecting) {
+        console.log('[AFO_RECONNECT] On character select, not reconnecting - skipping auto-select and restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      if (!this.savedStateToRestore) {
+        console.log('[AFO_RECONNECT] On character select, no saved state - skipping auto-select');
+        return;
+      }
+
+      if (this.currentServer !== this.targetServer) {
+        console.log('[AFO_RECONNECT] Server mismatch! Current:', this.currentServer, 'Target:', this.targetServer, '- skipping auto-select');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      // Give user time to manually select a different character
+      console.log('[AFO_RECONNECT] On character select, waiting', this.TIMING.CHAR_SELECT_DELAY, 'ms before auto-selecting (saved state exists for char', this.targetCharId, ')...');
+      await this.sleep(this.TIMING.CHAR_SELECT_DELAY);
+
+      // Re-check: user might have selected a character manually during the delay
+      if (this.isFullyLoggedIn()) {
+        console.log('[AFO_RECONNECT] User already logged in during wait - checking if state should be restored');
+        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
+          await this.restoreState();
+        } else {
+          console.log('[AFO_RECONNECT] User chose different character (', GAME.char_id, ') than target (', this.targetCharId, ') - skipping restore');
+          this.savedStateToRestore = null;
+        }
+        return;
+      }
+
+      // Still on char select - auto-select the target character (or wait for manual selection)
+      if (this.isCharacterSelectScreen()) {
+        if (this.targetCharId) {
+          console.log('[AFO_RECONNECT] Auto-selecting character', this.targetCharId);
+        } else {
+          console.log('[AFO_RECONNECT] No target charId, waiting for manual character selection...');
+        }
+        await this.selectCharacter(this.targetCharId);
+
+        // Wait for login (manual or auto)
+        if (!this.isFullyLoggedIn()) {
+          console.log('[AFO_RECONNECT] Waiting for full login...');
+          await this.waitForFullyLoggedIn(60000);
+        }
+
+        // Go to map first to avoid GAME.mapCharMove errors
+        console.log('[AFO_RECONNECT] Waiting 2s then going to map...');
+        await this.sleep(2000);
+        if (typeof GAME !== 'undefined' && GAME.page_switch) {
+          GAME.page_switch('game_map');
+          console.log('[AFO_RECONNECT] Switched to game_map');
+          await this.sleep(1000);
+        }
+
+        await this.restoreState();
+        return;
+      }
+
+      return;
+    }
+
+    // Check if fully logged in
+    if (this.isFullyLoggedIn()) {
+      console.log('[AFO_RECONNECT] Already logged in (char_id:', GAME.char_id, 'server:', GAME.server, 'login:', GAME.login, ')');
+      // Confirmed logged in → reset the auth-error loop guard
+      this.clearReconnectAttempts();
+      if (this.savedStateToRestore && this.isReconnecting) {
+        // Validate server/char match before restoring
+        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
+          await this.restoreState();
+        } else {
+          console.log('[AFO_RECONNECT] Logged in but server/char mismatch - skipping restore. Current:', GAME.server + '/' + GAME.char_id, 'Target:', this.targetServer + '/' + this.targetCharId);
+          this.savedStateToRestore = null;
+        }
+      } else if (this.savedStateToRestore && !this.isReconnecting) {
+        console.log('[AFO_RECONNECT] Already logged in, but not reconnecting - skipping restore');
+        this.savedStateToRestore = null;
+      }
+      return;
+    }
+
+    // Otherwise wait and check again (GAME exists but not fully logged in yet)
+    console.log('[AFO_RECONNECT] GAME exists but not fully logged in yet, retrying in 3s...',
+      { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected });
+    await this.sleep(3000);
+    return this.handleServerPage(creds, _attempt + 1);
+  },
+
+  // ============================================
+  // DISCONNECT MONITOR
+  // ============================================
+
+  startDisconnectMonitor() {
+    if (this.monitorRunning) {
+      console.log('[AFO_RECONNECT] Monitor already running');
+      return;
+    }
+
+    this.monitorRunning = true;
+    console.log('[AFO_RECONNECT] 🔴 Starting disconnect monitor (interval: ' + this.TIMING.CHECK_INTERVAL + 'ms)');
+
+    // Store interval ID to allow cleanup
+    this.monitorIntervalId = setInterval(() => {
+      if (this.isProcessing) return;
+
+      // Check GAME.is_disconnected - most reliable
+      if (typeof GAME !== 'undefined') {
+        if (GAME.is_disconnected > 0) {
+          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: GAME.is_disconnected =', GAME.is_disconnected);
+          this.handleDisconnect();
+          return;
+        }
+
+        // GAME.pid === 0 means disconnected (but we had char_id before)
+        if (GAME.pid === 0 && GAME.char_id > 0) {
+          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: GAME.pid = 0');
+          this.handleDisconnect();
+          return;
+        }
+      }
+
+      // Check for disconnect message
+      const komCon = document.getElementById('kom_con');
+      if (komCon && komCon.innerText.includes('Rozłączono z serwerem!')) {
+        console.log('[AFO_RECONNECT] 🔴 Disconnect detected: message visible');
+        this.handleDisconnect();
+        return;
+      }
+
+      // Check for hidden game window (only if we have char_id)
+      const gameWin = document.querySelector('#game_win');
+      if (gameWin && gameWin.style.display === 'none') {
+        if (typeof GAME !== 'undefined' && GAME.char_id > 0) {
+          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: #game_win hidden');
+          this.handleDisconnect();
+          return;
+        }
+      }
+    }, this.TIMING.CHECK_INTERVAL);
+
+    // Proactive save on page unload (catches server restart redirects
+    // where disconnect monitor doesn't fire in time)
+    if (!this._beforeUnloadBound) {
+      this._beforeUnloadBound = true;
+      window.addEventListener('beforeunload', () => {
+        if (!this.isServerPage) return;
+        if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
+
+        try {
+          if (typeof AFO_STATE_MANAGER !== 'undefined') {
+            AFO_STATE_MANAGER.save();
+          }
+          if (typeof AFO_STORAGE !== 'undefined') {
+            AFO_STORAGE.set({
+              'afo_reconnect_target': {
+                server: GAME.server,
+                charId: GAME.char_id,
+                savedAt: Date.now()
+              }
+            });
+          }
+        } catch (e) { /* swallow errors during unload */ }
+      });
+    }
+  },
+
+  stopDisconnectMonitor() {
+    if (this.monitorIntervalId) {
+      clearInterval(this.monitorIntervalId);
+      this.monitorIntervalId = null;
+      this.monitorRunning = false;
+      console.log('[AFO_RECONNECT] Monitor stopped');
+    }
+  },
+
+  async handleDisconnect() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+
+    console.log('[AFO_RECONNECT] 🔄 Handling disconnect...');
+
+    // Get credentials
+    const creds = await this.getCredentials();
+    if (!creds) {
+      console.log('[AFO_RECONNECT] No credentials, cannot auto-reconnect');
+      this.isProcessing = false;
+      return;
+    }
+
+    // Save target and redirect with small delay so user can see what's happening
+    console.log('[AFO_RECONNECT] Saving target and redirecting to main page in 1.5s...');
+    await this.saveReconnectTarget();
+
+    await this.sleep(1500);
+    window.location.href = 'https://kosmiczni.pl/';
+  },
+
+  // ============================================
+  // LOGIN HELPERS
+  // ============================================
+
+  needsCredentialsLogin() {
+    const notLogged = document.getElementById('not_logged');
+    if (!notLogged) return false;
+
+    const style = window.getComputedStyle(notLogged);
+    const isVisible = style.display !== 'none' && !notLogged.classList.contains('initial_hide');
+
+    const loginField = document.getElementById('login_login');
+    return isVisible && loginField;
+  },
+
+  needsServerSelect() {
+    const loggedId = document.getElementById('logged_id');
+    if (!loggedId) return false;
+
+    const style = window.getComputedStyle(loggedId);
+    const isVisible = style.display !== 'none';
+
+    const serverSelect = document.getElementById('server_choose');
+    return isVisible && serverSelect;
+  },
+
+  async fillCredentials(creds) {
+    const loginField = document.getElementById('login_login');
+    const passwordField = document.getElementById('login_pass');
+    const loginButton = document.getElementById('cg_login_button1');
+
+    if (!loginField || !passwordField) {
+      console.log('[AFO_RECONNECT] Login form not found');
+      return;
+    }
+
+    loginField.value = creds.login;
+    passwordField.value = creds.password;
+
+    console.log('[AFO_RECONNECT] Filled credentials, submitting...');
+
+    await this.sleep(this.TIMING.LOGIN_FORM_WAIT);
+
+    if (loginButton) {
+      loginButton.click();
+    }
+  },
+
+  async selectServer(server) {
+    const serverSelect = document.getElementById('server_choose');
+    const loginButton = document.getElementById('cg_login_button2');
+
+    if (serverSelect) {
+      serverSelect.value = server.toString();
+      serverSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log('[AFO_RECONNECT] Selected server', server, ', submitting...');
+      await this.sleep(this.TIMING.SERVER_SELECT_WAIT);
+      if (loginButton) loginButton.click();
+      // Give the click a moment to trigger navigation
+      await this.sleep(2500);
+    } else {
+      console.log('[AFO_RECONNECT] Server select not found - will try direct navigation');
+    }
+
+    // Robust fallback: if we're still on the main page (click didn't navigate — common
+    // on mobile/touch), navigate directly the same way the game does on server select
+    // (bigcode.html: window.location.href = GAME.main_page + '/login/' + server).
+    if (window.location.hostname === 'kosmiczni.pl' || window.location.hostname === 'www.kosmiczni.pl') {
+      console.log('[AFO_RECONNECT] Still on main page — navigating directly to /login/' + server);
+      window.location.href = 'https://kosmiczni.pl/login/' + server;
+    }
+  },
+
+  async selectCharacter(charId) {
+    if (!charId) {
+      console.log('[AFO_RECONNECT] No target charId, waiting for manual selection');
+      return;
+    }
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+
+    try {
+      console.log('[AFO_RECONNECT] Selecting character', charId);
+
+      await this.sleep(1000);
+
+      if (typeof GAME !== 'undefined' && GAME.socket) {
+        GAME.socket.emit('ga', { a: 2, char_id: parseInt(charId) });
+        console.log('[AFO_RECONNECT] Sent character select via socket');
+      } else {
+        const charElement = document.querySelector(`[data-char_id="${charId}"]`);
+        if (charElement) {
+          charElement.click();
+          console.log('[AFO_RECONNECT] Clicked character in list');
+        } else {
+          console.log('[AFO_RECONNECT] Character not found in list');
+        }
+      }
+
+      await this.sleep(this.TIMING.CHAR_SELECT_WAIT);
+    } finally {
+      this.isProcessing = false;
+    }
+  },
+
+  // ============================================
+  // STATE CHECKS
+  // ============================================
+
+  isDisconnected() {
+    // GAME not loaded yet ≠ disconnected (critical for mobile where GAME loads slowly)
+    if (typeof GAME === 'undefined') return false;
+
+    if (GAME.is_disconnected > 0) return true;
+    if (GAME.pid === 0 && !this.isCharacterSelectScreen()) return true;
+
+    const komCon = document.getElementById('kom_con');
+    if (komCon && komCon.innerText.includes('Rozłączono z serwerem!')) return true;
+
+    return false;
+  },
+
+  isCharacterSelectScreen() {
+    const charList = document.querySelector('#char_list_con');
+    if (charList && charList.children.length > 0) return true;
+
+    if (typeof GAME !== 'undefined' && GAME.player_chars > 0 && !GAME.char_id) return true;
+
+    return false;
+  },
+
+  isFullyLoggedIn() {
+    if (typeof GAME === 'undefined') return false;
+    return GAME.pid > 0 && GAME.char_id > 0 && GAME.char_data;
+  },
+
+  /**
+   * Detect the server-side auth/session-expired error page by CONTENT (not just URL).
+   * After a server restart the game sometimes serves this page even at pathname '/'
+   * (see auth.html): <div class="kom"><div class="content">Uwierzytelnienie sesji nie
+   * powiodło się lub sesja wygasła!</div><a class="newBtn" href="https://kosmiczni.pl">
+   * Strona Głowna</a></div>. It has NO #game_win, no jQuery and no GAME.
+   */
+  isAuthErrorPage() {
+    try {
+      // Real game page always has #game_win in its static HTML → never an error page
+      if (document.getElementById('game_win')) return false;
+
+      const kom = document.querySelector('div.kom .content');
+      if (kom) {
+        const t = (kom.innerText || kom.textContent || '').toLowerCase();
+        if (t.includes('uwierzytelnienie') || t.includes('sesja wygas') ||
+            t.includes('sesji nie') || t.includes('nie powiod')) {
+          return true;
+        }
+      }
+
+      // Fallback: the "Strona Głowna" recovery link back to the main page
+      const btn = document.querySelector('a.newBtn[href*="kosmiczni.pl"]');
+      if (btn) return true;
+    } catch (e) {
+      // DOM not ready / access error — treat as not-an-error-page
+    }
+    return false;
+  },
+
+  /**
+   * Recover from an auth/session-error page: register the attempt (loop guard),
+   * back off progressively if we're bouncing, then redirect to the main page to
+   * restart the login flow. Always redirects even if storage fails.
+   */
+  async recoverFromAuthError() {
+    if (this._recovering) return;
+    this._recovering = true;
+
+    if (!this.targetServer && this.currentServer) this.targetServer = this.currentServer;
+
+    const backoff = await this.registerReconnectAttempt();
+    if (backoff > 0) {
+      console.warn('[AFO_RECONNECT] ⏳ Reconnect loop detected — backing off ' + Math.round(backoff / 1000) + 's before retry');
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        try { AFO_RECONNECT_UI.showToast('Pętla reconnectu — odczekuję ' + Math.round(backoff / 1000) + 's', 'warning'); } catch (e) { }
+      }
+      await this.sleep(backoff);
+    } else {
+      // Brief settle so the server finishes restarting before we hammer login
+      await this.sleep(2000);
+    }
+
+    await this.saveReconnectTarget();
+    window.location.href = 'https://kosmiczni.pl/';
+  },
+
+  /**
+   * Loop guard for auth-error recovery. Counts attempts in a 5-min window and
+   * returns EXTRA backoff ms once we exceed a small threshold (0 = normal).
+   */
+  async registerReconnectAttempt() {
+    if (typeof AFO_STORAGE === 'undefined') return 0;
+    const KEY = 'afo_reconnect_attempts';
+    const WINDOW = 5 * 60 * 1000; // 5 min
+    try {
+      const now = Date.now();
+      const res = await AFO_STORAGE.get(KEY);
+      let rec = res[KEY];
+      if (!rec || (now - (rec.firstAt || 0)) > WINDOW) {
+        rec = { count: 0, firstAt: now };
+      }
+      rec.count++;
+      rec.lastAt = now;
+      await AFO_STORAGE.set({ [KEY]: rec });
+      console.log('[AFO_RECONNECT] Reconnect attempt #' + rec.count + ' in current window');
+      // After 3 quick attempts, back off: 10s, 20s, 40s, 80s ... cap 120s
+      if (rec.count > 3) {
+        return Math.min(120000, 10000 * Math.pow(2, rec.count - 4));
+      }
+      return 0;
+    } catch (e) {
+      return 0;
+    }
+  },
+
+  /** Reset the loop-guard counter after a confirmed successful login. */
+  async clearReconnectAttempts() {
+    if (typeof AFO_STORAGE === 'undefined') return;
+    try { await AFO_STORAGE.remove('afo_reconnect_attempts'); } catch (e) { }
+  },
+
+  /**
+   * Wrong-account guard (game glitch): on shared IP the server sometimes auto-logs
+   * a DIFFERENT account. If the login shown on the server-select screen (#logged_login)
+   * doesn't match our saved credentials, log out, wait, and log back in correctly.
+   * Returns true if a re-login was performed.
+   */
+  async handleWrongAccount(creds) {
+    const logoutBtn = document.getElementById('logout');
+    console.warn('[AFO_RECONNECT] 🔁 Wrong account detected — logging out and re-logging as', creds.login);
+    if (logoutBtn) logoutBtn.click();
+    await this.sleep(2500);
+
+    // Login form should reappear after logout
+    for (let i = 0; i < 8; i++) {
+      if (this.needsCredentialsLogin()) {
+        console.log('[AFO_RECONNECT] Re-filling correct credentials (attempt ' + (i + 1) + ')...');
+        await this.fillCredentials(creds);
+        await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
+        return true;
+      }
+      await this.sleep(1000);
+    }
+    console.warn('[AFO_RECONNECT] Login form did not reappear after logout');
+    return false;
+  },
+
+  // ============================================
+  // WAITING HELPERS
+  // ============================================
+
+  async waitForGame(timeout = 60000) {
+    console.log('[AFO_RECONNECT] Waiting for GAME (timeout: ' + (timeout / 1000) + 's)...');
+    const startTime = Date.now();
+
+    return new Promise((resolve) => {
+      const check = () => {
+        if (typeof GAME !== 'undefined') {
+          console.log('[AFO_RECONNECT] GAME found after ' + (Date.now() - startTime) + 'ms');
+          resolve(true);
+          return;
+        }
+
+        if (Date.now() - startTime > timeout) {
+          console.warn('[AFO_RECONNECT] GAME not found after ' + timeout + 'ms timeout');
+          resolve(false);
+          return;
+        }
+
+        setTimeout(check, this.TIMING.GAME_READY_CHECK);
+      };
+
+      check();
+    });
+  },
+
+  async waitForFullyLoggedIn(timeout = 60000) {
+    const startTime = Date.now();
+
+    return new Promise((resolve) => {
+      const check = () => {
+        if (this.isFullyLoggedIn()) {
+          resolve(true);
+          return;
+        }
+
+        if (Date.now() - startTime > timeout) {
+          resolve(false);
+          return;
+        }
+
+        setTimeout(check, this.TIMING.GAME_READY_CHECK);
+      };
+
+      check();
+    });
+  },
+
+  // ============================================
+  // CREDENTIALS & STATE
+  // ============================================
+
+  /**
+   * Check if there's a recently saved state (< 10 min) that implies we should reconnect.
+   * Catches server restart redirects where disconnect monitor didn't save target in time.
+   */
+  async inferReconnectFromState() {
+    if (typeof AFO_STORAGE === 'undefined') return false;
+
+    try {
+      const result = await AFO_STORAGE.get(null);
+      const now = Date.now();
+      const MAX_AGE = 10 * 60 * 1000; // 10 minutes
+
+      for (const key in result) {
+        if (!key.startsWith('gieniobot_state_s') || !result[key]?.savedAt) continue;
+        if (now - result[key].savedAt < MAX_AGE) {
+          const match = key.match(/gieniobot_state_s(\d+)/);
+          if (match) {
+            this.targetServer = parseInt(match[1]);
+            this.targetCharId = result[key].charId || null;
+            this.savedStateToRestore = result[key];
+            console.log('[AFO_RECONNECT] Inferred reconnect from recent state (age:', Math.round((now - result[key].savedAt) / 1000), 's, server:', this.targetServer, ')');
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[AFO_RECONNECT] inferReconnectFromState error:', e);
+    }
+
+    return false;
+  },
+
+  async getCredentials() {
+    if (typeof AFO_CREDENTIALS === 'undefined') return null;
+
+    // Credentials are global (one per account)
+    return await AFO_CREDENTIALS.get();
+  },
+
+  async loadSavedState() {
+    if (typeof AFO_STATE_MANAGER === 'undefined') {
+      this.savedStateToRestore = null;
+      return;
+    }
+
+    if (this.targetServer) {
+      this.savedStateToRestore = await AFO_STATE_MANAGER.load(this.targetServer, this.targetCharId);
+    }
+
+    if (this.savedStateToRestore) {
+      console.log('[AFO_RECONNECT] Loaded saved state from', new Date(this.savedStateToRestore.savedAt).toLocaleTimeString(),
+        'server:', this.savedStateToRestore.server, 'char:', this.savedStateToRestore.charId);
+      // Update targetCharId from saved state (state is per-server, charId stored inside)
+      if (this.savedStateToRestore.charId && !this.targetCharId) {
+        this.targetCharId = this.savedStateToRestore.charId;
+      }
+    }
+  },
+
+  async restoreState() {
+    if (!this.savedStateToRestore) {
+      console.log('[AFO_RECONNECT] No saved state to restore');
+      return;
+    }
+
+    if (typeof AFO_STATE_MANAGER === 'undefined') {
+      console.warn('[AFO_RECONNECT] State manager not available');
+      return;
+    }
+
+    // Must be fully logged in with a real character before restoring (char_id > 0)
+    if (!this.isFullyLoggedIn() || !(GAME.char_id > 0)) {
+      console.warn('[AFO_RECONNECT] Not fully logged in (char_id > 0 required) - aborting restore. char_id:', typeof GAME !== 'undefined' ? GAME.char_id : 'GAME undefined');
+      this.savedStateToRestore = null;
+      return;
+    }
+
+    // Validate server/char/account match
+    if (typeof GAME !== 'undefined') {
+      const stateServer = this.savedStateToRestore.server;
+      const stateChar = this.savedStateToRestore.charId;
+      const stateLogin = this.savedStateToRestore.login;
+
+      if (stateServer && GAME.server && stateServer != GAME.server) {
+        console.warn('[AFO_RECONNECT] Server mismatch! State:', stateServer, 'Current:', GAME.server, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      if (stateChar && GAME.char_id && stateChar != GAME.char_id) {
+        console.warn('[AFO_RECONNECT] Character mismatch! State:', stateChar, 'Current:', GAME.char_id, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+
+      // Account cross-check (wrong-account glitch): never restore onto a different account
+      if (stateLogin && GAME.login && String(stateLogin).toLowerCase() !== String(GAME.login).toLowerCase()) {
+        console.warn('[AFO_RECONNECT] Account mismatch! State login:', stateLogin, 'Current:', GAME.login, '- aborting restore');
+        this.savedStateToRestore = null;
+        return;
+      }
+    }
+
+    // We're confirmed logged in on the correct account/char → clear the loop guard
+    this.clearReconnectAttempts();
+
+    console.log('[AFO_RECONNECT] Waiting for scripts to load...');
+    await this.sleep(this.TIMING.SCRIPTS_LOAD_WAIT);
+
+    // Show cancellable progress bar (10 seconds)
+    console.log('[AFO_RECONNECT] Showing cancel bar for 10s...');
+    const cancelled = await this.showRestoreCountdown(10);
+
+    if (cancelled) {
+      console.log('[AFO_RECONNECT] ❌ State restore cancelled by user');
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        AFO_RECONNECT_UI.showToast('Przywracanie stanu anulowane', 'warning');
+      }
+      this.savedStateToRestore = null;
+      return;
+    }
+
+    console.log('[AFO_RECONNECT] Restoring saved state...');
+
+    const success = AFO_STATE_MANAGER.deserialize(this.savedStateToRestore, true);
+
+    if (success) {
+      console.log('[AFO_RECONNECT] ✅ State restore initiated (toast will appear after completion)');
+
+      // Add to history
+      if (typeof AFO_RECONNECT_UI !== 'undefined') {
+        AFO_RECONNECT_UI.addReconnectTimestamp(Date.now());
+      }
+    } else {
+      console.warn('[AFO_RECONNECT] Failed to restore state');
+    }
+
+    this.savedStateToRestore = null;
+  },
+
+  /**
+   * Show a countdown progress bar with cancel button.
+   * Returns true if cancelled, false if countdown completed.
+   */
+  showRestoreCountdown(seconds) {
+    return new Promise((resolve) => {
+      const container = document.createElement('div');
+      container.id = 'afo-restore-countdown';
+      container.innerHTML = `
+        <div style="
+          position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+          background: linear-gradient(145deg, #1a1a2e, #16213e);
+          border: 1px solid #0f3460; border-radius: 12px; padding: 16px 24px;
+          z-index: 10001; min-width: 300px; max-width: 90vw;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.5); color: #fff;
+          animation: toastIn 0.3s ease;
+        ">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 14px; font-weight: 600;">🔄 Przywracanie stanu za <span id="afo-countdown-sec">${seconds}</span>s...</span>
+            <button id="afo-countdown-cancel" style="
+              background: rgba(244,67,54,0.2); color: #f44336; border: 1px solid rgba(244,67,54,0.3);
+              border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
+            ">Anuluj</button>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
+            <div id="afo-countdown-bar" style="
+              height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A);
+              width: 0%; transition: width 1s linear; border-radius: 4px;
+            "></div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(container);
+
+      let remaining = seconds;
+      const bar = document.getElementById('afo-countdown-bar');
+      const secEl = document.getElementById('afo-countdown-sec');
+      const cancelBtn = document.getElementById('afo-countdown-cancel');
+
+      let cancelled = false;
+
+      // Start progress
+      requestAnimationFrame(() => {
+        bar.style.width = `${100 / seconds}%`;
+      });
+
+      const interval = setInterval(() => {
+        remaining--;
+        if (secEl) secEl.textContent = remaining;
+        bar.style.width = `${((seconds - remaining) / seconds) * 100}%`;
+
+        if (remaining <= 0) {
+          clearInterval(interval);
+          container.remove();
+          if (!cancelled) resolve(false);
+        }
+      }, 1000);
+
+      cancelBtn.addEventListener('click', () => {
+        cancelled = true;
+        clearInterval(interval);
+        container.remove();
+        resolve(true);
+      });
+    });
+  },
+
+  async saveReconnectTarget() {
+    if (typeof AFO_STORAGE === 'undefined') return;
+
+    // Get server/char from GAME (current session) or from target fields
+    const server = (typeof GAME !== 'undefined' && GAME.server) ? GAME.server : this.targetServer;
+    const charId = (typeof GAME !== 'undefined' && GAME.char_id) ? GAME.char_id : this.targetCharId;
+
+    if (!server) {
+      console.warn('[AFO_RECONNECT] No server info available for reconnect target');
+      return;
+    }
+
+    try {
+      await AFO_STORAGE.set({
+        'afo_reconnect_target': {
+          server: server,
+          charId: charId,
+          savedAt: Date.now()
+        }
+      });
+      console.log('[AFO_RECONNECT] Saved reconnect target:', server, charId);
+    } catch (e) {
+      console.error('[AFO_RECONNECT] Error saving reconnect target:', e);
+    }
+  },
+
+  // ============================================
+  // UTILITY
+  // ============================================
+
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+};
+
+// Export
+window.AFO_RECONNECT = AFO_RECONNECT;
+console.log('[AFO] Reconnect module loaded');
+
+
+// ========== remote/reconnect/index.js ==========
+/**
+ * ============================================================================
+ * AFO - Reconnect Module Index
+ * ============================================================================
+ * 
+ * Entry point for the reconnect subsystem.
+ * Initializes immediately - doesn't wait for GAME (needed on main page).
+ * 
+ * ============================================================================
+ */
+
+const AFO_RECONNECT_INIT = {
+  initialized: false,
+
+  /**
+   * Initialize all reconnect components
+   * Called immediately on any kosmiczni.pl page
+   */
+  init() {
+    if (this.initialized) return;
+
+    console.log('[AFO_RECONNECT_INIT] Initializing reconnect system...');
+
+    // Initialize reconnect FIRST (handles login on main page)
+    if (typeof AFO_RECONNECT !== 'undefined') {
+      AFO_RECONNECT.init();
+    } else {
+      console.warn('[AFO_RECONNECT_INIT] Reconnect module not loaded');
+    }
+
+    // Initialize UI only if on server page (where GAME will be available)
+    // UI needs GAME to show character info, so we defer it
+    this.initUIWhenReady();
+
+    this.initialized = true;
+    console.log('[AFO_RECONNECT_INIT] Reconnect system initialized');
+  },
+
+  /**
+   * Initialize UI when GAME becomes available
+   */
+  initUIWhenReady() {
+    let elapsed = 0;
+    const MAX_WAIT = 120000; // 2 minutes
+
+    const checkGame = () => {
+      if (typeof GAME !== 'undefined' && GAME.char_id && GAME.char_data) {
+        // GAME is ready, init UI
+        if (typeof AFO_RECONNECT_UI !== 'undefined') {
+          setTimeout(() => {
+            AFO_RECONNECT_UI.init();
+          }, 1000);
+        }
+      } else if (elapsed < MAX_WAIT) {
+        elapsed += 1000;
+        setTimeout(checkGame, 1000);
+      } else {
+        console.warn('[AFO_RECONNECT_INIT] UI init timeout after 2 minutes (GAME not ready)');
+      }
+    };
+
+    checkGame();
+  }
+};
+
+// Initialize IMMEDIATELY when script loads
+// We need to start on main page too, not just when GAME is ready
+(function () {
+  console.log('[AFO_RECONNECT_INIT] Script loaded, initializing in 1s...');
+
+  // Small delay to ensure other reconnect scripts are loaded
+  setTimeout(() => {
+    try {
+      AFO_RECONNECT_INIT.init();
+    } catch (e) {
+      console.error('[AFO_RECONNECT_INIT] Init failed:', e, '- retrying in 5s...');
+      setTimeout(() => {
+        try {
+          AFO_RECONNECT_INIT.initialized = false;
+          AFO_RECONNECT_INIT.init();
+        } catch (e2) {
+          console.error('[AFO_RECONNECT_INIT] Retry also failed:', e2);
+        }
+      }, 5000);
+    }
+  }, 1000);
+})();
+
+// Export
+window.AFO_RECONNECT_INIT = AFO_RECONNECT_INIT;
+console.log('[AFO] Reconnect index module loaded');
+
+
 // ========== remote/core/handlers/click-handlers.js ==========
 /**
  * ============================================================================
@@ -3409,7 +7495,7 @@ if (typeof GAME === 'undefined') {
   var questRollActive1 = false;           // roll1
   var questRollActive2 = false;           // roll2
   var questRollActive3 = false;           // roll3
-  var version = '2.5.0';
+  var version = '2.6.0';
 
   // ============================================
   // SOCKET DETECTION
@@ -4819,30 +8905,33 @@ if (typeof GAME === 'undefined') {
 
     window.BALL_EXP = BALL_EXP;
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_EXP._showButtons();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_EXP.isRunning) BALL_EXP.stop();
-        BALL_EXP._hideButtons();
-    });
-    $('body').on('click', '#ss_lvlup_next', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = false;
-            BALL_EXP.run();
-        }
-    });
-    $('body').on('click', '#ss_lvlup_nonstop', () => {
-        if (BALL_EXP.isRunning) {
-            BALL_EXP.stop();
-        } else {
-            BALL_EXP.nonStop = true;
-            BALL_EXP.run();
-        }
-    });
+    // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+    if (typeof $ !== 'undefined') {
+        // UI event handlers
+        $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+            BALL_EXP._showButtons();
+        });
+        $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+            if (BALL_EXP.isRunning) BALL_EXP.stop();
+            BALL_EXP._hideButtons();
+        });
+        $('body').on('click', '#ss_lvlup_next', () => {
+            if (BALL_EXP.isRunning) {
+                BALL_EXP.stop();
+            } else {
+                BALL_EXP.nonStop = false;
+                BALL_EXP.run();
+            }
+        });
+        $('body').on('click', '#ss_lvlup_nonstop', () => {
+            if (BALL_EXP.isRunning) {
+                BALL_EXP.stop();
+            } else {
+                BALL_EXP.nonStop = true;
+                BALL_EXP.run();
+            }
+        });
+    }
 })();
 
 
@@ -4959,23 +9048,26 @@ if (typeof GAME === 'undefined') {
 
     window.BALL_UPGRADE = BALL_UPGRADE;
 
-    // UI event handlers
-    $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
-        BALL_UPGRADE._showCheckboxes();
-        BALL_UPGRADE._showButton();
-    });
-    $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
-        if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
-        BALL_UPGRADE._hideCheckboxes();
-        BALL_UPGRADE._hideButton();
-    });
-    $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
-        if (BALL_UPGRADE.isRunning) {
-            BALL_UPGRADE.stop();
-        } else {
-            BALL_UPGRADE.run();
-        }
-    });
+    // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+    if (typeof $ !== 'undefined') {
+        // UI event handlers
+        $('body').on('click', 'button[data-option="ss_page"][data-page="upgrade"]', () => {
+            BALL_UPGRADE._showCheckboxes();
+            BALL_UPGRADE._showButton();
+        });
+        $('body').on('click', 'button[data-option="ss_page"][data-page="reset"], #soulstone_interface .closeicon', () => {
+            if (BALL_UPGRADE.isRunning) BALL_UPGRADE.stop();
+            BALL_UPGRADE._hideCheckboxes();
+            BALL_UPGRADE._hideButton();
+        });
+        $('body').on('click', 'button[data-option="ss_upgrade_all"]', () => {
+            if (BALL_UPGRADE.isRunning) {
+                BALL_UPGRADE.stop();
+            } else {
+                BALL_UPGRADE.run();
+            }
+        });
+    }
 })();
 
 
@@ -5318,6 +9410,9 @@ if (typeof GAME === 'undefined') {
 
   // Load presets on init
   BALL_RESET._loadPresets();
+
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
 
   // Inject panel HTML + CSS
   const panelHTML = `
@@ -5847,6 +9942,9 @@ if (typeof GAME === 'undefined') {
   // Load presets on init
   BALL_ANGEL_RESET._loadPresets();
 
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
+
   // Build variant checkboxes when group is selected
   function buildVariants(comboIdx, slotIdx, groupIdx) {
     const container = document.querySelector(`.angel-variants[data-combo="${comboIdx}"][data-slot="${slotIdx}"]`);
@@ -6086,6 +10184,9 @@ if (typeof GAME === 'undefined') {
       petInterval = null;
     }
   }
+
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
 
   // Toggle menu button
   $('body').on('click', 'button[data-option="pet_bonch"]', () => {
@@ -6410,6 +10511,9 @@ if (typeof GAME === 'undefined') {
   };
 
   window.BALL_NAMES = BALL_NAMES;
+
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
 
   // Inject CSS
   $('body').append(`<style>${CSS}</style>`);
@@ -8285,7 +12389,8 @@ class chestOpener {
 }
 
 // Initialize chest opener
-new chestOpener();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new chestOpener();
 
 class itemUpgrader {
   constructor() {
@@ -8932,7 +13037,8 @@ class itemUpgrader {
 }
 
 // Initialize item upgrader
-new itemUpgrader();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new itemUpgrader();
 
 class cardPackOpener {
   static CARD_PACK_IDS = [1784, 2235, 2083];
@@ -9571,7 +13677,8 @@ class cardPackOpener {
 }
 
 // Initialize card pack opener
-new cardPackOpener();
+// Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+if (typeof $ !== 'undefined') new cardPackOpener();
 
 // ========== remote/features/activities/activitiesExecutor.js ==========
 /**
@@ -10989,3914 +15096,6 @@ new cardPackOpener();
     console.log('[Activities] Module initialized');
   }
 })();
-
-
-// ========== remote/reconnect/storage.js ==========
-/**
- * ============================================================================
- * AFO - Storage Bridge
- * ============================================================================
- * 
- * Provides chrome.storage.local access from page context via custom events.
- * Content script (content_script.js) handles the actual storage operations.
- * 
- * ============================================================================
- */
-
-const AFO_STORAGE = {
-  // Request ID counter for matching responses
-  _requestId: 0,
-
-  // Pending requests waiting for response
-  _pending: new Map(),
-
-  // Initialize listener for responses
-  _initialized: false,
-
-  /**
-   * Initialize the response listener
-   */
-  init() {
-    if (this._initialized) return;
-
-    window.addEventListener('__GIENIOBOT_STORAGE_RESULT__', (event) => {
-      const { requestId, success, data, error } = event.detail;
-      const pending = this._pending.get(requestId);
-
-      if (pending) {
-        this._pending.delete(requestId);
-        if (success) {
-          pending.resolve(data);
-        } else {
-          pending.reject(new Error(error || 'Storage operation failed'));
-        }
-      }
-    });
-
-    this._initialized = true;
-    console.log('[AFO_STORAGE] Bridge initialized');
-  },
-
-  /**
-   * Generate unique request ID
-   */
-  _nextRequestId() {
-    return `req_${++this._requestId}_${Date.now()}`;
-  },
-
-  /**
-   * Send request and wait for response
-   */
-  _request(eventName, detail, timeout = 10000) {
-    this.init(); // Ensure initialized
-
-    const requestId = this._nextRequestId();
-
-    return new Promise((resolve, reject) => {
-      // Set timeout
-      const timer = setTimeout(() => {
-        this._pending.delete(requestId);
-        reject(new Error('Storage request timeout'));
-      }, timeout);
-
-      // Store pending request
-      this._pending.set(requestId, {
-        resolve: (data) => {
-          clearTimeout(timer);
-          resolve(data);
-        },
-        reject: (error) => {
-          clearTimeout(timer);
-          reject(error);
-        }
-      });
-
-      // Dispatch request event
-      window.dispatchEvent(new CustomEvent(eventName, {
-        detail: { requestId, ...detail }
-      }));
-    });
-  },
-
-  // ============================================
-  // PUBLIC API (mirrors chrome.storage.local)
-  // ============================================
-
-  /**
-   * Get data from storage
-   * @param {string|string[]|null} keys - Keys to get, or null for all
-   * @returns {Promise<Object>} - Storage data
-   */
-  async get(keys) {
-    const result = await this._request('__GIENIOBOT_STORAGE_GET__', { keys });
-    return result || {};
-  },
-
-  /**
-   * Set data in storage
-   * @param {Object} data - Key-value pairs to set
-   * @returns {Promise<void>}
-   */
-  async set(data) {
-    await this._request('__GIENIOBOT_STORAGE_SET__', { data });
-  },
-
-  /**
-   * Remove keys from storage
-   * @param {string|string[]} keys - Keys to remove
-   * @returns {Promise<void>}
-   */
-  async remove(keys) {
-    await this._request('__GIENIOBOT_STORAGE_REMOVE__', { keys });
-  }
-};
-
-// Auto-initialize
-AFO_STORAGE.init();
-
-// Export
-window.AFO_STORAGE = AFO_STORAGE;
-console.log('[AFO] Storage bridge module loaded');
-
-
-// ========== remote/reconnect/credentials.js ==========
-/**
- * ============================================================================
- * AFO - Credentials Manager
- * ============================================================================
- *
- * Manages user login credentials with simple base64 obfuscation.
- * Credentials are global (one per account) - stored via AFO_STORAGE bridge.
- *
- * ============================================================================
- */
-
-const AFO_CREDENTIALS = {
-  // Storage key - single global key for the account
-  STORAGE_KEY: 'gieniobot_creds',
-
-  // Legacy prefix for cleanup
-  LEGACY_PREFIX: 'gieniobot_creds_',
-
-  // ============================================
-  // ENCODING/DECODING (base64 + reverse)
-  // ============================================
-
-  /**
-   * Simple obfuscation: reverse string + base64
-   */
-  encode(str) {
-    if (!str) return '';
-    try {
-      // Reverse the string and encode to base64
-      const reversed = str.split('').reverse().join('');
-      return btoa(unescape(encodeURIComponent(reversed)));
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Encode error:', e);
-      return '';
-    }
-  },
-
-  /**
-   * Decode: base64 decode + reverse
-   */
-  decode(str) {
-    if (!str) return '';
-    try {
-      // Decode from base64 and reverse
-      const decoded = decodeURIComponent(escape(atob(str)));
-      return decoded.split('').reverse().join('');
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Decode error:', e);
-      return '';
-    }
-  },
-
-  // ============================================
-  // SAVE / LOAD / DELETE
-  // ============================================
-
-  /**
-   * Save credentials (global, one per account)
-   */
-  async save(login, password) {
-    const data = {
-      login: this.encode(login),
-      password: this.encode(password),
-      savedAt: Date.now()
-    };
-
-    try {
-      await AFO_STORAGE.set({ [this.STORAGE_KEY]: data });
-      console.log('[AFO_CREDENTIALS] Saved credentials');
-      return true;
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Save error:', e);
-      return false;
-    }
-  },
-
-  /**
-   * Get saved credentials
-   */
-  async get() {
-    try {
-      const result = await AFO_STORAGE.get(this.STORAGE_KEY);
-      if (result[this.STORAGE_KEY]) {
-        return {
-          login: this.decode(result[this.STORAGE_KEY].login),
-          password: this.decode(result[this.STORAGE_KEY].password),
-          savedAt: result[this.STORAGE_KEY].savedAt
-        };
-      }
-
-      // Try legacy format migration
-      return await this._tryLegacyMigration();
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Get error:', e);
-      return null;
-    }
-  },
-
-  /**
-   * Check if credentials exist
-   */
-  async exists() {
-    const creds = await this.get();
-    return creds !== null && creds.login && creds.password;
-  },
-
-  /**
-   * Clear credentials
-   */
-  async clear() {
-    try {
-      await AFO_STORAGE.remove(this.STORAGE_KEY);
-      console.log('[AFO_CREDENTIALS] Cleared credentials');
-      return true;
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Clear error:', e);
-      return false;
-    }
-  },
-
-  /**
-   * Migrate from legacy per-server+char format if exists
-   */
-  async _tryLegacyMigration() {
-    try {
-      const result = await AFO_STORAGE.get(null);
-      for (const key in result) {
-        if (key.startsWith(this.LEGACY_PREFIX) && result[key].login) {
-          console.log('[AFO_CREDENTIALS] Migrating legacy credentials from', key);
-          const login = this.decode(result[key].login);
-          const password = this.decode(result[key].password);
-          if (login && password) {
-            await this.save(login, password);
-            // Clean up legacy key
-            await AFO_STORAGE.remove(key);
-            return { login, password, savedAt: result[key].savedAt };
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[AFO_CREDENTIALS] Legacy migration error:', e);
-    }
-    return null;
-  }
-};
-
-// Export
-window.AFO_CREDENTIALS = AFO_CREDENTIALS;
-console.log('[AFO] Credentials module loaded');
-
-
-// ========== remote/reconnect/stateManager.js ==========
-/**
- * ============================================================================
- * AFO - State Manager
- * ============================================================================
- * 
- * Manages serialization and deserialization of all AFO module states.
- * Saves/loads state per server + character via AFO_STORAGE bridge.
- * 
- * ============================================================================
- */
-
-const AFO_STATE_MANAGER = {
-  // Storage key prefix
-  KEY_PREFIX: 'gieniobot_state_',
-
-  // ============================================
-  // MODULE DEFINITIONS
-  // ============================================
-
-  /**
-   * Defines which properties to save for each module.
-   * Only non-transient, user-configurable properties.
-   */
-  MODULES: {
-    // PVM (Respawn)
-    RESP: [
-      'stop', 'wait', 'loc', 'code', 'kontoTP', 'codeTP',
-      'bless', 'checkSSJ', 'checkOST', 'jaka', 'zmiana', 'multifight',
-      'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10',
-      'b11', 'b12', 'b13', 'b14', 'b15', 'b16', 'b17', 'b18',
-      'buff_imp', 'buff_clan', 'CONF_SENZU'
-    ],
-
-    // PVP
-    PVP: [
-      'stop', 'wait', 'wait2', 'loc', 'x', 'y', 'startX', 'startY',
-      'code', 'autoWars', 'autoClanWars', 'g', 'speed', 'speedMultiplier',
-      'higherRebornAvoid', 'dogory', 'tele', 'kontoTP', 'codeTP',
-      'buff_imp', 'buff_clan'
-    ],
-
-    // LPVM (Listy gończe)
-    LPVM: [
-      'Stop', 'Born', 'limit', 'limit2', 'wait', 'Map', 'pvm_killed'
-    ],
-
-    // GLEBIA (Głębia)
-    GLEBIA: [
-      'stop', 'code', 'kontoTP', 'speed', 'rajskaSala', 'higherRebornAvoid'
-    ],
-
-    // CODE (Kody/Trening)
-    CODE: [
-      'stop', 'what_to_train', 'what_to_traintime', 'acc', 'zast',
-      'b1', 'b2', 'checkSSJ'
-    ],
-
-    // DAILY (Daily quests)
-    DAILY: [
-      'stop', 'enabledQuests', 'combatLoc', 'substance', 'useCompressor'
-    ],
-
-    // RES (Resources/Mining) - optional
-    RES: [
-      'stop', 'loc', 'speed', 'mined_id', 'buff_speed', 'buff_chance'
-    ]
-  },
-
-  // ============================================
-  // STORAGE KEY
-  // ============================================
-
-  /**
-   * Generate storage key for server (one state per server)
-   * charId parameter kept for backward compatibility but ignored in key
-   */
-  getKey(server, charId) {
-    return `${this.KEY_PREFIX}s${server}`;
-  },
-
-  // ============================================
-  // SERIALIZE / DESERIALIZE
-  // ============================================
-
-  /**
-   * Serialize current state of all modules
-   * Returns object with all module states
-   */
-  serialize() {
-    const state = {
-      savedAt: Date.now(),
-      server: typeof GAME !== 'undefined' ? GAME.server : null,
-      charId: typeof GAME !== 'undefined' ? GAME.char_id : null,
-      modules: {},
-      extra: {}
-    };
-
-    // Serialize each module
-    for (const [moduleName, properties] of Object.entries(this.MODULES)) {
-      const moduleObj = window[moduleName];
-      if (moduleObj) {
-        state.modules[moduleName] = {};
-        for (const prop of properties) {
-          if (prop in moduleObj) {
-            // Deep clone arrays and objects
-            const value = moduleObj[prop];
-            if (Array.isArray(value)) {
-              state.modules[moduleName][prop] = [...value];
-            } else if (typeof value === 'object' && value !== null) {
-              state.modules[moduleName][prop] = JSON.parse(JSON.stringify(value));
-            } else {
-              state.modules[moduleName][prop] = value;
-            }
-          }
-        }
-      }
-    }
-
-    // Save extra GAME data
-    if (typeof GAME !== 'undefined') {
-      // spawnerIgnore - important for PVM
-      if (GAME.spawner && GAME.spawner[1]) {
-        state.extra.spawnerIgnore = [...GAME.spawner[1]];
-      }
-      // usePaToSpawn - PA limit for spawner
-      if (GAME.spawner && GAME.spawner[0] !== undefined) {
-        state.extra.usePaToSpawn = GAME.spawner[0];
-      } else {
-        // Fallback: try reading from input
-        const paInput = $('#kws_pa_max').val();
-        if (paInput) {
-          state.extra.usePaToSpawn = parseInt(paInput, 10) || 1000;
-        }
-      }
-    }
-
-    // Save kws automation states (arena, expeditions, abyss)
-    if (typeof kws !== 'undefined') {
-      state.kws = {
-        auto_arena: kws.auto_arena || false,
-        autoExpeditions: kws.autoExpeditions || false,
-        auto_abyss: kws.auto_abyss || false,
-        // Settings for expeditions
-        aeCodes: kws.settings?.aeCodes || false
-      };
-    }
-
-    // Save Kukla Guardian state (Strażnik Kukli)
-    if (typeof KUKLA_GUARDIAN !== 'undefined') {
-      state.kuklaGuardian = {
-        enabled: KUKLA_GUARDIAN.enabled || false
-      };
-    }
-
-    // Save Clan Assist state (Automatyczne Asysty)
-    if (typeof CLAN_ASSIST !== 'undefined') {
-      state.clanAssist = {
-        enabled: CLAN_ASSIST.enabled !== false
-      };
-    }
-
-    // Save activities state if available
-    if (window.AFO_ACTIVITIES_STATE) {
-      state.activities = {
-        enabled: window.AFO_ACTIVITIES_STATE.enabled || false,
-        selectedActivities: window.AFO_ACTIVITIES_STATE.selectedActivities || [],
-        substance: window.AFO_ACTIVITIES_STATE.substance || 'x3'
-      };
-    }
-
-    return state;
-  },
-
-  /**
-   * Deserialize and apply state to modules
-   * @param {Object} state - State object from serialize()
-   * @param {boolean} startModules - Whether to start active modules after restore
-   */
-  deserialize(state, startModules = false) {
-    if (!state || !state.modules) {
-      console.warn('[AFO_STATE_MANAGER] Invalid state object');
-      return false;
-    }
-
-    console.log('[AFO_STATE_MANAGER] Deserialize called, startModules:', startModules);
-
-    // If starting modules, we need to defer the actual restore until AFO is loaded
-    // because AFO creates fresh module objects that would overwrite our restored values
-    if (startModules) {
-      console.log('[AFO_STATE_MANAGER] Deferring restore until AFO is loaded...');
-      this._pendingState = state;
-      this.startActiveModules(state);
-      return true;
-    }
-
-    // Otherwise restore immediately (for manual restore when AFO is already loaded)
-    return this._doRestore(state);
-  },
-
-  /**
-   * Internal: Actually restore state to module objects
-   * Called after AFO is loaded
-   */
-  _doRestore(state) {
-    console.log('[AFO_STATE_MANAGER] Restoring state from', new Date(state.savedAt).toLocaleTimeString());
-
-    // Log what we're restoring for debugging
-    if (state.modules.PVP) {
-      console.log('[AFO_STATE_MANAGER] PVP state to restore:', {
-        stop: state.modules.PVP.stop,
-        code: state.modules.PVP.code,
-        kontoTP: state.modules.PVP.kontoTP,
-        speed: state.modules.PVP.speed,
-        speedMultiplier: state.modules.PVP.speedMultiplier
-      });
-    }
-
-    // Restore each module
-    for (const [moduleName, moduleState] of Object.entries(state.modules)) {
-      const moduleObj = window[moduleName];
-      if (moduleObj && this.MODULES[moduleName]) {
-        console.log(`[AFO_STATE_MANAGER] Restoring ${moduleName}...`);
-
-        for (const [prop, value] of Object.entries(moduleState)) {
-          // Only restore properties we know about
-          if (this.MODULES[moduleName].includes(prop)) {
-            // Deep clone arrays and objects
-            if (Array.isArray(value)) {
-              moduleObj[prop] = [...value];
-            } else if (typeof value === 'object' && value !== null) {
-              moduleObj[prop] = JSON.parse(JSON.stringify(value));
-            } else {
-              moduleObj[prop] = value;
-            }
-          }
-        }
-      }
-    }
-
-    // Restore extra GAME data
-    if (state.extra && typeof GAME !== 'undefined') {
-      if (state.extra.spawnerIgnore && GAME.spawner) {
-        GAME.spawner[1] = [...state.extra.spawnerIgnore];
-      }
-      // Restore usePaToSpawn
-      if (state.extra.usePaToSpawn !== undefined) {
-        if (GAME.spawner) {
-          GAME.spawner[0] = state.extra.usePaToSpawn;
-        }
-        $('#kws_pa_max').val(state.extra.usePaToSpawn);
-        console.log('[AFO_STATE_MANAGER] usePaToSpawn restored:', state.extra.usePaToSpawn);
-      }
-    }
-
-    // Restore activities state
-    if (state.activities && window.AFO_ACTIVITIES_STATE) {
-      window.AFO_ACTIVITIES_STATE.enabled = state.activities.enabled;
-      window.AFO_ACTIVITIES_STATE.selectedActivities = state.activities.selectedActivities || [];
-      window.AFO_ACTIVITIES_STATE.substance = state.activities.substance || 'x3';
-    }
-
-    return true;
-  },
-
-  /**
-   * Sync UI elements with restored state
-   * Updates checkboxes, status labels, inputs etc.
-   */
-  syncUI(state) {
-    if (!state || !state.modules) return;
-
-    console.log('[AFO_STATE_MANAGER] Syncing UI with restored state...');
-
-    // Helper: set status span to On/Off with correct class
-    const setStatus = (selector, isOn) => {
-      const el = $(selector);
-      if (el.length) {
-        el.removeClass('red green').addClass(isOn ? 'green' : 'red').html(isOn ? 'On' : 'Off');
-      }
-    };
-
-    // Helper: set status span to custom text with green class
-    const setStatusText = (selector, text) => {
-      const el = $(selector);
-      if (el.length) {
-        el.removeClass('red').addClass('green').html(text);
-      }
-    };
-
-    // ========================
-    // RESP (PVM) UI
-    // Selectors from: remote/afo/respawn.js:384-550
-    // ========================
-    if (state.modules.RESP) {
-      const resp = state.modules.RESP;
-
-      // Toggle statuses
-      setStatus('.resp_bless .resp_status', resp.bless);
-      setStatus('.resp_code .resp_status', resp.code);
-      setStatus('.resp_konto .resp_status', resp.kontoTP);
-      setStatus('.resp_multi .resp_status', resp.multifight);
-      setStatus('.resp_buff_imp .resp_status', resp.buff_imp);
-      setStatus('.resp_buff_clan .resp_status', resp.buff_clan);
-
-      // .resp_sub controls checkOST (NOT checkSSJ!)
-      // See respawn.js:461-471
-      setStatus('.resp_sub .resp_status', resp.checkOST);
-
-      // .resp_ssj controls checkSSJ (separate toggle)
-      // See respawn.js:491-494
-      setStatus('.resp_ssj .resp_status', resp.checkSSJ);
-
-      // Bless buffs b1-b18: show/hide based on bless state
-      if (resp.bless) {
-        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).show();
-        $('#resp_Panel .resp_on, #resp_Panel .resp_off').show();
-      } else {
-        for (let i = 1; i <= 18; i++) $(`#resp_Panel .resp_bh${i}`).hide();
-        $('#resp_Panel .resp_on, #resp_Panel .resp_off').hide();
-      }
-
-      // Buff statuses b1-b18 (set regardless of visibility)
-      for (let i = 1; i <= 18; i++) {
-        if (resp[`b${i}`] !== undefined) {
-          setStatus(`.resp_bh${i} .resp_status`, resp[`b${i}`]);
-        }
-      }
-
-      // Code -> konto visibility
-      if (resp.code) {
-        $('#resp_Panel .resp_konto').show();
-      } else {
-        $('#resp_Panel .resp_konto').hide();
-      }
-
-      // checkOST -> .resp_ost visibility; OST/x20 text (not On/Off!)
-      // See respawn.js:474-481 - uses .html("Ost") / .html("x20")
-      if (resp.checkOST) {
-        $('#resp_Panel .resp_ost').show();
-        const jakaText = resp.jaka === 0 ? 'Ost' : 'x20';
-        setStatusText('.resp_ost .resp_status', jakaText);
-      } else {
-        $('#resp_Panel .resp_ost').hide();
-      }
-
-      // Senzu: CONF_SENZU = false (off) or string like 'SENZU_RED'
-      // See respawn.js:496-511
-      const senzuTypes = ['red', 'blue', 'green', 'purple', 'yellow', 'magic', 'dark'];
-      if (resp.CONF_SENZU && resp.CONF_SENZU !== false) {
-        const activeType = resp.CONF_SENZU.replace('SENZU_', '').toLowerCase();
-        senzuTypes.forEach(t => {
-          if (t === activeType) {
-            $(`#resp_Panel .resp_${t}`).show();
-            setStatus(`.resp_${t} .resp_status`, true);
-          } else {
-            $(`#resp_Panel .resp_${t}`).hide();
-          }
-        });
-      } else {
-        senzuTypes.forEach(t => {
-          $(`#resp_Panel .resp_${t}`).show();
-          setStatus(`.resp_${t} .resp_status`, false);
-        });
-      }
-    }
-
-    // ========================
-    // PVP UI
-    // Selectors from: remote/afo/pvp.js:486-581
-    // ========================
-    if (state.modules.PVP) {
-      const pvp = state.modules.PVP;
-
-      setStatus('.pvp_Code .pvp_status', pvp.code);
-      setStatus('.pvpCODE_konto .pvp_status', pvp.kontoTP);
-      setStatus('.pvp_WI .pvp_status', pvp.autoWars);
-      setStatus('.pvp_WK .pvp_status', pvp.autoClanWars);
-      setStatus('.pvp_rb_avoid .pvp_status', pvp.higherRebornAvoid);
-      setStatus('.pvp_buff_imp .pvp_status', pvp.buff_imp);
-      setStatus('.pvp_buff_clan .pvp_status', pvp.buff_clan);
-
-      // Code -> konto visibility
-      if (pvp.code) {
-        $('#pvp_Panel .pvpCODE_konto').show();
-      } else {
-        $('#pvp_Panel .pvpCODE_konto').hide();
-      }
-
-      // Speed input
-      if (pvp.speed !== undefined) {
-        $('#pvp_Panel input[name=speed_capt]').val(pvp.speed);
-      }
-    }
-
-    // ========================
-    // CODE UI
-    // Selectors from: remote/afo/codes.js:165-218
-    // Note: bless toggles are .code_bh1, .code_bh2 (NOT .code_b1, .code_b2!)
-    // ========================
-    if (state.modules.CODE) {
-      const code = state.modules.CODE;
-
-      setStatus('.code_acc .code_status', code.acc);
-      setStatus('.code_zast .code_status', code.zast);
-      setStatus('.code_ssj .code_status', code.checkSSJ);
-      setStatus('.code_bh1 .code_status', code.b1);
-      setStatus('.code_bh2 .code_status', code.b2);
-
-      // Training selects
-      if (code.what_to_train !== undefined) {
-        $('#bot_what_to_train').val(code.what_to_train);
-      }
-      if (code.what_to_traintime !== undefined) {
-        $('#bot_what_to_traintime').val(code.what_to_traintime);
-      }
-    }
-
-    // ========================
-    // LPVM UI
-    // Selectors from: remote/afo/pvm.js:237-292
-    // ========================
-    if (state.modules.LPVM) {
-      const lpvm = state.modules.LPVM;
-
-      // Born level buttons: show only selected, hide others
-      // Born values: g=2, u=3, s=4, h=5, m=6
-      const bornMap = { 2: 'g', 3: 'u', 4: 's', 5: 'h', 6: 'm' };
-      const allBornKeys = ['g', 'u', 's', 'h', 'm'];
-
-      if (lpvm.Born !== undefined && bornMap[lpvm.Born]) {
-        const activeKey = bornMap[lpvm.Born];
-        allBornKeys.forEach(k => {
-          if (k === activeKey) {
-            $(`#lpvm_Panel .lpvm_${k}`).show();
-            setStatus(`.lpvm_${k} .lpvm_status`, true);
-          } else {
-            $(`#lpvm_Panel .lpvm_${k}`).hide();
-          }
-        });
-      }
-
-      // Limit toggle
-      if (lpvm.limit !== undefined) {
-        setStatus('.lpvm_limit .lpvm_status', lpvm.limit);
-      }
-
-      // Limit2 value input
-      if (lpvm.limit2 !== undefined) {
-        $('#lpvm_Panel input[name=lpvm_capt]').val(lpvm.limit2);
-      }
-
-      // pvm_killed counter
-      if (lpvm.pvm_killed !== undefined) {
-        $('#lpvm_Panel .pvm_killed b').text(lpvm.pvm_killed);
-        if (typeof LPVM !== 'undefined') {
-          LPVM.pvm_killed = lpvm.pvm_killed;
-        }
-      }
-    }
-
-    // ========================
-    // GLEBIA UI
-    // Selectors from: remote/afo/glebia.js:60-132
-    // Note: main toggle is .glebia_toggle (NOT .glebia_glebia!)
-    // ========================
-    if (state.modules.GLEBIA) {
-      const glebia = state.modules.GLEBIA;
-
-      setStatus('.glebia_code .glebia_status', glebia.code);
-      setStatus('.glebia_konto .glebia_status', glebia.kontoTP);
-      // Rajska Sala defaults to true if missing from older state snapshots.
-      setStatus('.glebia_sala .glebia_status', glebia.rajskaSala !== false);
-      setStatus('.glebia_rb_avoid .glebia_status', glebia.higherRebornAvoid);
-
-      // Code -> konto visibility
-      if (glebia.code) {
-        $('#glebia_Panel .glebia_konto').show();
-      } else {
-        $('#glebia_Panel .glebia_konto').hide();
-      }
-
-      // Speed input
-      if (glebia.speed !== undefined) {
-        $('#glebia_Panel input[name=glebia_speed]').val(glebia.speed);
-      }
-    }
-
-    // ========================
-    // RES (Zbierajka) UI
-    // Selectors from: remote/afo/resources.js:284-300
-    // No UI inputs to sync - speed/loc are set programmatically
-    // ========================
-
-    // ========================
-    // Spawner checkboxes (GAME.spawner[1])
-    // ========================
-    if (state.extra && state.extra.spawnerIgnore && Array.isArray(state.extra.spawnerIgnore) && state.extra.spawnerIgnore.length === 6) {
-      const ignore = state.extra.spawnerIgnore;
-      // Use rank index from value attribute, not DOM position
-      $('.kws_spawner_check').each((_, el) => {
-        const rankIndex = parseInt(el.value, 10);
-        if (rankIndex >= 0 && rankIndex < 6) {
-          $(el).prop('checked', ignore[rankIndex] === 1);
-        }
-      });
-      // Sync GAME.spawner[1] for consistency
-      if (GAME.spawner) {
-        GAME.spawner[1] = [...ignore];
-      }
-    }
-
-    console.log('[AFO_STATE_MANAGER] UI sync complete');
-  },
-
-  /**
-   * Start modules that were active when state was saved
-   */
-  startActiveModules(state) {
-    if (!state || !state.modules) return;
-
-    // First, make sure AFO is loaded
-    this.ensureAFOLoaded(state);
-  },
-
-  /**
-   * Load AFO if not loaded, then start modules
-   */
-  ensureAFOLoaded(state) {
-    console.log('[AFO_STATE_MANAGER] ensureAFOLoaded called');
-
-    // Check if AFO is already loaded
-    if (typeof AFO !== 'undefined' && AFO.loaded) {
-      console.log('[AFO_STATE_MANAGER] AFO already loaded and initialized');
-      this._prepareAndStart(state);
-      return;
-    }
-
-    // Check if AFO exists but not yet fully loaded
-    if (typeof AFO !== 'undefined') {
-      console.log('[AFO_STATE_MANAGER] AFO exists, waiting for .loaded flag...');
-      this._waitForAFOLoaded(state);
-      return;
-    }
-
-    // Check if kws (Gieniobot) has afo_is_loaded flag - means loading is in progress
-    if (typeof kws !== 'undefined' && kws.afo_is_loaded) {
-      console.log('[AFO_STATE_MANAGER] AFO loading in progress (kws.afo_is_loaded), waiting...');
-      this._waitForAFO(state);
-      return;
-    }
-
-    // Need to load AFO first
-    console.log('[AFO_STATE_MANAGER] Loading AFO...');
-    const loadAfoButton = document.querySelector('.qlink.load_afo');
-    if (loadAfoButton) {
-      loadAfoButton.click();
-      this._waitForAFO(state);
-    } else {
-      console.warn('[AFO_STATE_MANAGER] AFO load button not found!');
-      // Try waiting anyway in case AFO loads differently
-      this._waitForAFO(state);
-    }
-  },
-
-  /**
-   * Wait for AFO object to exist
-   */
-  _waitForAFO(state) {
-    console.log('[AFO_STATE_MANAGER] Waiting for AFO object...');
-    let resolved = false;
-    const startTime = Date.now();
-
-    const waitInterval = setInterval(() => {
-      if (resolved) return;
-
-      if (typeof AFO !== 'undefined') {
-        console.log('[AFO_STATE_MANAGER] AFO object found!');
-        resolved = true;
-        clearInterval(waitInterval);
-        this._waitForAFOLoaded(state);
-      } else if (Date.now() - startTime > 30000) {
-        console.warn('[AFO_STATE_MANAGER] Timeout waiting for AFO object (30s)');
-        resolved = true;
-        clearInterval(waitInterval);
-      }
-    }, 500);
-  },
-
-  /**
-   * Wait for AFO.loaded flag (full initialization)
-   */
-  _waitForAFOLoaded(state) {
-    console.log('[AFO_STATE_MANAGER] Waiting for AFO.loaded flag...');
-    let resolved = false;
-    const startTime = Date.now();
-
-    const waitInterval = setInterval(() => {
-      if (resolved) return;
-
-      if (typeof AFO !== 'undefined' && AFO.loaded) {
-        console.log('[AFO_STATE_MANAGER] AFO fully loaded!');
-        resolved = true;
-        clearInterval(waitInterval);
-        // Give a moment for all handlers to bind
-        setTimeout(() => {
-          this._prepareAndStart(state);
-        }, 500);
-      } else if (Date.now() - startTime > 30000) {
-        console.warn('[AFO_STATE_MANAGER] Timeout waiting for AFO.loaded (30s)');
-        resolved = true;
-        clearInterval(waitInterval);
-        // Try anyway
-        this._prepareAndStart(state);
-      }
-    }, 500);
-  },
-
-  /**
-   * Prepare game state and start modules
-   */
-  _prepareAndStart(state) {
-    console.log('[AFO_STATE_MANAGER] Preparing game state...');
-
-    // Switch to map page first (user request)
-    if (typeof GAME !== 'undefined' && GAME.page_switch) {
-      console.log('[AFO_STATE_MANAGER] Switching to game_map...');
-      GAME.page_switch('game_map');
-    }
-
-    // Wait 1s then start modules
-    setTimeout(() => {
-      this.doStartModules(state);
-    }, 1000);
-  },
-
-  /**
-   * Actually start the modules
-   */
-  doStartModules(state) {
-    console.log('[AFO_STATE_MANAGER] ========== doStartModules ==========');
-    console.log('[AFO_STATE_MANAGER] State to restore:', state);
-
-    // Check if panels exist
-    console.log('[AFO_STATE_MANAGER] Checking panels:');
-    console.log('  - #resp_Panel exists:', $('#resp_Panel').length > 0);
-    console.log('  - #pvp_Panel exists:', $('#pvp_Panel').length > 0);
-    console.log('  - #lpvm_Panel exists:', $('#lpvm_Panel').length > 0);
-    console.log('  - #glebia_Panel exists:', $('#glebia_Panel').length > 0);
-    console.log('  - #code_Panel exists:', $('#code_Panel').length > 0);
-
-    // NOW restore state - AFO has created the module objects
-    console.log('[AFO_STATE_MANAGER] Calling _doRestore...');
-    this._doRestore(state);
-
-    // Verify restoration
-    console.log('[AFO_STATE_MANAGER] After restore, checking global objects:');
-    console.log('  - PVP.stop:', typeof PVP !== 'undefined' ? PVP.stop : 'PVP undefined');
-    console.log('  - PVP.code:', typeof PVP !== 'undefined' ? PVP.code : 'PVP undefined');
-    console.log('  - RESP.stop:', typeof RESP !== 'undefined' ? RESP.stop : 'RESP undefined');
-
-    // Sync UI now that both AFO panels exist AND state is restored
-    console.log('[AFO_STATE_MANAGER] Calling syncUI...');
-    this.syncUI(state);
-
-    // Kick off safe start for each AFO module. These are async and wait
-    // (without timeout) for game-ready + handler-bound + module-specific
-    // prerequisites. Healthchecks self-heal if a module fails to start.
-    console.log('[AFO_STATE_MANAGER] Scheduling module starts in 500ms...');
-    setTimeout(() => {
-      console.log('[AFO_STATE_MANAGER] Starting module activation (safe-start, polled wait)...');
-
-      // Order matches old behavior so that competitor stops cascade correctly.
-      // Each call is fire-and-forget; the module-specific click handler stops
-      // its competitors via existing logic in pvp.js / respawn.js / etc.
-      this.startAfoModuleSafely('RESP', state);
-      this.startAfoModuleSafely('PVP', state);
-      this.startAfoModuleSafely('LPVM', state);
-      this.startAfoModuleSafely('GLEBIA', state);
-      this.startAfoModuleSafely('CODE', state);
-      this.startAfoModuleSafely('RES', state);
-
-      // Activities (arena, expeditions, etc.)
-      if (state.activities && state.activities.enabled) {
-        console.log('[AFO_STATE_MANAGER] Starting Activities...');
-        if (window.AFO_ACTIVITIES_STATE) {
-          window.AFO_ACTIVITIES_STATE.shouldAutoStart = true;
-        }
-      }
-
-      // kws automations (arena, expeditions, abyss) - click buttons to start
-      if (state.kws && typeof kws !== 'undefined') {
-        // Restore settings first
-        if (state.kws.aeCodes && kws.settings) {
-          kws.settings.aeCodes = state.kws.aeCodes;
-          $('#aeCodes').prop('checked', state.kws.aeCodes);
-        }
-
-        // Auto Arena
-        if (state.kws.auto_arena) {
-          console.log('[AFO_STATE_MANAGER] Starting Auto Arena...');
-          setTimeout(() => {
-            if (!kws.auto_arena) {
-              kws.auto_arena = true;
-              kws.manageAutoArena();
-              $('.qlink.manage_auto_arena').addClass('kws_active_icon');
-            }
-          }, 2000);
-        }
-
-        // Auto Expeditions
-        if (state.kws.autoExpeditions) {
-          console.log('[AFO_STATE_MANAGER] Starting Auto Expeditions...');
-          setTimeout(() => {
-            if (!kws.autoExpeditions) {
-              kws.manageAutoExpeditions();
-            }
-          }, 3000);
-        }
-
-        // Auto Abyss - just set the flag, it triggers on button click
-        if (state.kws.auto_abyss) {
-          console.log('[AFO_STATE_MANAGER] Starting Auto Abyss...');
-          setTimeout(() => {
-            kws.auto_abyss = true;
-            kws.manageAutoAbyss();
-            $('.qlink.manage_auto_abyss').addClass('kws_active_icon');
-          }, 4000);
-        }
-      }
-
-      // ============================================
-      // REINIT MODULES (reconnect-safe: restart dependency checks)
-      // ============================================
-      if (typeof CAMP_STATS !== 'undefined' && CAMP_STATS.reinit) {
-        console.log('[AFO_STATE_MANAGER] Calling CAMP_STATS.reinit()');
-        CAMP_STATS.reinit();
-      }
-      if (typeof TRADER_AUTO !== 'undefined' && TRADER_AUTO.reinit) {
-        console.log('[AFO_STATE_MANAGER] Calling TRADER_AUTO.reinit()');
-        TRADER_AUTO.reinit();
-      }
-
-      // Kukla Guardian (Strażnik Kukli)
-      if (typeof KUKLA_GUARDIAN !== 'undefined' && KUKLA_GUARDIAN.reinit) {
-        console.log('[AFO_STATE_MANAGER] Calling KUKLA_GUARDIAN.reinit()');
-        KUKLA_GUARDIAN.reinit();
-      }
-      if (state.kuklaGuardian && state.kuklaGuardian.enabled && typeof KUKLA_GUARDIAN !== 'undefined') {
-        console.log('[AFO_STATE_MANAGER] Starting Kukla Guardian...');
-        // Set enabled immediately so parseQuickOpts renders with active class
-        KUKLA_GUARDIAN.enabled = true;
-        KUKLA_GUARDIAN._stateRestored = true;
-        setTimeout(() => {
-          if (!KUKLA_GUARDIAN.running) {
-            KUKLA_GUARDIAN.start();
-          }
-          // Ensure icon has active class after any re-render
-          $('.qlink.manage_kukla_guardian').addClass('kws_active_icon');
-        }, 4500);
-      }
-
-      // Clan Assist (Automatyczne Asysty)
-      if (typeof CLAN_ASSIST !== 'undefined' && CLAN_ASSIST.reinit) {
-        console.log('[AFO_STATE_MANAGER] Calling CLAN_ASSIST.reinit()');
-        CLAN_ASSIST.reinit();
-      }
-      if (state.clanAssist && state.clanAssist.enabled && typeof CLAN_ASSIST !== 'undefined') {
-        console.log('[AFO_STATE_MANAGER] Starting Clan Assist...');
-        // Set enabled immediately so parseQuickOpts renders with active class
-        CLAN_ASSIST.enabled = true;
-        setTimeout(() => {
-          if (!CLAN_ASSIST.running) {
-            CLAN_ASSIST.start();
-          }
-          // Ensure icon has active class after any re-render
-          $('.qlink.manage_auto_clanAssist').addClass('kws_active_icon');
-        }, 5000);
-      }
-
-      // Show toast after all modules have been started (longest delay is 5s for clan assist)
-      setTimeout(() => {
-        console.log('[AFO_STATE_MANAGER] ✅ All modules started, restore complete!');
-        if (typeof AFO_RECONNECT_UI !== 'undefined') {
-          AFO_RECONNECT_UI.showToast('Stan przywrócony!', 'success');
-          AFO_RECONNECT_UI.updateStatusFromStorage();
-        }
-      }, 5500);
-    }, 1000);
-  },
-
-  // ============================================
-  // MODULE STARTUP HELPERS (post-reconnect)
-  // Robust restart of AFO modules after server restart / reconnect.
-  // Waits indefinitely until game is fully ready, then triggers click,
-  // verifies, and self-heals via periodic healthcheck.
-  // ============================================
-
-  /**
-   * Per-module config for safe restart.
-   * Each entry describes: how to find module obj, how to check stop flag,
-   * panel selectors, prerequisite for click handler to take effect (e.g. RESP
-   * needs GAME.field_mobs, RES needs map_mines.mine_data).
-   */
-  AFO_MODULE_CONFIGS: {
-    RESP: {
-      stateKey: 'RESP',
-      panelClickSel: '#resp_Panel .resp_resp',
-      panelId: '#resp_Panel',
-      ghStatusSel: '.gh_resp .gh_status',
-      stopProp: 'stop',
-      getMod: () => typeof RESP !== 'undefined' ? RESP : null,
-      isInactiveInState: (s) => !s.modules.RESP || s.modules.RESP.stop,
-      // RESP click handler requires GAME.field_mobs to turn on
-      prerequisite: () => typeof GAME !== 'undefined' && !!GAME.field_mobs,
-      // Loop is "running" only when stop=false AND action() actually executed
-      // at least once (counter is reset to 0 in click handler ON branch and
-      // incremented inside action()). After _doRestore the stop flag is false
-      // but the loop hasn't started — this distinguishes those cases.
-      isRunning: () => typeof RESP !== 'undefined' && RESP.stop === false && (RESP._actionCallCount || 0) > 0
-    },
-    PVP: {
-      stateKey: 'PVP',
-      panelClickSel: '#pvp_Panel .pvp_pvp',
-      panelId: '#pvp_Panel',
-      ghStatusSel: '.gh_pvp .gh_status',
-      stopProp: 'stop',
-      getMod: () => typeof PVP !== 'undefined' ? PVP : null,
-      isInactiveInState: (s) => !s.modules.PVP || s.modules.PVP.stop,
-      prerequisite: () => true,
-      isRunning: () => typeof PVP !== 'undefined' && PVP.stop === false && (PVP._startCallCount || 0) > 0
-    },
-    LPVM: {
-      stateKey: 'LPVM',
-      panelClickSel: '#lpvm_Panel .lpvm_lpvm',
-      panelId: '#lpvm_Panel',
-      ghStatusSel: '.gh_lpvm .gh_status',
-      stopProp: 'Stop',
-      getMod: () => typeof LPVM !== 'undefined' ? LPVM : null,
-      isInactiveInState: (s) => !s.modules.LPVM || s.modules.LPVM.Stop,
-      prerequisite: () => true,
-      isRunning: () => typeof LPVM !== 'undefined' && LPVM.Stop === false && (LPVM._startCallCount || 0) > 0
-    },
-    GLEBIA: {
-      stateKey: 'GLEBIA',
-      panelClickSel: '#glebia_Panel .glebia_toggle',
-      panelId: '#glebia_Panel',
-      ghStatusSel: '.gh_glebia .gh_status',
-      stopProp: 'stop',
-      getMod: () => typeof GLEBIA !== 'undefined' ? GLEBIA : null,
-      isInactiveInState: (s) => !s.modules.GLEBIA || s.modules.GLEBIA.stop,
-      prerequisite: () => true,
-      isRunning: () => typeof GLEBIA !== 'undefined' && GLEBIA.stop === false && (GLEBIA._startCallCount || 0) > 0
-    },
-    CODE: {
-      stateKey: 'CODE',
-      panelClickSel: '#code_Panel .code_code',
-      panelId: '#code_Panel',
-      ghStatusSel: '.gh_code .gh_status',
-      stopProp: 'stop',
-      getMod: () => typeof CODE !== 'undefined' ? CODE : null,
-      isInactiveInState: (s) => !s.modules.CODE || s.modules.CODE.stop,
-      prerequisite: () => true,
-      isRunning: () => typeof CODE !== 'undefined' && CODE.stop === false && (CODE._startCallCount || 0) > 0
-    },
-    RES: {
-      stateKey: 'RES',
-      panelClickSel: '#res_Panel .res_res',
-      panelId: '#res_Panel',
-      ghStatusSel: '.gh_res .gh_status',
-      stopProp: 'stop',
-      getMod: () => typeof RES !== 'undefined' ? RES : null,
-      isInactiveInState: (s) => !s.modules.RES || s.modules.RES.stop,
-      // RES click handler requires GAME.map_mines.mine_data to be non-empty
-      prerequisite: () => typeof GAME !== 'undefined' && GAME.map_mines && GAME.map_mines.mine_data && Object.keys(GAME.map_mines.mine_data).length > 0,
-      isRunning: () => typeof RES !== 'undefined' && RES.stop === false && (RES._startCallCount || 0) > 0
-    }
-  },
-
-  /**
-   * Poll until predicate returns true. NEVER times out — restore must
-   * eventually happen even if it takes hours (server outage, no internet, etc).
-   * Logs progress every 30s so console shows it's still alive.
-   * @param {Function} predicate Returns true when ready
-   * @param {string} label Used for periodic progress logs
-   * @param {number} interval Polling interval in ms (default 500)
-   * @returns {Promise<void>}
-   */
-  _waitUntil(predicate, label, interval = 500, diagnoseFn = null) {
-    return new Promise((resolve) => {
-      const startedAt = Date.now();
-      let lastLogAt = startedAt;
-      const tick = () => {
-        try {
-          if (predicate()) {
-            const waited = Date.now() - startedAt;
-            if (waited > 2000) {
-              console.log(`[AFO_STATE_MANAGER:wait] ${label} ready after ${Math.round(waited / 1000)}s`);
-            }
-            resolve();
-            return;
-          }
-        } catch (e) {
-          // predicate threw — keep waiting; log once
-          console.warn(`[AFO_STATE_MANAGER:wait] ${label} predicate threw:`, e?.message || e);
-        }
-        const now = Date.now();
-        if (now - lastLogAt >= 30000) {
-          let extra = '';
-          if (diagnoseFn) {
-            try { extra = ' ' + diagnoseFn(); } catch (e) { /* ignore diagnose error */ }
-          }
-          console.log(`[AFO_STATE_MANAGER:wait] still waiting for ${label} (${Math.round((now - startedAt) / 1000)}s)...${extra}`);
-          lastLogAt = now;
-        }
-        setTimeout(tick, interval);
-      };
-      tick();
-    });
-  },
-
-  /**
-   * Diagnose why _waitForGameReady is stuck — returns array of failed condition names.
-   */
-  _gameReadyDiagnose() {
-    const failed = [];
-    if (typeof GAME === 'undefined') failed.push('GAME=undefined');
-    else {
-      if (!GAME.char_id) failed.push('GAME.char_id=' + GAME.char_id);
-      if (!GAME.char_data) failed.push('GAME.char_data missing');
-      if (!GAME.socket) failed.push('GAME.socket missing');
-    }
-    if (typeof AFO === 'undefined') failed.push('AFO=undefined');
-    else if (!AFO.loaded) failed.push('AFO.loaded=' + AFO.loaded);
-    return failed;
-  },
-
-  /**
-   * Wait until the game engine is ready for module actions.
-   * Tolerant predicate — only requires what's strictly needed to click a panel.
-   * GAME.is_loading and GAME.char_data.x removed from check: post-game-optimization
-   * is_loading sometimes stays true indefinitely, and char_data.x may be undefined
-   * until the user actually moves on the map. Click handlers don't need either.
-   */
-  _waitForGameReady() {
-    return this._waitUntil(() => {
-      return typeof GAME !== 'undefined'
-        && GAME.char_id > 0
-        && GAME.char_data
-        && GAME.socket
-        && typeof AFO !== 'undefined'
-        && AFO.loaded === true;
-    }, 'GAME ready', 500, () => {
-      // Diagnostic on each 30s stuck-warning: show which conditions are false
-      const failed = this._gameReadyDiagnose();
-      return failed.length ? `failed: [${failed.join(', ')}]` : '';
-    });
-  },
-
-  /**
-   * Wait until jQuery click handler is bound to the panel selector.
-   */
-  _waitForHandlerBound(selector) {
-    return this._waitUntil(() => {
-      const $el = $(selector);
-      if (!$el.length) return false;
-      const events = $._data($el[0], 'events');
-      return !!(events && events.click && events.click.length);
-    }, `handler ${selector}`);
-  },
-
-  /**
-   * Safely (re)start an AFO module after reconnect.
-   * Waits for game ready, handler bound, prerequisites met.
-   * Sets stop=true (so click handler turns it ON), clicks the panel, then
-   * verifies via isRunning(). Schedules a healthcheck 5s later that re-tries
-   * indefinitely if module didn't actually start. Idempotent — if user already
-   * turned the module on manually, just skips.
-   *
-   * @param {string} name e.g. 'PVP', 'RESP', etc. (key into AFO_MODULE_CONFIGS)
-   * @param {object} state Saved state from storage
-   */
-  /**
-   * Has the module loop ever executed (counter > 0)?
-   * Used to distinguish "user stopped a working module" from "module never started".
-   */
-  _hasRunBefore(name) {
-    const cfg = this.AFO_MODULE_CONFIGS[name];
-    if (!cfg) return false;
-    const mod = cfg.getMod();
-    if (!mod) return false;
-    return ((mod._startCallCount || 0) + (mod._actionCallCount || 0)) > 0;
-  },
-
-  /**
-   * Detect that the user stopped the module while we were waiting / restoring.
-   * If module ran before AND its current stop flag is true, the user must have
-   * clicked OFF. We respect that and abort our restore attempt.
-   */
-  _userStopped(name) {
-    const cfg = this.AFO_MODULE_CONFIGS[name];
-    if (!cfg) return false;
-    const mod = cfg.getMod();
-    if (!mod) return false;
-    return mod[cfg.stopProp] === true && this._hasRunBefore(name);
-  },
-
-  async startAfoModuleSafely(name, state) {
-    const cfg = this.AFO_MODULE_CONFIGS[name];
-    if (!cfg) {
-      console.warn(`[AFO_STATE_MANAGER:start:${name}] no config`);
-      return;
-    }
-    const log = (...args) => console.log(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
-    const warn = (...args) => console.warn(`[AFO_STATE_MANAGER:start:${name}]`, ...args);
-
-    if (cfg.isInactiveInState(state)) {
-      log(`module not active in saved state, skipping`);
-      return;
-    }
-
-    log('beginning safe start');
-
-    // 1) Wait for game ready
-    await this._waitForGameReady();
-    log('game is ready');
-    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
-
-    // 2) Wait for handler bound
-    await this._waitForHandlerBound(cfg.panelClickSel);
-    log(`handler bound on ${cfg.panelClickSel}`);
-    if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
-
-    // 3) Wait for module-specific prerequisite (e.g. GAME.field_mobs for RESP)
-    if (cfg.prerequisite) {
-      await this._waitUntil(cfg.prerequisite, `${name} prerequisite`);
-      log('prerequisite satisfied');
-      if (this._userStopped(name)) { log('user stopped during wait, aborting'); return; }
-    }
-
-    // 4) Idempotent: if module is already running (user clicked it manually
-    //    while we were waiting), skip.
-    if (cfg.isRunning()) {
-      log('already running, skipping click');
-      this._scheduleHealthcheck(name, state);
-      return;
-    }
-
-    // 5) Set stop=true so click handler will toggle to ON
-    const mod = cfg.getMod();
-    if (mod) {
-      mod[cfg.stopProp] = true;
-    }
-
-    // 6) Click and force panel visible + status updated
-    log(`clicking ${cfg.panelClickSel}`);
-    $(cfg.panelClickSel).click();
-    $(cfg.panelId).show();
-    $(cfg.ghStatusSel).removeClass('red').addClass('green').html('On');
-
-    // 7) Verify after a short tick (click handler may bail if its own
-    //    prerequisite check fails, e.g. RESP needs GAME.field_mobs again).
-    setTimeout(() => {
-      if (cfg.isRunning()) {
-        log('confirmed running');
-      } else {
-        warn('NOT running 200ms after click — healthcheck will retry');
-      }
-      this._scheduleHealthcheck(name, state);
-    }, 200);
-  },
-
-  /**
-   * Periodically check that the module is still running. If not, re-trigger
-   * startAfoModuleSafely. Runs forever (cleared on user-initiated stop via
-   * canceling on healthcheck if module is missing from state).
-   */
-  /**
-   * One-shot verification 5s after startAfoModuleSafely's click. Sole purpose:
-   * confirm the restore actually took effect. After confirmation we get out of
-   * the user's way — no periodic polling, no nagging. User can toggle the
-   * module on/off freely without the state manager fighting back.
-   *
-   * If the module isn't running 5s after click, retry startAfoModuleSafely up
-   * to MAX_RETRIES times (each with its own 5s verification). After that, give
-   * up — manual intervention needed.
-   */
-  _scheduleHealthcheck(name, state) {
-    const cfg = this.AFO_MODULE_CONFIGS[name];
-    if (!cfg) return;
-    if (!this._healthcheckTimers) this._healthcheckTimers = {};
-    if (!this._healthcheckRetries) this._healthcheckRetries = {};
-    if (this._healthcheckTimers[name]) clearTimeout(this._healthcheckTimers[name]);
-
-    const MAX_RETRIES = 3;
-
-    this._healthcheckTimers[name] = setTimeout(() => {
-      if (cfg.isInactiveInState(state)) return;
-
-      if (cfg.isRunning()) {
-        console.log(`[AFO_STATE_MANAGER:healthcheck:${name}] confirmed running — done, leaving user alone`);
-        this._healthcheckRetries[name] = 0;
-        return;  // success — no further checks ever
-      }
-
-      const attempts = (this._healthcheckRetries[name] || 0) + 1;
-      this._healthcheckRetries[name] = attempts;
-      if (attempts > MAX_RETRIES) {
-        console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] gave up after ${MAX_RETRIES} retries — manual intervention needed`);
-        this._healthcheckRetries[name] = 0;
-        return;
-      }
-      console.warn(`[AFO_STATE_MANAGER:healthcheck:${name}] not running 5s after click, retry ${attempts}/${MAX_RETRIES}`);
-      this.startAfoModuleSafely(name, state);
-    }, 5000);
-  },
-
-  // ============================================
-  // SAVE / LOAD TO STORAGE
-  // ============================================
-
-  /**
-   * Save current state to chrome.storage.local
-   */
-  async save() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      console.warn('[AFO_STATE_MANAGER] GAME not available, cannot save state');
-      return false;
-    }
-
-    const key = this.getKey(GAME.server, GAME.char_id);
-    const state = this.serialize();
-
-    try {
-      await AFO_STORAGE.set({ [key]: state });
-      console.log(`[AFO_STATE_MANAGER] Saved state for server ${GAME.server}, char ${GAME.char_id}`);
-      return true;
-    } catch (e) {
-      console.error('[AFO_STATE_MANAGER] Save error:', e);
-      return false;
-    }
-  },
-
-  /**
-   * Load state from chrome.storage.local
-   */
-  async load(server, charId) {
-    const key = this.getKey(server, charId);
-
-    try {
-      const result = await AFO_STORAGE.get(key);
-      if (result[key]) {
-        return result[key];
-      }
-      return null;
-    } catch (e) {
-      console.error('[AFO_STATE_MANAGER] Load error:', e);
-      return null;
-    }
-  },
-
-  /**
-   * Load and apply state for current character
-   * @param {boolean} startModules - Whether to start active modules
-   */
-  async loadCurrent(startModules = false) {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      console.warn('[AFO_STATE_MANAGER] GAME not available, cannot load state');
-      return false;
-    }
-
-    const state = await this.load(GAME.server, GAME.char_id);
-    if (state) {
-      return this.deserialize(state, startModules);
-    }
-    return false;
-  },
-
-  /**
-   * Check if state exists for server + character
-   */
-  async exists(server, charId) {
-    const state = await this.load(server, charId);
-    return state !== null;
-  },
-
-  /**
-   * Clear state for specific server + character
-   */
-  async clear(server, charId) {
-    const key = this.getKey(server, charId);
-
-    try {
-      await AFO_STORAGE.remove(key);
-      console.log(`[AFO_STATE_MANAGER] Cleared state for server ${server}, char ${charId}`);
-      return true;
-    } catch (e) {
-      console.error('[AFO_STATE_MANAGER] Clear error:', e);
-      return false;
-    }
-  },
-
-  /**
-   * Clear state for current character
-   */
-  async clearCurrent() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      return false;
-    }
-    return await this.clear(GAME.server, GAME.char_id);
-  },
-
-  /**
-   * Clear all saved states (all servers)
-   */
-  async clearAll() {
-    try {
-      const result = await AFO_STORAGE.get(null);
-      const keysToRemove = [];
-
-      for (const key in result) {
-        if (key.startsWith(this.KEY_PREFIX)) {
-          keysToRemove.push(key);
-        }
-      }
-
-      for (const key of keysToRemove) {
-        await AFO_STORAGE.remove(key);
-      }
-
-      console.log(`[AFO_STATE_MANAGER] Cleared all states (${keysToRemove.length} keys)`);
-      return true;
-    } catch (e) {
-      console.error('[AFO_STATE_MANAGER] ClearAll error:', e);
-      return false;
-    }
-  },
-
-  /**
-   * Get all saved states (for listing)
-   */
-  async getAll() {
-    try {
-      const result = await AFO_STORAGE.get(null);
-      const states = [];
-
-      for (const key in result) {
-        if (key.startsWith(this.KEY_PREFIX)) {
-          const state = result[key];
-          states.push({
-            key: key,
-            server: state.server,
-            charId: state.charId,
-            savedAt: state.savedAt,
-            activeModules: this.getActiveModulesList(state)
-          });
-        }
-      }
-
-      return states;
-    } catch (e) {
-      console.error('[AFO_STATE_MANAGER] GetAll error:', e);
-      return [];
-    }
-  },
-
-  /**
-   * Get list of active modules from state
-   */
-  getActiveModulesList(state) {
-    const active = [];
-    if (!state || !state.modules) return active;
-
-    if (state.modules.RESP && !state.modules.RESP.stop) active.push('PVM');
-    if (state.modules.PVP && !state.modules.PVP.stop) active.push('PVP');
-    if (state.modules.LPVM && !state.modules.LPVM.Stop) active.push('LPVM');
-    if (state.modules.GLEBIA && !state.modules.GLEBIA.stop) active.push('GŁĘBIA');
-    if (state.modules.CODE && !state.modules.CODE.stop) active.push('KODY');
-    if (state.modules.RES && !state.modules.RES.stop) active.push('ZBIERAJKA');
-    if (state.activities && state.activities.enabled) active.push('Activities');
-
-    // kws automations
-    if (state.kws) {
-      if (state.kws.auto_arena) active.push('Arena');
-      if (state.kws.autoExpeditions) active.push('Expeditions');
-      if (state.kws.auto_abyss) active.push('Otchłań');
-    }
-
-    return active;
-  },
-
-  // ============================================
-  // UTILITY
-  // ============================================
-
-  /**
-   * Get human-readable summary of current state
-   */
-  getSummary() {
-    const state = this.serialize();
-    const active = this.getActiveModulesList(state);
-
-    return {
-      server: state.server,
-      charId: state.charId,
-      activeModules: active,
-      hasAnyActive: active.length > 0
-    };
-  }
-};
-
-// Export
-window.AFO_STATE_MANAGER = AFO_STATE_MANAGER;
-console.log('[AFO] State Manager module loaded');
-
-
-// ========== remote/reconnect/ui.js ==========
-/**
- * ============================================================================
- * AFO - Reconnect UI
- * ============================================================================
- * 
- * UI components for auto-reconnect feature:
- * - Status icon in top-right corner
- * - Dropdown menu with state info
- * - Credentials form
- * 
- * Mobile-friendly design.
- * 
- * ============================================================================
- */
-
-const AFO_RECONNECT_UI = {
-  // State
-  isMenuOpen: false,
-  isHistoryOpen: false,
-  currentStatus: 'neutral', // 'neutral', 'saved', 'error', 'unsaved'
-  lastSaveTime: null,
-  reconnectHistory: [],
-
-  // ============================================
-  // INITIALIZATION
-  // ============================================
-
-  init() {
-    this.injectCSS();
-    this.injectIcon();
-    this.injectMenu();
-    this.bindEvents();
-    this.setupDraggable();
-    this.loadHistory();
-    this.updateStatusFromStorage();
-    this.startStatusMonitor();
-    console.log('[AFO_RECONNECT_UI] Initialized');
-  },
-
-  /**
-   * Periodically update icon border color based on current state
-   * Green = saved state matches current char, credentials exist
-   * Orange = unsaved / state for different char / no state
-   * Red = error or no credentials
-   */
-  startStatusMonitor() {
-    this._lastCharId = null;
-
-    this.statusMonitorInterval = setInterval(async () => {
-      if (typeof GAME === 'undefined' || !GAME.server) return;
-
-      // Detect char change
-      const currentCharId = GAME.char_id;
-      if (currentCharId !== this._lastCharId) {
-        this._lastCharId = currentCharId;
-        await this.updateStatusFromStorage();
-      }
-    }, 2000);
-  },
-
-  // ============================================
-  // HISTORY
-  // ============================================
-
-  loadHistory() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
-    try {
-      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
-      const data = localStorage.getItem(key);
-      if (data) {
-        this.reconnectHistory = JSON.parse(data);
-      }
-    } catch (e) {
-      console.warn('[AFO_RECONNECT_UI] Failed to load history:', e);
-    }
-  },
-
-  saveHistory() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
-    try {
-      const key = `afo_reconnect_history_s${GAME.server}_c${GAME.char_id}`;
-      localStorage.setItem(key, JSON.stringify(this.reconnectHistory));
-    } catch (e) {
-      console.warn('[AFO_RECONNECT_UI] Failed to save history:', e);
-    }
-  },
-
-  addReconnectTimestamp(timestamp = Date.now()) {
-    // Add to beginning
-    this.reconnectHistory.unshift(timestamp);
-    // Keep max 5
-    if (this.reconnectHistory.length > 5) {
-      this.reconnectHistory = this.reconnectHistory.slice(0, 5);
-    }
-    this.saveHistory();
-    this.renderHistory();
-  },
-
-  // ============================================
-  // CSS INJECTION
-  // ============================================
-
-  injectCSS() {
-    const css = `
-      /* Reconnect Icon */
-      #afo-reconnect-icon {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        width: 40px;
-        height: 40px;
-        cursor: pointer;
-        z-index: 9999;
-        border-radius: 50%;
-        background: rgba(0, 0, 0, 0.7);
-        padding: 6px;
-        box-sizing: border-box;
-        transition: all 0.3s ease;
-        border: 3px solid transparent;
-      }
-
-      #afo-reconnect-icon:hover {
-        transform: scale(1.1);
-        background: rgba(0, 0, 0, 0.9);
-      }
-
-      /* Prevent hover transform when dragging */
-      #afo-reconnect-icon.dragging {
-        transform: none !important;
-        transition: none !important;
-      }
-
-      #afo-reconnect-icon img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      /* Status colors via border */
-      #afo-reconnect-icon.status-neutral {
-        border-color: #888;
-      }
-
-      #afo-reconnect-icon.status-saved {
-        border-color: #4CAF50;
-        box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
-      }
-
-      #afo-reconnect-icon.status-unsaved {
-        border-color: #FFC107;
-      }
-
-      #afo-reconnect-icon.status-error {
-        border-color: #f44336;
-        animation: pulse-error 2s infinite;
-      }
-
-      @keyframes pulse-error {
-        0%, 100% { box-shadow: 0 0 5px rgba(244, 67, 54, 0.5); }
-        50% { box-shadow: 0 0 15px rgba(244, 67, 54, 0.8); }
-      }
-
-      /* Menu Overlay */
-      #afo-reconnect-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 9998;
-      }
-
-      #afo-reconnect-overlay.open {
-        display: block;
-      }
-
-      /* Menu Panel */
-      #afo-reconnect-menu {
-        display: none;
-        position: fixed;
-        top: 60px;
-        right: 10px;
-        width: 320px;
-        max-width: calc(100vw - 20px);
-        max-height: calc(100vh - 80px);
-        background: linear-gradient(145deg, #1a1a2e, #16213e);
-        border: 1px solid #0f3460;
-        border-radius: 12px;
-        z-index: 10000;
-        overflow: hidden;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      }
-
-      #afo-reconnect-menu.open {
-        display: flex;
-        flex-direction: column;
-        animation: slideIn 0.2s ease;
-      }
-
-      @keyframes slideIn {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-
-      /* Menu Header */
-      .afo-menu-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 15px;
-        background: linear-gradient(90deg, #0f3460, #1a1a2e);
-        border-bottom: 1px solid #0f3460;
-      }
-
-      .afo-menu-header h3 {
-        margin: 0;
-        font-size: 16px;
-        color: #e94560;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .afo-menu-close {
-        width: 28px;
-        height: 28px;
-        border: none;
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
-        border-radius: 50%;
-        cursor: pointer;
-        font-size: 18px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: background 0.2s;
-      }
-
-      .afo-menu-close:hover {
-        background: rgba(233, 69, 96, 0.5);
-      }
-
-      /* Menu Content */
-      .afo-menu-content {
-        padding: 15px;
-        overflow-y: auto;
-        flex: 1;
-      }
-
-      /* Status Section */
-      .afo-status-section {
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 15px;
-      }
-
-      .afo-status-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-      }
-
-      .afo-status-row:last-child {
-        margin-bottom: 0;
-      }
-
-      .afo-status-label {
-        color: #888;
-        font-size: 13px;
-      }
-
-      .afo-status-value {
-        font-size: 13px;
-        font-weight: 600;
-      }
-
-      .afo-status-value.saved { color: #4CAF50; }
-      .afo-status-value.unsaved { color: #FFC107; }
-      .afo-status-value.error { color: #f44336; }
-      .afo-status-value.neutral { color: #888; }
-
-      /* History List */
-      .afo-history-toggle {
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        transition: color 0.2s;
-      }
-      .afo-history-toggle:hover {
-        color: #fff;
-      }
-      .afo-history-arrow {
-        display: inline-block;
-        font-size: 10px;
-        transition: transform 0.2s;
-      }
-      .afo-history-arrow.open {
-        transform: rotate(90deg);
-      }
-      #afo-history-list {
-        display: none;
-        margin-top: 5px;
-        padding-left: 10px;
-        border-left: 2px solid #0f3460;
-      }
-      #afo-history-list.open {
-        display: block;
-      }
-      .afo-history-item {
-        font-size: 12px;
-        color: #aaa;
-        padding: 2px 0;
-      }
-
-
-      /* Modules List */
-      .afo-modules-section {
-        margin-bottom: 15px;
-      }
-
-      .afo-modules-title {
-        color: #e94560;
-        font-size: 12px;
-        text-transform: uppercase;
-        margin-bottom: 10px;
-        letter-spacing: 1px;
-      }
-
-      .afo-module-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 6px;
-        margin-bottom: 6px;
-        font-size: 13px;
-        color: #ccc;
-      }
-
-      .afo-module-item .icon {
-        font-size: 16px;
-      }
-
-      .afo-module-item.active {
-        background: rgba(76, 175, 80, 0.2);
-        border-left: 3px solid #4CAF50;
-      }
-
-      .afo-module-item.inactive {
-        opacity: 0.6;
-      }
-
-      .afo-module-item .info {
-        font-size: 11px;
-        color: #888;
-        margin-left: auto;
-      }
-
-      /* Buttons */
-      .afo-buttons-section {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .afo-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 12px 16px;
-        border: none;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      .afo-btn-primary {
-        background: linear-gradient(135deg, #e94560, #ff6b6b);
-        color: white;
-      }
-
-      .afo-btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(233, 69, 96, 0.4);
-      }
-
-      .afo-btn-secondary {
-        background: rgba(255, 255, 255, 0.1);
-        color: #ccc;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-      }
-
-      .afo-btn-secondary:hover {
-        background: rgba(255, 255, 255, 0.2);
-      }
-
-      .afo-btn-danger {
-        background: rgba(244, 67, 54, 0.2);
-        color: #f44336;
-        border: 1px solid rgba(244, 67, 54, 0.3);
-      }
-
-      .afo-btn-danger:hover {
-        background: rgba(244, 67, 54, 0.3);
-      }
-
-      /* Credentials Form */
-      .afo-creds-section {
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 8px;
-        padding: 12px;
-        margin-top: 15px;
-        display: none;
-      }
-
-      .afo-creds-section.open {
-        display: block;
-      }
-
-      .afo-creds-title {
-        color: #e94560;
-        font-size: 12px;
-        text-transform: uppercase;
-        margin-bottom: 10px;
-        letter-spacing: 1px;
-      }
-
-      .afo-input-group {
-        margin-bottom: 12px;
-      }
-
-      .afo-input-group label {
-        display: block;
-        color: #888;
-        font-size: 12px;
-        margin-bottom: 5px;
-      }
-
-      .afo-input-group input {
-        width: 100%;
-        padding: 10px 12px;
-        background: rgba(0, 0, 0, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 6px;
-        color: #fff;
-        font-size: 14px;
-        box-sizing: border-box;
-      }
-
-      .afo-input-group input:focus {
-        outline: none;
-        border-color: #e94560;
-      }
-
-      .afo-creds-info {
-        font-size: 11px;
-        color: #666;
-        margin-top: 10px;
-        line-height: 1.4;
-      }
-
-      /* Toast Notification */
-      .afo-toast {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 12px 20px;
-        background: #1a1a2e;
-        border: 1px solid #0f3460;
-        border-radius: 8px;
-        color: #fff;
-        font-size: 14px;
-        z-index: 10001;
-        animation: toastIn 0.3s ease;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .afo-toast.success { border-left: 4px solid #4CAF50; }
-      .afo-toast.error { border-left: 4px solid #f44336; }
-      .afo-toast.warning { border-left: 4px solid #FFC107; }
-
-      @keyframes toastIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-
-      /* Mobile adjustments */
-      @media (max-width: 480px) {
-        #afo-reconnect-menu {
-          right: 5px;
-          left: 5px;
-          width: auto;
-          top: 55px;
-        }
-
-        #afo-reconnect-icon {
-          width: 36px;
-          height: 36px;
-          top: 8px;
-          right: 8px;
-        }
-      }
-    `;
-
-    const style = document.createElement('style');
-    style.id = 'afo-reconnect-css';
-    style.textContent = css;
-    document.head.appendChild(style);
-  },
-
-  // ============================================
-  // ICON
-  // ============================================
-
-  injectIcon() {
-    // Get extension URL for image
-    const configEl = document.getElementById('__gieniobot_config__');
-    const extensionUrl = configEl ? configEl.dataset.extensionUrl : '';
-    const imgSrc = extensionUrl ? `${extensionUrl}images/reconnect.png` : '';
-
-    const icon = document.createElement('div');
-    icon.id = 'afo-reconnect-icon';
-    icon.className = 'status-neutral';
-    icon.innerHTML = imgSrc
-      ? `<img src="${imgSrc}" alt="Reconnect" title="Auto-Reconnect">`
-      : '🔄';
-    icon.title = 'Auto-Reconnect - Kliknij aby otworzyć menu';
-
-    document.body.appendChild(icon);
-  },
-
-  // ============================================
-  // MENU
-  // ============================================
-
-  injectMenu() {
-    // Overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'afo-reconnect-overlay';
-    document.body.appendChild(overlay);
-
-    // Menu
-    const menu = document.createElement('div');
-    menu.id = 'afo-reconnect-menu';
-    menu.innerHTML = `
-      <div class="afo-menu-header">
-        <h3>🔄 Auto-Reconnect</h3>
-        <button class="afo-menu-close" id="afo-menu-close">×</button>
-      </div>
-      <div class="afo-menu-content">
-        <!-- Status -->
-        <div class="afo-status-section">
-          <div class="afo-status-row">
-            <span class="afo-status-label">Status:</span>
-            <span class="afo-status-value neutral" id="afo-status-text">Nie zapisano</span>
-          </div>
-          <div class="afo-status-row">
-            <span class="afo-status-label">Ostatni zapis:</span>
-            <span class="afo-status-value" id="afo-last-save">-</span>
-          </div>
-          <div class="afo-status-row">
-            <span class="afo-status-label">Serwer / Postać:</span>
-            <span class="afo-status-value" id="afo-server-char">-</span>
-          </div>
-          <div class="afo-status-row">
-            <span class="afo-status-label">Ostatni reconnect:</span>
-            <span class="afo-status-value">
-              <span id="afo-last-reconnect" class="afo-history-toggle">-</span>
-              <div id="afo-history-list"></div>
-            </span>
-          </div>
-        </div>
-
-        <!-- Modules -->
-        <div class="afo-modules-section">
-          <div class="afo-modules-title">Zapisane moduły</div>
-          <div id="afo-modules-list">
-            <div class="afo-module-item inactive">
-              <span class="icon">📭</span>
-              Brak zapisanego stanu
-            </div>
-          </div>
-        </div>
-
-        <!-- Buttons -->
-        <div class="afo-buttons-section">
-          <button class="afo-btn afo-btn-primary" id="afo-btn-save">
-            💾 Zapisz obecny stan
-          </button>
-          <button class="afo-btn afo-btn-secondary" id="afo-btn-credentials">
-            👤 Ustawienia
-          </button>
-          <button class="afo-btn afo-btn-danger" id="afo-btn-clear">
-            🗑️ Wyczyść stan (serwer)
-          </button>
-          <button class="afo-btn afo-btn-danger" id="afo-btn-clear-all">
-            🗑️ Wyczyść stan (wszystkie)
-          </button>
-        </div>
-
-        <!-- Credentials Form -->
-        <div class="afo-creds-section" id="afo-creds-section">
-          <div class="afo-creds-title">Dane logowania</div>
-          <div class="afo-input-group">
-            <label for="afo-creds-login">Login</label>
-            <input type="text" id="afo-creds-login" placeholder="Twój login">
-          </div>
-          <div class="afo-input-group">
-            <label for="afo-creds-password">Hasło</label>
-            <input type="password" id="afo-creds-password" placeholder="Twoje hasło">
-          </div>
-          <button class="afo-btn afo-btn-primary" id="afo-btn-save-creds" style="margin-top: 10px;">
-            💾 Zapisz credentials
-          </button>
-          <div class="afo-creds-info">
-            ⚠️ Dane są przechowywane lokalnie w przeglądarce. 
-            Używane tylko do automatycznego logowania po rozłączeniu.
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(menu);
-  },
-
-  // ============================================
-  // EVENTS
-  // ============================================
-
-  bindEvents() {
-    // Icon click
-    document.getElementById('afo-reconnect-icon').addEventListener('click', () => {
-      this.toggleMenu();
-    });
-
-    // Close button
-    document.getElementById('afo-menu-close').addEventListener('click', () => {
-      this.closeMenu();
-    });
-
-    // Overlay click
-    document.getElementById('afo-reconnect-overlay').addEventListener('click', () => {
-      this.closeMenu();
-    });
-
-    // Save state button
-    document.getElementById('afo-btn-save').addEventListener('click', async () => {
-      await this.saveState();
-    });
-
-    // Credentials toggle
-    document.getElementById('afo-btn-credentials').addEventListener('click', () => {
-      this.toggleCredentialsForm();
-    });
-
-    // Save credentials button
-    document.getElementById('afo-btn-save-creds').addEventListener('click', async () => {
-      await this.saveCredentials();
-    });
-
-    // History toggle
-    document.getElementById('afo-last-reconnect').addEventListener('click', () => {
-      this.toggleHistory();
-    });
-
-    // Clear button (server)
-    document.getElementById('afo-btn-clear').addEventListener('click', async () => {
-      await this.clearState();
-    });
-
-    // Clear button (global)
-    document.getElementById('afo-btn-clear-all').addEventListener('click', async () => {
-      await this.clearAllStates();
-    });
-
-    // ESC key to close
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isMenuOpen) {
-        this.closeMenu();
-      }
-    });
-  },
-
-  // ============================================
-  // MENU TOGGLE
-  // ============================================
-
-  toggleMenu() {
-    if (this.isMenuOpen) {
-      this.closeMenu();
-    } else {
-      this.openMenu();
-    }
-  },
-
-  openMenu() {
-    this.isMenuOpen = true;
-    document.getElementById('afo-reconnect-menu').classList.add('open');
-    document.getElementById('afo-reconnect-overlay').classList.add('open');
-    this.refreshMenuContent();
-  },
-
-  closeMenu() {
-    this.isMenuOpen = false;
-    document.getElementById('afo-reconnect-menu').classList.remove('open');
-    document.getElementById('afo-reconnect-overlay').classList.remove('open');
-    // Close credentials form
-    document.getElementById('afo-creds-section').classList.remove('open');
-  },
-
-  toggleCredentialsForm() {
-    const section = document.getElementById('afo-creds-section');
-    section.classList.toggle('open');
-
-    // Load existing credentials if available
-    if (section.classList.contains('open')) {
-      this.loadExistingCredentials();
-    }
-  },
-
-  // ============================================
-  // REFRESH MENU CONTENT
-  // ============================================
-
-  async refreshMenuContent() {
-    // Server / Char info
-    const serverChar = document.getElementById('afo-server-char');
-    if (typeof GAME !== 'undefined' && GAME.server && GAME.char_id) {
-      const charName = GAME.char_data?.name || `ID: ${GAME.char_id}`;
-      serverChar.textContent = `S${GAME.server} / ${charName}`;
-    } else {
-      serverChar.textContent = '-';
-    }
-
-    // Load saved state
-    this.loadHistory();
-    this.renderHistory();
-    await this.updateStatusFromStorage();
-  },
-
-  async updateStatusFromStorage() {
-    if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) {
-      this.setStatus('neutral', 'Oczekiwanie na grę');
-      return;
-    }
-
-    try {
-      // Check credentials
-      const hasCreds = typeof AFO_CREDENTIALS !== 'undefined' && await AFO_CREDENTIALS.exists();
-
-      const state = await AFO_STATE_MANAGER.load(GAME.server, GAME.char_id);
-
-      if (!hasCreds) {
-        this.setStatus('error', 'Brak credentials');
-        this.updateLastSaveTime(state ? state.savedAt : null);
-        this.updateModulesList(state);
-        return;
-      }
-
-      if (state) {
-        this.lastSaveTime = state.savedAt;
-        // Check if saved state matches current character
-        if (state.charId && state.charId != GAME.char_id) {
-          const savedCharName = state.charId;
-          this.setStatus('unsaved', `Stan innej postaci (${savedCharName})`);
-        } else {
-          this.setStatus('saved', 'Zsynchronizowane');
-        }
-        this.updateLastSaveTime(state.savedAt);
-        this.updateModulesList(state);
-      } else {
-        this.setStatus('unsaved', 'Nie zapisano');
-        this.updateLastSaveTime(null);
-        this.updateModulesList(null);
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Error loading state:', e);
-      this.setStatus('error', 'Błąd');
-    }
-  },
-
-  // ============================================
-  // STATUS UPDATES
-  // ============================================
-
-  setStatus(status, text) {
-    this.currentStatus = status;
-
-    // Update icon
-    const icon = document.getElementById('afo-reconnect-icon');
-    icon.className = `status-${status}`;
-
-    // Update status text in menu
-    const statusText = document.getElementById('afo-status-text');
-    if (statusText) {
-      statusText.textContent = text;
-      statusText.className = `afo-status-value ${status}`;
-    }
-  },
-
-  updateLastSaveTime(timestamp) {
-    const el = document.getElementById('afo-last-save');
-    if (!el) return;
-
-    if (timestamp) {
-      const date = new Date(timestamp);
-      el.textContent = date.toLocaleTimeString('pl-PL');
-    } else {
-      el.textContent = '-';
-    }
-  },
-
-  renderHistory() {
-    const label = document.getElementById('afo-last-reconnect');
-    const list = document.getElementById('afo-history-list');
-    if (!label || !list) return;
-
-    if (this.reconnectHistory.length === 0) {
-      label.textContent = '-';
-      label.classList.remove('afo-history-toggle');
-      list.innerHTML = '';
-      return;
-    }
-
-    const latest = new Date(this.reconnectHistory[0]);
-    const arrow = this.reconnectHistory.length > 1
-      ? `<span class="afo-history-arrow ${this.isHistoryOpen ? 'open' : ''}">▶</span>`
-      : '';
-
-    label.innerHTML = `${latest.toLocaleString('pl-PL')} ${arrow}`;
-
-    if (this.reconnectHistory.length > 1) {
-      label.classList.add('afo-history-toggle');
-      // Render other items (skip first)
-      const others = this.reconnectHistory.slice(1);
-      list.innerHTML = others.map(ts => {
-        const d = new Date(ts);
-        return `<div class="afo-history-item">${d.toLocaleString('pl-PL')}</div>`;
-      }).join('');
-
-      if (this.isHistoryOpen) {
-        list.classList.add('open');
-      } else {
-        list.classList.remove('open');
-      }
-    } else {
-      label.classList.remove('afo-history-toggle');
-      list.classList.remove('open');
-      list.innerHTML = '';
-    }
-  },
-
-  toggleHistory() {
-    if (this.reconnectHistory.length <= 1) return;
-    this.isHistoryOpen = !this.isHistoryOpen;
-    this.renderHistory();
-  },
-
-  updateModulesList(state) {
-    const container = document.getElementById('afo-modules-list');
-    if (!container) return;
-
-    if (!state || !state.modules) {
-      container.innerHTML = `
-        <div class="afo-module-item inactive">
-          <span class="icon">📭</span>
-          Brak zapisanego stanu
-        </div>
-      `;
-      return;
-    }
-
-    const modules = [
-      { key: 'RESP', name: 'PVM', icon: '⚔️', stopKey: 'stop' },
-      { key: 'PVP', name: 'PVP', icon: '🗡️', stopKey: 'stop' },
-      { key: 'LPVM', name: 'LPVM', icon: '📜', stopKey: 'Stop' },
-      { key: 'GLEBIA', name: 'GŁĘBIA', icon: '🔪', stopKey: 'stop' },
-      { key: 'CODE', name: 'KODY', icon: '🔑', stopKey: 'stop' },
-      { key: 'RES', name: 'ZBIERAJKA', icon: '💎', stopKey: 'stop' },
-    ];
-
-    let html = '';
-
-    for (const mod of modules) {
-      const modState = state.modules[mod.key];
-      const isActive = modState && !modState[mod.stopKey];
-      const activeClass = isActive ? 'active' : 'inactive';
-
-      let info = '';
-      if (isActive) {
-        // Add extra info based on module
-        if (mod.key === 'RESP' && modState.loc) {
-          info = `loc: ${modState.loc}`;
-        } else if (mod.key === 'CODE' && modState.what_to_train) {
-          const stats = ['', 'Siła', 'Wyt.', 'Zręcz.', 'Energia'];
-          info = stats[modState.what_to_train] || '';
-        }
-      }
-
-      html += `
-        <div class="afo-module-item ${activeClass}">
-          <span class="icon">${mod.icon}</span>
-          ${mod.name}
-          ${info ? `<span class="info">${info}</span>` : ''}
-        </div>
-      `;
-    }
-
-    // Activities
-    if (state.activities && state.activities.enabled) {
-      html += `
-        <div class="afo-module-item active">
-          <span class="icon">🎮</span>
-          Activities
-          <span class="info">${state.activities.selectedActivities?.length || 0} aktywności</span>
-        </div>
-      `;
-    }
-
-    // kws automations
-    if (state.kws) {
-      if (state.kws.auto_arena) {
-        html += `
-          <div class="afo-module-item active">
-            <span class="icon">🏆</span>
-            Arena
-          </div>
-        `;
-      }
-      if (state.kws.autoExpeditions) {
-        html += `
-          <div class="afo-module-item active">
-            <span class="icon">🚀</span>
-            Wyprawy
-          </div>
-        `;
-      }
-      if (state.kws.auto_abyss) {
-        html += `
-          <div class="afo-module-item active">
-            <span class="icon">🌀</span>
-            Otchłań
-          </div>
-        `;
-      }
-    }
-
-    // Kukla Guardian (Obserwator)
-    if (state.kuklaGuardian && state.kuklaGuardian.enabled) {
-      html += `
-        <div class="afo-module-item active">
-          <span class="icon">🛡️</span>
-          Obserwator
-        </div>
-      `;
-    }
-
-    // Clan Assist (Automatyczne Asysty)
-    if (state.clanAssist && state.clanAssist.enabled) {
-      html += `
-        <div class="afo-module-item active">
-          <span class="icon">🤝</span>
-          Asysty
-        </div>
-      `;
-    }
-
-    container.innerHTML = html || `
-      <div class="afo-module-item inactive">
-        <span class="icon">😴</span>
-        Żadne moduły nieaktywne
-      </div>
-    `;
-  },
-
-  // ============================================
-  // ACTIONS
-  // ============================================
-
-  async saveState() {
-    try {
-      const success = await AFO_STATE_MANAGER.save();
-
-      if (success) {
-        this.showToast('Stan zapisany pomyślnie!', 'success');
-        await this.updateStatusFromStorage();
-      } else {
-        this.showToast('Nie udało się zapisać stanu', 'error');
-        this.setStatus('error', 'Błąd zapisu');
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Save error:', e);
-      this.showToast('Błąd: ' + e.message, 'error');
-    }
-  },
-
-  async clearState() {
-    if (!confirm('Czy na pewno chcesz wyczyścić zapisany stan?')) {
-      return;
-    }
-
-    try {
-      const success = await AFO_STATE_MANAGER.clearCurrent();
-
-      if (success) {
-        this.showToast('Stan wyczyszczony', 'success');
-        await this.updateStatusFromStorage();
-      } else {
-        this.showToast('Nie udało się wyczyścić stanu', 'error');
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Clear error:', e);
-      this.showToast('Błąd: ' + e.message, 'error');
-    }
-  },
-
-  async clearAllStates() {
-    if (!confirm('Czy na pewno chcesz wyczyścić zapisany stan ze WSZYSTKICH serwerów?')) {
-      return;
-    }
-
-    try {
-      const success = await AFO_STATE_MANAGER.clearAll();
-
-      if (success) {
-        this.showToast('Wyczyszczono stany ze wszystkich serwerów', 'success');
-        await this.updateStatusFromStorage();
-      } else {
-        this.showToast('Nie udało się wyczyścić stanów', 'error');
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Clear all error:', e);
-      this.showToast('Błąd: ' + e.message, 'error');
-    }
-  },
-
-  async loadExistingCredentials() {
-    try {
-      const creds = await AFO_CREDENTIALS.get();
-
-      if (creds) {
-        document.getElementById('afo-creds-login').value = creds.login || '';
-        document.getElementById('afo-creds-password').value = creds.password || '';
-      } else {
-        // Try to get login from GAME
-        if (typeof GAME !== 'undefined' && GAME.login) {
-          document.getElementById('afo-creds-login').value = GAME.login;
-        }
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Load credentials error:', e);
-    }
-  },
-
-  async saveCredentials() {
-    const login = document.getElementById('afo-creds-login').value.trim();
-    const password = document.getElementById('afo-creds-password').value;
-
-    if (!login || !password) {
-      this.showToast('Wpisz login i hasło', 'warning');
-      return;
-    }
-
-    try {
-      const success = await AFO_CREDENTIALS.save(login, password);
-
-      if (success) {
-        this.showToast('Credentials zapisane!', 'success');
-        document.getElementById('afo-creds-section').classList.remove('open');
-      } else {
-        this.showToast('Nie udało się zapisać credentials', 'error');
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT_UI] Save credentials error:', e);
-      this.showToast('Błąd: ' + e.message, 'error');
-    }
-  },
-
-  // ============================================
-  // DRAGGABLE ICON
-  // ============================================
-
-  setupDraggable() {
-    const icon = document.getElementById('afo-reconnect-icon');
-    if (!icon) return;
-
-    let isDragging = false;
-    let hasMoved = false;
-    let startX, startY, startLeft, startTop;
-
-    // Load saved position or use default
-    this.loadIconPosition(icon);
-
-    const getPos = (e) => {
-      if (e.touches && e.touches.length) {
-        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      }
-      return { x: e.clientX, y: e.clientY };
-    };
-
-    const onStart = (e) => {
-      const pos = getPos(e);
-      startX = pos.x;
-      startY = pos.y;
-
-      const rect = icon.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
-
-      isDragging = true;
-      hasMoved = false;
-    };
-
-    const onMove = (e) => {
-      if (!isDragging) return;
-
-      const pos = getPos(e);
-      const dx = pos.x - startX;
-      const dy = pos.y - startY;
-
-      // Only start dragging after 5px threshold
-      if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-
-      hasMoved = true;
-      icon.classList.add('dragging');
-      e.preventDefault();
-
-      // Clamp within viewport
-      const maxX = window.innerWidth - icon.offsetWidth;
-      const maxY = window.innerHeight - icon.offsetHeight;
-      const newLeft = Math.max(0, Math.min(maxX, startLeft + dx));
-      const newTop = Math.max(0, Math.min(maxY, startTop + dy));
-
-      icon.style.left = newLeft + 'px';
-      icon.style.top = newTop + 'px';
-      icon.style.right = 'auto';
-    };
-
-    const onEnd = () => {
-      isDragging = false;
-      icon.classList.remove('dragging');
-
-      // If we moved, save position and suppress the click (menu open)
-      if (hasMoved) {
-        this.saveIconPosition(icon);
-        const suppress = (e) => { e.stopImmediatePropagation(); };
-        icon.addEventListener('click', suppress, { once: true, capture: true });
-      }
-    };
-
-    // Mouse events
-    icon.addEventListener('mousedown', onStart);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
-
-    // Touch events
-    icon.addEventListener('touchstart', onStart, { passive: true });
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd);
-
-    // Clamp position on window resize
-    window.addEventListener('resize', () => {
-      this.clampIconToViewport(icon);
-    });
-  },
-
-  /**
-   * Load saved icon position from localStorage
-   */
-  loadIconPosition(icon) {
-    try {
-      const saved = localStorage.getItem('afo_reconnect_icon_pos');
-      if (saved) {
-        const pos = JSON.parse(saved);
-        icon.style.left = pos.left + 'px';
-        icon.style.top = pos.top + 'px';
-        icon.style.right = 'auto';
-        // Clamp to ensure it's visible
-        this.clampIconToViewport(icon);
-      }
-    } catch (e) {
-      console.warn('[AFO_RECONNECT_UI] Failed to load icon position:', e);
-    }
-  },
-
-  /**
-   * Save icon position to localStorage
-   */
-  saveIconPosition(icon) {
-    try {
-      const rect = icon.getBoundingClientRect();
-      localStorage.setItem('afo_reconnect_icon_pos', JSON.stringify({
-        left: rect.left,
-        top: rect.top
-      }));
-    } catch (e) {
-      console.warn('[AFO_RECONNECT_UI] Failed to save icon position:', e);
-    }
-  },
-
-  /**
-   * Clamp icon to viewport (prevent going off-screen)
-   */
-  clampIconToViewport(icon) {
-    const rect = icon.getBoundingClientRect();
-    const maxX = window.innerWidth - icon.offsetWidth;
-    const maxY = window.innerHeight - icon.offsetHeight;
-
-    let newLeft = rect.left;
-    let newTop = rect.top;
-    let changed = false;
-
-    if (newLeft < 0) {
-      newLeft = 0;
-      changed = true;
-    } else if (newLeft > maxX) {
-      newLeft = maxX;
-      changed = true;
-    }
-
-    if (newTop < 0) {
-      newTop = 0;
-      changed = true;
-    } else if (newTop > maxY) {
-      newTop = maxY;
-      changed = true;
-    }
-
-    if (changed) {
-      icon.style.left = newLeft + 'px';
-      icon.style.top = newTop + 'px';
-      icon.style.right = 'auto';
-      this.saveIconPosition(icon);
-    }
-  },
-
-  // ============================================
-  // TOAST NOTIFICATIONS
-  // ============================================
-
-  showToast(message, type = 'success') {
-    // Remove existing toasts
-    document.querySelectorAll('.afo-toast').forEach(t => t.remove());
-
-    const toast = document.createElement('div');
-    toast.className = `afo-toast ${type}`;
-    toast.innerHTML = `
-      <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️'}</span>
-      <span>${message}</span>
-    `;
-
-    document.body.appendChild(toast);
-
-    // Auto-remove after 3s
-    setTimeout(() => {
-      toast.style.animation = 'toastIn 0.3s ease reverse';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  }
-};
-
-// Export
-window.AFO_RECONNECT_UI = AFO_RECONNECT_UI;
-console.log('[AFO] Reconnect UI module loaded');
-
-
-// ========== remote/reconnect/reconnect.js ==========
-/**
- * ============================================================================
- * AFO - Reconnect Module
- * ============================================================================
- * 
- * Aggressive auto-reconnection:
- * - On main page: immediately tries to login if credentials exist
- * - On server page: monitors for disconnect and redirects to main page
- * - Always restores saved state after successful login
- * 
- * URL Structure:
- * - https://kosmiczni.pl/ - main/login page  
- * - https://s1.kosmiczni.pl/ - game on server 1 (s1-sXX)
- * 
- * ============================================================================
- */
-
-const AFO_RECONNECT = {
-  // ============================================
-  // TIMING CONSTANTS (milliseconds)
-  // ============================================
-  TIMING: {
-    CHECK_INTERVAL: 3000,         // How often to check connection (3s)
-    INIT_DELAY: 2000,             // Initial delay before starting
-    LOGIN_FORM_WAIT: 1000,        // Wait after filling login form
-    LOGIN_SUBMIT_WAIT: 2500,      // Wait after submitting login
-    LOGIN_PAGE_DELAY: 4000,       // Wait on login page before auto-fill (user reaction time)
-    SERVER_SELECT_WAIT: 1500,     // Wait after selecting server
-    CHAR_SELECT_DELAY: 5000,      // Wait BEFORE selecting character (user reaction time)
-    CHAR_SELECT_WAIT: 2500,       // Wait after selecting character
-    SCRIPTS_LOAD_WAIT: 5000,      // Wait for Gieniobot scripts to load
-    GAME_READY_CHECK: 500,        // How often to check if GAME is ready
-    MAX_WAIT: 60000,              // Max time to wait for any operation
-    RETRY_DELAY: 3000             // Delay between retries
-  },
-
-  // State
-  isInitialized: false,
-  isProcessing: false,
-  isReconnecting: false,        // true ONLY after disconnect redirect
-  monitorRunning: false,
-  targetServer: null,
-  targetCharId: null,
-  savedStateToRestore: null,
-
-  // Page context
-  isMainPage: false,
-  isServerPage: false,
-  currentServer: null,
-
-  // ============================================
-  // INITIALIZATION
-  // ============================================
-
-  init() {
-    if (this.isInitialized) return;
-    this.isInitialized = true;
-
-    console.log('[AFO_RECONNECT] Initializing...');
-
-    // Detect page context
-    this.detectPageContext();
-
-    // Start after brief delay to let page load
-    setTimeout(() => {
-      this.start();
-    }, this.TIMING.INIT_DELAY);
-  },
-
-  detectPageContext() {
-    const hostname = window.location.hostname;
-    console.log('[AFO_RECONNECT] Hostname:', hostname);
-
-    this.isMainPage = hostname === 'kosmiczni.pl' || hostname === 'www.kosmiczni.pl';
-    this.isServerPage = /^s\d+\.kosmiczni\.pl$/.test(hostname);
-
-    if (this.isServerPage) {
-      const match = hostname.match(/^s(\d+)\./);
-      this.currentServer = match ? parseInt(match[1]) : null;
-    }
-
-    console.log('[AFO_RECONNECT] Context:', {
-      isMainPage: this.isMainPage,
-      isServerPage: this.isServerPage,
-      currentServer: this.currentServer
-    });
-  },
-
-  async start() {
-    console.log('[AFO_RECONNECT] Starting...');
-
-    try {
-      // Any non-root path on server domain = error page (auth, expired session, etc.)
-      // Always redirect to main page to restart login flow
-      if (this.isServerPage && window.location.pathname !== '/') {
-        console.log('[AFO_RECONNECT] Non-game page detected on server:', window.location.pathname, '- redirecting to main page...');
-        if (!this.targetServer) this.targetServer = this.currentServer;
-        // Brief delay to avoid rapid-fire redirects if server is still restarting
-        await this.sleep(3000);
-        await this.saveReconnectTarget();
-        window.location.href = 'https://kosmiczni.pl/';
-        return;
-      }
-
-      // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
-      await this.loadReconnectTarget();
-
-      // Load credentials
-      const creds = await this.getCredentials();
-      if (!creds) {
-        console.log('[AFO_RECONNECT] No credentials saved, passive mode');
-        // Still monitor for disconnect on server page
-        if (this.isServerPage) {
-          this.startDisconnectMonitor();
-        }
-        return;
-      }
-
-      // On server page: set targetServer from URL if not already set
-      if (this.isServerPage && this.currentServer && !this.targetServer) {
-        this.targetServer = this.currentServer;
-      }
-
-      // Load saved state (on server page always, on main page only when reconnecting)
-      if (this.isServerPage || this.isReconnecting) {
-        await this.loadSavedState();
-      }
-
-      // MAIN PAGE: Auto-login when reconnecting or when recent state exists
-      if (this.isMainPage) {
-        if (this.isReconnecting) {
-          console.log('[AFO_RECONNECT] On main page, reconnect mode - initiating login...');
-          await this.handleMainPage(creds);
-        } else {
-          // Infer reconnect from recent saved state (catches server restart redirects
-          // where disconnect monitor didn't have time to save reconnect target)
-          const inferred = await this.inferReconnectFromState();
-          if (inferred) {
-            console.log('[AFO_RECONNECT] On main page, inferred reconnect from recent state - initiating login...');
-            this.isReconnecting = true;
-            await this.handleMainPage(creds);
-          } else {
-            console.log('[AFO_RECONNECT] On main page, normal mode - not auto-logging in');
-          }
-        }
-      }
-
-      // SERVER PAGE: Always handle (monitor + auto-select if saved state exists)
-      if (this.isServerPage) {
-        await this.handleServerPage(creds);
-      }
-    } catch (error) {
-      console.error('[AFO_RECONNECT] start() failed:', error, '- retrying in 5s...');
-      this.isInitialized = false;
-      this.isProcessing = false;
-      setTimeout(() => {
-        this.init();
-      }, 5000);
-    }
-  },
-
-  async loadReconnectTarget() {
-    if (typeof AFO_STORAGE === 'undefined') return;
-
-    try {
-      const result = await AFO_STORAGE.get('afo_reconnect_target');
-      const target = result['afo_reconnect_target'];
-
-      if (target && target.server) {
-        this.targetServer = parseInt(target.server);
-        this.targetCharId = target.charId ? parseInt(target.charId) : null;
-        this.isReconnecting = true;
-        console.log('[AFO_RECONNECT] Loaded reconnect target (reconnect mode):', this.targetServer, this.targetCharId);
-
-        // Only clear on server page (where we consume it).
-        // On main page we keep it so the flag survives the redirect to server page.
-        if (this.isServerPage) {
-          await AFO_STORAGE.remove('afo_reconnect_target');
-        }
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT] Error loading reconnect target:', e);
-    }
-  },
-
-  // ============================================
-  // MAIN PAGE HANDLER
-  // ============================================
-
-  async handleMainPage(creds) {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    try {
-      // Wait for page to be ready + give user time to react
-      console.log('[AFO_RECONNECT] Waiting before auto-login (giving user time to react)...');
-      await this.sleep(this.TIMING.LOGIN_PAGE_DELAY);
-
-      // Retry login form detection (DOM may not be ready on mobile)
-      const MAX_LOGIN_ATTEMPTS = 8;
-      let loginDone = false;
-
-      for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
-        if (this.needsCredentialsLogin()) {
-          console.log('[AFO_RECONNECT] Filling credentials (attempt ' + (i + 1) + ')...');
-          await this.fillCredentials(creds);
-          await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
-          loginDone = true;
-          break;
-        }
-
-        // Already past login (server select visible or redirected)?
-        if (this.needsServerSelect()) {
-          loginDone = true;
-          break;
-        }
-
-        console.log('[AFO_RECONNECT] Main page: waiting for login form (attempt ' + (i + 1) + '/' + MAX_LOGIN_ATTEMPTS + ')...');
-        await this.sleep(2000);
-      }
-
-      if (!loginDone) {
-        console.warn('[AFO_RECONNECT] Login form not found after ' + MAX_LOGIN_ATTEMPTS + ' attempts');
-      }
-
-      // Retry server select detection
-      const MAX_SERVER_ATTEMPTS = 8;
-      for (let i = 0; i < MAX_SERVER_ATTEMPTS; i++) {
-        if (this.needsServerSelect() && this.targetServer) {
-          console.log('[AFO_RECONNECT] Selecting server', this.targetServer);
-          await this.selectServer(this.targetServer);
-          // After server select, page will redirect to server page
-          return;
-        }
-
-        // Check if we've already been redirected (no longer on main page)
-        if (window.location.hostname !== 'kosmiczni.pl' && window.location.hostname !== 'www.kosmiczni.pl') {
-          console.log('[AFO_RECONNECT] Already redirected to', window.location.hostname);
-          return;
-        }
-
-        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ')...');
-        await this.sleep(2000);
-      }
-
-      // Not found - fall through to retry below
-      console.warn('[AFO_RECONNECT] Server select not found after ' + MAX_SERVER_ATTEMPTS + ' attempts');
-
-    } catch (error) {
-      console.error('[AFO_RECONNECT] Main page error:', error);
-    } finally {
-      this.isProcessing = false;
-    }
-
-    // Never give up - retry after delay (both "not found" and error paths end up here)
-    console.log('[AFO_RECONNECT] Retrying main page login in 15s...');
-    await this.sleep(15000);
-    return this.handleMainPage(creds);
-  },
-
-  // ============================================
-  // SERVER PAGE HANDLER  
-  // ============================================
-
-  async handleServerPage(creds, _attempt) {
-    // Track attempts to prevent infinite loop
-    if (_attempt === undefined) _attempt = 0;
-    const MAX_ATTEMPTS = 60; // max ~3 minutes of retrying (60 * 3s)
-
-    console.log('[AFO_RECONNECT] handleServerPage attempt ' + (_attempt + 1) + '/' + MAX_ATTEMPTS + ' (reconnecting:', this.isReconnecting, ')');
-
-    if (_attempt >= MAX_ATTEMPTS) {
-      console.error('[AFO_RECONNECT] handleServerPage: max attempts reached (' + MAX_ATTEMPTS + '), giving up. GAME state:',
-        typeof GAME !== 'undefined' ? { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected } : 'GAME undefined');
-      return;
-    }
-
-    // Start disconnect monitor immediately (always, regardless of reconnect mode)
-    this.startDisconnectMonitor();
-
-    // Wait for GAME to be available (longer timeout for mobile)
-    const waitStart = Date.now();
-    const gameReady = await this.waitForGame(30000);
-
-    if (!gameReady) {
-      // Check if this is actually the game page or a server-rendered error/auth page
-      // #game_win is in the static HTML of the game client (bigcode.html line 31), always present
-      // On auth error pages (e.g. session expired after server restart) it does NOT exist
-      const hasGameStructure = document.getElementById('game_win');
-
-      if (!hasGameStructure) {
-        // Not the game page - likely auth error or session expired page
-        // Redirect to main page to trigger auto-login flow
-        console.log('[AFO_RECONNECT] Auth/error page detected (no #game_win). Redirecting to main page for re-login...');
-        await this.saveReconnectTarget();
-        window.location.href = 'https://kosmiczni.pl/';
-        return;
-      }
-
-      // Game page structure exists but GAME JS not loaded yet - keep retrying
-      console.warn('[AFO_RECONNECT] GAME not available after 30s (game structure present, JS still loading). Retrying...');
-      await this.sleep(3000);
-      return this.handleServerPage(creds, _attempt + 1);
-    }
-
-    console.log('[AFO_RECONNECT] GAME ready after ' + (Date.now() - waitStart) + 'ms');
-
-    // Check if disconnected (GAME exists but connection lost)
-    if (this.isDisconnected()) {
-      if (this.savedStateToRestore) {
-        // We have saved state - initiate reconnect regardless of isReconnecting flag
-        console.log('[AFO_RECONNECT] Disconnected on server page with saved state, redirecting...');
-        await this.saveReconnectTarget();
-        window.location.href = 'https://kosmiczni.pl/';
-      } else {
-        console.log('[AFO_RECONNECT] Disconnected, no saved state - monitor will handle future disconnects');
-      }
-      return;
-    }
-
-    // Check if on character select
-    if (this.isCharacterSelectScreen()) {
-      if (!this.isReconnecting) {
-        console.log('[AFO_RECONNECT] On character select, not reconnecting - skipping auto-select and restore');
-        this.savedStateToRestore = null;
-        return;
-      }
-
-      if (!this.savedStateToRestore) {
-        console.log('[AFO_RECONNECT] On character select, no saved state - skipping auto-select');
-        return;
-      }
-
-      if (this.currentServer !== this.targetServer) {
-        console.log('[AFO_RECONNECT] Server mismatch! Current:', this.currentServer, 'Target:', this.targetServer, '- skipping auto-select');
-        this.savedStateToRestore = null;
-        return;
-      }
-
-      // Give user time to manually select a different character
-      console.log('[AFO_RECONNECT] On character select, waiting', this.TIMING.CHAR_SELECT_DELAY, 'ms before auto-selecting (saved state exists for char', this.targetCharId, ')...');
-      await this.sleep(this.TIMING.CHAR_SELECT_DELAY);
-
-      // Re-check: user might have selected a character manually during the delay
-      if (this.isFullyLoggedIn()) {
-        console.log('[AFO_RECONNECT] User already logged in during wait - checking if state should be restored');
-        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
-          await this.restoreState();
-        } else {
-          console.log('[AFO_RECONNECT] User chose different character (', GAME.char_id, ') than target (', this.targetCharId, ') - skipping restore');
-          this.savedStateToRestore = null;
-        }
-        return;
-      }
-
-      // Still on char select - auto-select the target character (or wait for manual selection)
-      if (this.isCharacterSelectScreen()) {
-        if (this.targetCharId) {
-          console.log('[AFO_RECONNECT] Auto-selecting character', this.targetCharId);
-        } else {
-          console.log('[AFO_RECONNECT] No target charId, waiting for manual character selection...');
-        }
-        await this.selectCharacter(this.targetCharId);
-
-        // Wait for login (manual or auto)
-        if (!this.isFullyLoggedIn()) {
-          console.log('[AFO_RECONNECT] Waiting for full login...');
-          await this.waitForFullyLoggedIn(60000);
-        }
-
-        // Go to map first to avoid GAME.mapCharMove errors
-        console.log('[AFO_RECONNECT] Waiting 2s then going to map...');
-        await this.sleep(2000);
-        if (typeof GAME !== 'undefined' && GAME.page_switch) {
-          GAME.page_switch('game_map');
-          console.log('[AFO_RECONNECT] Switched to game_map');
-          await this.sleep(1000);
-        }
-
-        await this.restoreState();
-        return;
-      }
-
-      return;
-    }
-
-    // Check if fully logged in
-    if (this.isFullyLoggedIn()) {
-      console.log('[AFO_RECONNECT] Already logged in');
-      if (this.savedStateToRestore && this.isReconnecting) {
-        // Validate server/char match before restoring
-        if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
-          await this.restoreState();
-        } else {
-          console.log('[AFO_RECONNECT] Logged in but server/char mismatch - skipping restore. Current:', GAME.server + '/' + GAME.char_id, 'Target:', this.targetServer + '/' + this.targetCharId);
-          this.savedStateToRestore = null;
-        }
-      } else if (this.savedStateToRestore && !this.isReconnecting) {
-        console.log('[AFO_RECONNECT] Already logged in, but not reconnecting - skipping restore');
-        this.savedStateToRestore = null;
-      }
-      return;
-    }
-
-    // Otherwise wait and check again (GAME exists but not fully logged in yet)
-    console.log('[AFO_RECONNECT] GAME exists but not fully logged in yet, retrying in 3s...',
-      { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected });
-    await this.sleep(3000);
-    return this.handleServerPage(creds, _attempt + 1);
-  },
-
-  // ============================================
-  // DISCONNECT MONITOR
-  // ============================================
-
-  startDisconnectMonitor() {
-    if (this.monitorRunning) {
-      console.log('[AFO_RECONNECT] Monitor already running');
-      return;
-    }
-
-    this.monitorRunning = true;
-    console.log('[AFO_RECONNECT] 🔴 Starting disconnect monitor (interval: ' + this.TIMING.CHECK_INTERVAL + 'ms)');
-
-    // Store interval ID to allow cleanup
-    this.monitorIntervalId = setInterval(() => {
-      if (this.isProcessing) return;
-
-      // Check GAME.is_disconnected - most reliable
-      if (typeof GAME !== 'undefined') {
-        if (GAME.is_disconnected > 0) {
-          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: GAME.is_disconnected =', GAME.is_disconnected);
-          this.handleDisconnect();
-          return;
-        }
-
-        // GAME.pid === 0 means disconnected (but we had char_id before)
-        if (GAME.pid === 0 && GAME.char_id > 0) {
-          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: GAME.pid = 0');
-          this.handleDisconnect();
-          return;
-        }
-      }
-
-      // Check for disconnect message
-      const komCon = document.getElementById('kom_con');
-      if (komCon && komCon.innerText.includes('Rozłączono z serwerem!')) {
-        console.log('[AFO_RECONNECT] 🔴 Disconnect detected: message visible');
-        this.handleDisconnect();
-        return;
-      }
-
-      // Check for hidden game window (only if we have char_id)
-      const gameWin = document.querySelector('#game_win');
-      if (gameWin && gameWin.style.display === 'none') {
-        if (typeof GAME !== 'undefined' && GAME.char_id > 0) {
-          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: #game_win hidden');
-          this.handleDisconnect();
-          return;
-        }
-      }
-    }, this.TIMING.CHECK_INTERVAL);
-
-    // Proactive save on page unload (catches server restart redirects
-    // where disconnect monitor doesn't fire in time)
-    if (!this._beforeUnloadBound) {
-      this._beforeUnloadBound = true;
-      window.addEventListener('beforeunload', () => {
-        if (!this.isServerPage) return;
-        if (typeof GAME === 'undefined' || !GAME.server || !GAME.char_id) return;
-
-        try {
-          if (typeof AFO_STATE_MANAGER !== 'undefined') {
-            AFO_STATE_MANAGER.save();
-          }
-          if (typeof AFO_STORAGE !== 'undefined') {
-            AFO_STORAGE.set({
-              'afo_reconnect_target': {
-                server: GAME.server,
-                charId: GAME.char_id,
-                savedAt: Date.now()
-              }
-            });
-          }
-        } catch (e) { /* swallow errors during unload */ }
-      });
-    }
-  },
-
-  stopDisconnectMonitor() {
-    if (this.monitorIntervalId) {
-      clearInterval(this.monitorIntervalId);
-      this.monitorIntervalId = null;
-      this.monitorRunning = false;
-      console.log('[AFO_RECONNECT] Monitor stopped');
-    }
-  },
-
-  async handleDisconnect() {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    console.log('[AFO_RECONNECT] 🔄 Handling disconnect...');
-
-    // Get credentials
-    const creds = await this.getCredentials();
-    if (!creds) {
-      console.log('[AFO_RECONNECT] No credentials, cannot auto-reconnect');
-      this.isProcessing = false;
-      return;
-    }
-
-    // Save target and redirect with small delay so user can see what's happening
-    console.log('[AFO_RECONNECT] Saving target and redirecting to main page in 1.5s...');
-    await this.saveReconnectTarget();
-
-    await this.sleep(1500);
-    window.location.href = 'https://kosmiczni.pl/';
-  },
-
-  // ============================================
-  // LOGIN HELPERS
-  // ============================================
-
-  needsCredentialsLogin() {
-    const notLogged = document.getElementById('not_logged');
-    if (!notLogged) return false;
-
-    const style = window.getComputedStyle(notLogged);
-    const isVisible = style.display !== 'none' && !notLogged.classList.contains('initial_hide');
-
-    const loginField = document.getElementById('login_login');
-    return isVisible && loginField;
-  },
-
-  needsServerSelect() {
-    const loggedId = document.getElementById('logged_id');
-    if (!loggedId) return false;
-
-    const style = window.getComputedStyle(loggedId);
-    const isVisible = style.display !== 'none';
-
-    const serverSelect = document.getElementById('server_choose');
-    return isVisible && serverSelect;
-  },
-
-  async fillCredentials(creds) {
-    const loginField = document.getElementById('login_login');
-    const passwordField = document.getElementById('login_pass');
-    const loginButton = document.getElementById('cg_login_button1');
-
-    if (!loginField || !passwordField) {
-      console.log('[AFO_RECONNECT] Login form not found');
-      return;
-    }
-
-    loginField.value = creds.login;
-    passwordField.value = creds.password;
-
-    console.log('[AFO_RECONNECT] Filled credentials, submitting...');
-
-    await this.sleep(this.TIMING.LOGIN_FORM_WAIT);
-
-    if (loginButton) {
-      loginButton.click();
-    }
-  },
-
-  async selectServer(server) {
-    const serverSelect = document.getElementById('server_choose');
-    const loginButton = document.getElementById('cg_login_button2');
-
-    if (!serverSelect) {
-      console.log('[AFO_RECONNECT] Server select not found');
-      return;
-    }
-
-    serverSelect.value = server.toString();
-    serverSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-    console.log('[AFO_RECONNECT] Selected server', server, ', submitting...');
-
-    await this.sleep(this.TIMING.SERVER_SELECT_WAIT);
-
-    if (loginButton) {
-      loginButton.click();
-    }
-  },
-
-  async selectCharacter(charId) {
-    if (!charId) {
-      console.log('[AFO_RECONNECT] No target charId, waiting for manual selection');
-      return;
-    }
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-
-    try {
-      console.log('[AFO_RECONNECT] Selecting character', charId);
-
-      await this.sleep(1000);
-
-      if (typeof GAME !== 'undefined' && GAME.socket) {
-        GAME.socket.emit('ga', { a: 2, char_id: parseInt(charId) });
-        console.log('[AFO_RECONNECT] Sent character select via socket');
-      } else {
-        const charElement = document.querySelector(`[data-char_id="${charId}"]`);
-        if (charElement) {
-          charElement.click();
-          console.log('[AFO_RECONNECT] Clicked character in list');
-        } else {
-          console.log('[AFO_RECONNECT] Character not found in list');
-        }
-      }
-
-      await this.sleep(this.TIMING.CHAR_SELECT_WAIT);
-    } finally {
-      this.isProcessing = false;
-    }
-  },
-
-  // ============================================
-  // STATE CHECKS
-  // ============================================
-
-  isDisconnected() {
-    // GAME not loaded yet ≠ disconnected (critical for mobile where GAME loads slowly)
-    if (typeof GAME === 'undefined') return false;
-
-    if (GAME.is_disconnected > 0) return true;
-    if (GAME.pid === 0 && !this.isCharacterSelectScreen()) return true;
-
-    const komCon = document.getElementById('kom_con');
-    if (komCon && komCon.innerText.includes('Rozłączono z serwerem!')) return true;
-
-    return false;
-  },
-
-  isCharacterSelectScreen() {
-    const charList = document.querySelector('#char_list_con');
-    if (charList && charList.children.length > 0) return true;
-
-    if (typeof GAME !== 'undefined' && GAME.player_chars > 0 && !GAME.char_id) return true;
-
-    return false;
-  },
-
-  isFullyLoggedIn() {
-    if (typeof GAME === 'undefined') return false;
-    return GAME.pid > 0 && GAME.char_id > 0 && GAME.char_data;
-  },
-
-  // ============================================
-  // WAITING HELPERS
-  // ============================================
-
-  async waitForGame(timeout = 60000) {
-    console.log('[AFO_RECONNECT] Waiting for GAME (timeout: ' + (timeout / 1000) + 's)...');
-    const startTime = Date.now();
-
-    return new Promise((resolve) => {
-      const check = () => {
-        if (typeof GAME !== 'undefined') {
-          console.log('[AFO_RECONNECT] GAME found after ' + (Date.now() - startTime) + 'ms');
-          resolve(true);
-          return;
-        }
-
-        if (Date.now() - startTime > timeout) {
-          console.warn('[AFO_RECONNECT] GAME not found after ' + timeout + 'ms timeout');
-          resolve(false);
-          return;
-        }
-
-        setTimeout(check, this.TIMING.GAME_READY_CHECK);
-      };
-
-      check();
-    });
-  },
-
-  async waitForFullyLoggedIn(timeout = 60000) {
-    const startTime = Date.now();
-
-    return new Promise((resolve) => {
-      const check = () => {
-        if (this.isFullyLoggedIn()) {
-          resolve(true);
-          return;
-        }
-
-        if (Date.now() - startTime > timeout) {
-          resolve(false);
-          return;
-        }
-
-        setTimeout(check, this.TIMING.GAME_READY_CHECK);
-      };
-
-      check();
-    });
-  },
-
-  // ============================================
-  // CREDENTIALS & STATE
-  // ============================================
-
-  /**
-   * Check if there's a recently saved state (< 10 min) that implies we should reconnect.
-   * Catches server restart redirects where disconnect monitor didn't save target in time.
-   */
-  async inferReconnectFromState() {
-    if (typeof AFO_STORAGE === 'undefined') return false;
-
-    try {
-      const result = await AFO_STORAGE.get(null);
-      const now = Date.now();
-      const MAX_AGE = 10 * 60 * 1000; // 10 minutes
-
-      for (const key in result) {
-        if (!key.startsWith('gieniobot_state_s') || !result[key]?.savedAt) continue;
-        if (now - result[key].savedAt < MAX_AGE) {
-          const match = key.match(/gieniobot_state_s(\d+)/);
-          if (match) {
-            this.targetServer = parseInt(match[1]);
-            this.targetCharId = result[key].charId || null;
-            this.savedStateToRestore = result[key];
-            console.log('[AFO_RECONNECT] Inferred reconnect from recent state (age:', Math.round((now - result[key].savedAt) / 1000), 's, server:', this.targetServer, ')');
-            return true;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[AFO_RECONNECT] inferReconnectFromState error:', e);
-    }
-
-    return false;
-  },
-
-  async getCredentials() {
-    if (typeof AFO_CREDENTIALS === 'undefined') return null;
-
-    // Credentials are global (one per account)
-    return await AFO_CREDENTIALS.get();
-  },
-
-  async loadSavedState() {
-    if (typeof AFO_STATE_MANAGER === 'undefined') {
-      this.savedStateToRestore = null;
-      return;
-    }
-
-    if (this.targetServer) {
-      this.savedStateToRestore = await AFO_STATE_MANAGER.load(this.targetServer, this.targetCharId);
-    }
-
-    if (this.savedStateToRestore) {
-      console.log('[AFO_RECONNECT] Loaded saved state from', new Date(this.savedStateToRestore.savedAt).toLocaleTimeString(),
-        'server:', this.savedStateToRestore.server, 'char:', this.savedStateToRestore.charId);
-      // Update targetCharId from saved state (state is per-server, charId stored inside)
-      if (this.savedStateToRestore.charId && !this.targetCharId) {
-        this.targetCharId = this.savedStateToRestore.charId;
-      }
-    }
-  },
-
-  async restoreState() {
-    if (!this.savedStateToRestore) {
-      console.log('[AFO_RECONNECT] No saved state to restore');
-      return;
-    }
-
-    if (typeof AFO_STATE_MANAGER === 'undefined') {
-      console.warn('[AFO_RECONNECT] State manager not available');
-      return;
-    }
-
-    // Validate server/char match
-    if (typeof GAME !== 'undefined') {
-      const stateServer = this.savedStateToRestore.server;
-      const stateChar = this.savedStateToRestore.charId;
-
-      if (stateServer && GAME.server && stateServer != GAME.server) {
-        console.warn('[AFO_RECONNECT] Server mismatch! State:', stateServer, 'Current:', GAME.server, '- aborting restore');
-        this.savedStateToRestore = null;
-        return;
-      }
-
-      if (stateChar && GAME.char_id && stateChar != GAME.char_id) {
-        console.warn('[AFO_RECONNECT] Character mismatch! State:', stateChar, 'Current:', GAME.char_id, '- aborting restore');
-        this.savedStateToRestore = null;
-        return;
-      }
-    }
-
-    console.log('[AFO_RECONNECT] Waiting for scripts to load...');
-    await this.sleep(this.TIMING.SCRIPTS_LOAD_WAIT);
-
-    // Show cancellable progress bar (10 seconds)
-    console.log('[AFO_RECONNECT] Showing cancel bar for 10s...');
-    const cancelled = await this.showRestoreCountdown(10);
-
-    if (cancelled) {
-      console.log('[AFO_RECONNECT] ❌ State restore cancelled by user');
-      if (typeof AFO_RECONNECT_UI !== 'undefined') {
-        AFO_RECONNECT_UI.showToast('Przywracanie stanu anulowane', 'warning');
-      }
-      this.savedStateToRestore = null;
-      return;
-    }
-
-    console.log('[AFO_RECONNECT] Restoring saved state...');
-
-    const success = AFO_STATE_MANAGER.deserialize(this.savedStateToRestore, true);
-
-    if (success) {
-      console.log('[AFO_RECONNECT] ✅ State restore initiated (toast will appear after completion)');
-
-      // Add to history
-      if (typeof AFO_RECONNECT_UI !== 'undefined') {
-        AFO_RECONNECT_UI.addReconnectTimestamp(Date.now());
-      }
-    } else {
-      console.warn('[AFO_RECONNECT] Failed to restore state');
-    }
-
-    this.savedStateToRestore = null;
-  },
-
-  /**
-   * Show a countdown progress bar with cancel button.
-   * Returns true if cancelled, false if countdown completed.
-   */
-  showRestoreCountdown(seconds) {
-    return new Promise((resolve) => {
-      const container = document.createElement('div');
-      container.id = 'afo-restore-countdown';
-      container.innerHTML = `
-        <div style="
-          position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
-          background: linear-gradient(145deg, #1a1a2e, #16213e);
-          border: 1px solid #0f3460; border-radius: 12px; padding: 16px 24px;
-          z-index: 10001; min-width: 300px; max-width: 90vw;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.5); color: #fff;
-          animation: toastIn 0.3s ease;
-        ">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 14px; font-weight: 600;">🔄 Przywracanie stanu za <span id="afo-countdown-sec">${seconds}</span>s...</span>
-            <button id="afo-countdown-cancel" style="
-              background: rgba(244,67,54,0.2); color: #f44336; border: 1px solid rgba(244,67,54,0.3);
-              border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; font-weight: 600;
-            ">Anuluj</button>
-          </div>
-          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
-            <div id="afo-countdown-bar" style="
-              height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A);
-              width: 0%; transition: width 1s linear; border-radius: 4px;
-            "></div>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(container);
-
-      let remaining = seconds;
-      const bar = document.getElementById('afo-countdown-bar');
-      const secEl = document.getElementById('afo-countdown-sec');
-      const cancelBtn = document.getElementById('afo-countdown-cancel');
-
-      let cancelled = false;
-
-      // Start progress
-      requestAnimationFrame(() => {
-        bar.style.width = `${100 / seconds}%`;
-      });
-
-      const interval = setInterval(() => {
-        remaining--;
-        if (secEl) secEl.textContent = remaining;
-        bar.style.width = `${((seconds - remaining) / seconds) * 100}%`;
-
-        if (remaining <= 0) {
-          clearInterval(interval);
-          container.remove();
-          if (!cancelled) resolve(false);
-        }
-      }, 1000);
-
-      cancelBtn.addEventListener('click', () => {
-        cancelled = true;
-        clearInterval(interval);
-        container.remove();
-        resolve(true);
-      });
-    });
-  },
-
-  async saveReconnectTarget() {
-    if (typeof AFO_STORAGE === 'undefined') return;
-
-    // Get server/char from GAME (current session) or from target fields
-    const server = (typeof GAME !== 'undefined' && GAME.server) ? GAME.server : this.targetServer;
-    const charId = (typeof GAME !== 'undefined' && GAME.char_id) ? GAME.char_id : this.targetCharId;
-
-    if (!server) {
-      console.warn('[AFO_RECONNECT] No server info available for reconnect target');
-      return;
-    }
-
-    try {
-      await AFO_STORAGE.set({
-        'afo_reconnect_target': {
-          server: server,
-          charId: charId,
-          savedAt: Date.now()
-        }
-      });
-      console.log('[AFO_RECONNECT] Saved reconnect target:', server, charId);
-    } catch (e) {
-      console.error('[AFO_RECONNECT] Error saving reconnect target:', e);
-    }
-  },
-
-  // ============================================
-  // UTILITY
-  // ============================================
-
-  sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-};
-
-// Export
-window.AFO_RECONNECT = AFO_RECONNECT;
-console.log('[AFO] Reconnect module loaded');
-
-
-// ========== remote/reconnect/index.js ==========
-/**
- * ============================================================================
- * AFO - Reconnect Module Index
- * ============================================================================
- * 
- * Entry point for the reconnect subsystem.
- * Initializes immediately - doesn't wait for GAME (needed on main page).
- * 
- * ============================================================================
- */
-
-const AFO_RECONNECT_INIT = {
-  initialized: false,
-
-  /**
-   * Initialize all reconnect components
-   * Called immediately on any kosmiczni.pl page
-   */
-  init() {
-    if (this.initialized) return;
-
-    console.log('[AFO_RECONNECT_INIT] Initializing reconnect system...');
-
-    // Initialize reconnect FIRST (handles login on main page)
-    if (typeof AFO_RECONNECT !== 'undefined') {
-      AFO_RECONNECT.init();
-    } else {
-      console.warn('[AFO_RECONNECT_INIT] Reconnect module not loaded');
-    }
-
-    // Initialize UI only if on server page (where GAME will be available)
-    // UI needs GAME to show character info, so we defer it
-    this.initUIWhenReady();
-
-    this.initialized = true;
-    console.log('[AFO_RECONNECT_INIT] Reconnect system initialized');
-  },
-
-  /**
-   * Initialize UI when GAME becomes available
-   */
-  initUIWhenReady() {
-    let elapsed = 0;
-    const MAX_WAIT = 120000; // 2 minutes
-
-    const checkGame = () => {
-      if (typeof GAME !== 'undefined' && GAME.char_id && GAME.char_data) {
-        // GAME is ready, init UI
-        if (typeof AFO_RECONNECT_UI !== 'undefined') {
-          setTimeout(() => {
-            AFO_RECONNECT_UI.init();
-          }, 1000);
-        }
-      } else if (elapsed < MAX_WAIT) {
-        elapsed += 1000;
-        setTimeout(checkGame, 1000);
-      } else {
-        console.warn('[AFO_RECONNECT_INIT] UI init timeout after 2 minutes (GAME not ready)');
-      }
-    };
-
-    checkGame();
-  }
-};
-
-// Initialize IMMEDIATELY when script loads
-// We need to start on main page too, not just when GAME is ready
-(function () {
-  console.log('[AFO_RECONNECT_INIT] Script loaded, initializing in 1s...');
-
-  // Small delay to ensure other reconnect scripts are loaded
-  setTimeout(() => {
-    try {
-      AFO_RECONNECT_INIT.init();
-    } catch (e) {
-      console.error('[AFO_RECONNECT_INIT] Init failed:', e, '- retrying in 5s...');
-      setTimeout(() => {
-        try {
-          AFO_RECONNECT_INIT.initialized = false;
-          AFO_RECONNECT_INIT.init();
-        } catch (e2) {
-          console.error('[AFO_RECONNECT_INIT] Retry also failed:', e2);
-        }
-      }, 5000);
-    }
-  }, 1000);
-})();
-
-// Export
-window.AFO_RECONNECT_INIT = AFO_RECONNECT_INIT;
-console.log('[AFO] Reconnect index module loaded');
 
 
 // ========== remote/features/clanAssist.js ==========

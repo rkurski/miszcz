@@ -337,6 +337,9 @@
   // Load presets on init
   BALL_RESET._loadPresets();
 
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
+
   // Inject panel HTML + CSS
   const panelHTML = `
         <div id="ballResetPanel">
@@ -865,6 +868,9 @@
   // Load presets on init
   BALL_ANGEL_RESET._loadPresets();
 
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
+
   // Build variant checkboxes when group is selected
   function buildVariants(comboIdx, slotIdx, groupIdx) {
     const container = document.querySelector(`.angel-variants[data-combo="${comboIdx}"][data-slot="${slotIdx}"]`);
@@ -1104,6 +1110,9 @@
       petInterval = null;
     }
   }
+
+  // Guard against missing jQuery (main page, auth pages don't have game's jQuery)
+  if (typeof $ === 'undefined') return;
 
   // Toggle menu button
   $('body').on('click', 'button[data-option="pet_bonch"]', () => {

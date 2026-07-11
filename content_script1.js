@@ -25,6 +25,16 @@
     // Core modules
     'remote/features/characters/charactersManager.js',
 
+    // Auto-Reconnect system loaded FIRST (right after console-timestamp setup) so the
+    // safety net survives any top-level crash in game-dependent modules on pages
+    // without jQuery/GAME (e.g. auth/session-expired error pages).
+    'remote/reconnect/storage.js',
+    'remote/reconnect/credentials.js',
+    'remote/reconnect/stateManager.js',
+    'remote/reconnect/ui.js',
+    'remote/reconnect/reconnect.js',
+    'remote/reconnect/index.js',
+
     // Handlers & Mixins (loaded before main script)
     'remote/core/handlers/click-handlers.js',
     'remote/core/handlers/automation.js',
@@ -55,14 +65,6 @@
 
     // Activities auto-executor
     'remote/features/activities/activitiesExecutor.js',
-
-    // Auto-Reconnect system (storage → credentials → stateManager → ui → reconnect → index)
-    'remote/reconnect/storage.js',
-    'remote/reconnect/credentials.js',
-    'remote/reconnect/stateManager.js',
-    'remote/reconnect/ui.js',
-    'remote/reconnect/reconnect.js',
-    'remote/reconnect/index.js',
 
     // Auto clan training assists (runs independently after login)
     'remote/features/clanAssist.js',
