@@ -191,7 +191,7 @@ const AFO_RECONNECT = {
 
     try {
       // Wait for page to be ready + give user time to react
-      console.log('[AFO_RECONNECT] Waiting before auto-login (giving user time to react)...');
+      this._showStatus('Strona główna — auto-logowanie za chwilę...');
       await this.sleep(this.TIMING.LOGIN_PAGE_DELAY);
 
       // Retry login form detection (DOM may not be ready on mobile)
@@ -200,7 +200,7 @@ const AFO_RECONNECT = {
 
       for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
         if (this.needsCredentialsLogin()) {
-          console.log('[AFO_RECONNECT] Filling credentials (attempt ' + (i + 1) + ')...');
+          this._showStatus('Wpisuję login i hasło (próba ' + (i + 1) + ')...');
           await this.fillCredentials(creds);
           await this.sleep(this.TIMING.LOGIN_SUBMIT_WAIT);
           loginDone = true;
@@ -221,37 +221,53 @@ const AFO_RECONNECT = {
         console.warn('[AFO_RECONNECT] Login form not found after ' + MAX_LOGIN_ATTEMPTS + ' attempts');
       }
 
-      // Retry server select detection
+      // Retry server select detection / proceed to server.
       const MAX_SERVER_ATTEMPTS = 8;
       for (let i = 0; i < MAX_SERVER_ATTEMPTS; i++) {
-        if (this.needsServerSelect()) {
-          // Wrong-account guard: the shared-IP glitch sometimes auto-logs a DIFFERENT
-          // account. If the shown login (#logged_login) mismatches our credentials,
-          // log out and re-login as the correct account before selecting a server.
-          const loggedLogin = (document.getElementById('logged_login')?.innerText || '').trim();
-          if (loggedLogin && creds.login && loggedLogin.toLowerCase() !== creds.login.toLowerCase()) {
-            console.warn('[AFO_RECONNECT] Wrong account on server-select: logged="' + loggedLogin + '" expected="' + creds.login + '"');
-            await this.handleWrongAccount(creds);
-            continue; // re-evaluate fresh (login/server-select for the correct account)
-          }
-
-          if (this.targetServer) {
-            console.log('[AFO_RECONNECT] Server-select ready (logged="' + loggedLogin + '"). Selecting server', this.targetServer);
-            await this.selectServer(this.targetServer);
-            // After server select, page will redirect to server page
-            return;
-          }
-          console.warn('[AFO_RECONNECT] Server-select ready but no targetServer known - waiting...');
-        }
-
         // Check if we've already been redirected (no longer on main page)
         if (window.location.hostname !== 'kosmiczni.pl' && window.location.hostname !== 'www.kosmiczni.pl') {
           console.log('[AFO_RECONNECT] Already redirected to', window.location.hostname);
           return;
         }
 
-        console.log('[AFO_RECONNECT] Main page: waiting for server select (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ', targetServer=' + this.targetServer + ')...');
+        const serverSelectVisible = this.needsServerSelect();
+
+        // Wrong-account guard: the shared-IP glitch sometimes auto-logs a DIFFERENT
+        // account. If the shown login (#logged_login) mismatches our credentials,
+        // log out and re-login as the correct account before selecting a server.
+        if (serverSelectVisible) {
+          const loggedLogin = (document.getElementById('logged_login')?.innerText || '').trim();
+          if (loggedLogin && creds.login && loggedLogin.toLowerCase() !== creds.login.toLowerCase()) {
+            console.warn('[AFO_RECONNECT] Wrong account on server-select: logged="' + loggedLogin + '" expected="' + creds.login + '"');
+            await this.handleWrongAccount(creds);
+            continue; // re-evaluate fresh (login/server-select for the correct account)
+          }
+        }
+
+        // Proceed to the target server once login has been submitted. Prefer the
+        // detected server-select, but after a couple of attempts fall back anyway:
+        // on mobile #logged_id/#server_choose detection (needsServerSelect) is
+        // unreliable, so we go DOM-independent. selectServer() clicks the select if
+        // present, otherwise navigates directly to main_page/login/<server> (exactly
+        // what the game does on server select — see bigcode.html).
+        if (this.targetServer && loginDone && (serverSelectVisible || i >= 2)) {
+          this._showStatus('Wchodzę na serwer ' + this.targetServer + (serverSelectVisible ? ' (select)' : ' (bezpośrednio)') + '...');
+          await this.selectServer(this.targetServer);
+          // selectServer navigates away; if for some reason it didn't, the loop/retry continues
+          if (window.location.hostname !== 'kosmiczni.pl' && window.location.hostname !== 'www.kosmiczni.pl') return;
+        }
+
+        console.log('[AFO_RECONNECT] Main page: waiting for server (attempt ' + (i + 1) + '/' + MAX_SERVER_ATTEMPTS + ', targetServer=' + this.targetServer + ', serverSelect=' + serverSelectVisible + ', loginForm=' + this.needsCredentialsLogin() + ')...');
         await this.sleep(2000);
+      }
+
+      // Last resort: logged in but never managed to leave the main page — force a
+      // direct navigation to the target server (covers mobile edge cases entirely).
+      if (this.targetServer && loginDone &&
+        (window.location.hostname === 'kosmiczni.pl' || window.location.hostname === 'www.kosmiczni.pl')) {
+        this._showStatus('Wybór serwera nie wykryty — wchodzę bezpośrednio na /login/' + this.targetServer);
+        window.location.href = 'https://kosmiczni.pl/login/' + this.targetServer;
+        return;
       }
 
       // Not found - fall through to retry below
@@ -298,6 +314,7 @@ const AFO_RECONNECT = {
     }
 
     // Wait for GAME to be available (longer timeout for mobile)
+    this._showStatus('Serwer ' + this.currentServer + ' — czekam na załadowanie gry...');
     const waitStart = Date.now();
     const gameReady = await this.waitForGame(30000);
 
@@ -355,7 +372,7 @@ const AFO_RECONNECT = {
       }
 
       // Give user time to manually select a different character
-      console.log('[AFO_RECONNECT] On character select, waiting', this.TIMING.CHAR_SELECT_DELAY, 'ms before auto-selecting (saved state exists for char', this.targetCharId, ')...');
+      this._showStatus('Wybór postaci — auto-wybór postaci ' + this.targetCharId + ' za ' + Math.round(this.TIMING.CHAR_SELECT_DELAY / 1000) + 's...');
       await this.sleep(this.TIMING.CHAR_SELECT_DELAY);
 
       // Re-check: user might have selected a character manually during the delay
@@ -530,7 +547,7 @@ const AFO_RECONNECT = {
     }
 
     // Save target and redirect with small delay so user can see what's happening
-    console.log('[AFO_RECONNECT] Saving target and redirecting to main page in 1.5s...');
+    this._showStatus('Rozłączono z serwerem — przekierowuję na stronę główną...');
     await this.saveReconnectTarget();
 
     await this.sleep(1500);
@@ -714,8 +731,10 @@ const AFO_RECONNECT = {
 
     if (!this.targetServer && this.currentServer) this.targetServer = this.currentServer;
 
+    this._showStatus('Błąd sesji / strona auth — wracam na stronę główną...');
     const backoff = await this.registerReconnectAttempt();
     if (backoff > 0) {
+      this._showStatus('Pętla reconnectu — odczekuję ' + Math.round(backoff / 1000) + 's...');
       console.warn('[AFO_RECONNECT] ⏳ Reconnect loop detected — backing off ' + Math.round(backoff / 1000) + 's before retry');
       if (typeof AFO_RECONNECT_UI !== 'undefined') {
         try { AFO_RECONNECT_UI.showToast('Pętla reconnectu — odczekuję ' + Math.round(backoff / 1000) + 's', 'warning'); } catch (e) { }
@@ -773,7 +792,7 @@ const AFO_RECONNECT = {
    */
   async handleWrongAccount(creds) {
     const logoutBtn = document.getElementById('logout');
-    console.warn('[AFO_RECONNECT] 🔁 Wrong account detected — logging out and re-logging as', creds.login);
+    this._showStatus('Złe konto — wylogowuję i loguję jako ' + creds.login + '...');
     if (logoutBtn) logoutBtn.click();
     await this.sleep(2500);
 
@@ -961,6 +980,7 @@ const AFO_RECONNECT = {
 
     if (cancelled) {
       console.log('[AFO_RECONNECT] ❌ State restore cancelled by user');
+      this._hideStatus();
       if (typeof AFO_RECONNECT_UI !== 'undefined') {
         AFO_RECONNECT_UI.showToast('Przywracanie stanu anulowane', 'warning');
       }
@@ -968,12 +988,12 @@ const AFO_RECONNECT = {
       return;
     }
 
-    console.log('[AFO_RECONNECT] Restoring saved state...');
+    this._showStatus('Przywracam zapisany stan modułów...');
 
     const success = AFO_STATE_MANAGER.deserialize(this.savedStateToRestore, true);
 
     if (success) {
-      console.log('[AFO_RECONNECT] ✅ State restore initiated (toast will appear after completion)');
+      this._showStatus('✅ Stan przywrócony — reconnect zakończony'); // auto-hides after 12s
 
       // Add to history
       if (typeof AFO_RECONNECT_UI !== 'undefined') {
@@ -1084,6 +1104,50 @@ const AFO_RECONNECT = {
   // ============================================
   // UTILITY
   // ============================================
+
+  /**
+   * On-screen reconnect status banner — visible WITHOUT devtools/eruda.
+   * Critical for mobile debugging: eruda's console button disappears across the
+   * server-restart navigation chain, so this banner is the only way for the user
+   * to see (and report) where the flow is / where it got stuck. Recreated on each
+   * page load; persists until the next navigation.
+   */
+  _showStatus(text) {
+    try {
+      console.log('[AFO_RECONNECT] ' + text);
+      if (typeof document === 'undefined') return;
+      const host = document.body || document.documentElement;
+      if (!host) return;
+      let el = document.getElementById('afo-reconnect-status');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'afo-reconnect-status';
+        // Bottom-center pill (above the 🐛 icon) so it never covers the game topbar.
+        el.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);' +
+          'z-index:2147483644;max-width:92vw;background:rgba(15,52,96,0.96);color:#fff;' +
+          'font:12px/1.4 monospace;padding:8px 14px;border-radius:10px;text-align:center;' +
+          'pointer-events:none;white-space:pre-wrap;box-shadow:0 4px 16px rgba(0,0,0,0.5);';
+        host.appendChild(el);
+      }
+      const t = new Date().toLocaleTimeString('pl-PL', { hour12: false });
+      el.textContent = '🔄 Reconnect [' + t + ']: ' + text;
+      // Mark that a reconnect is ACTIVE right now. DevConsole uses this to decide
+      // whether a page load is a reconnect continuation (keep logs) or a fresh
+      // manual reload/reopen (clear logs). Fire-and-forget; refreshed every step.
+      try { if (typeof AFO_STORAGE !== 'undefined') AFO_STORAGE.set({ afo_reconnect_nav: Date.now() }); } catch (e) { }
+      // Auto-hide: (re)arm a timer on every update so the banner never lingers.
+      if (this._statusHideTimer) clearTimeout(this._statusHideTimer);
+      this._statusHideTimer = setTimeout(() => this._hideStatus(), 12000);
+    } catch (e) { /* never let status UI break the flow */ }
+  },
+
+  _hideStatus() {
+    try {
+      if (this._statusHideTimer) { clearTimeout(this._statusHideTimer); this._statusHideTimer = null; }
+      const el = document.getElementById('afo-reconnect-status');
+      if (el) el.remove();
+    } catch (e) { /* ignore */ }
+  },
 
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
