@@ -25,6 +25,9 @@
     // Core modules
     'remote/features/characters/charactersManager.js',
 
+    // Dev console (on-page log viewer) — early so it captures logs from the start
+    'remote/features/devConsole.js',
+
     // Auto-Reconnect system loaded FIRST (right after console-timestamp setup) so the
     // safety net survives any top-level crash in game-dependent modules on pages
     // without jQuery/GAME (e.g. auth/session-expired error pages).
