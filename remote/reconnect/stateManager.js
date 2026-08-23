@@ -95,6 +95,22 @@ const AFO_STATE_MANAGER = {
   },
 
   /**
+   * Are the AFO module globals even present in this document? Synchronous —
+   * safe to call from beforeunload. False means the bundle never fully loaded
+   * here (partial crash / transport failure), so serialize() would produce a
+   * bogus empty `modules:{}` that must NOT overwrite the last good state.
+   * Note: modules present but stopped => true (an empty save is then the
+   * user's real intent and correct).
+   */
+  modulesPresent() {
+    try {
+      return Object.keys(this.MODULES).some((name) => !!window[name]);
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /**
    * Serialize current state of all modules
    * Returns object with all module states
    */
