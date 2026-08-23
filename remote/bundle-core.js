@@ -816,6 +816,22 @@ const AFO_STATE_MANAGER = {
   },
 
   /**
+   * Are the AFO module globals even present in this document? Synchronous —
+   * safe to call from beforeunload. False means the bundle never fully loaded
+   * here (partial crash / transport failure), so serialize() would produce a
+   * bogus empty `modules:{}` that must NOT overwrite the last good state.
+   * Note: modules present but stopped => true (an empty save is then the
+   * user's real intent and correct).
+   */
+  modulesPresent() {
+    try {
+      return Object.keys(this.MODULES).some((name) => !!window[name]);
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /**
    * Serialize current state of all modules
    * Returns object with all module states
    */
@@ -3614,6 +3630,23 @@ const AFO_RECONNECT = {
       this.isProcessing = false;
     }
 
+    // Error/broken page served at kosmiczni.pl '/' (e.g. mid-restart): no login
+    // form and no server select will EVER appear, so the retry loop below would
+    // spin forever. After 2 rounds on a detected error page (or 4 rounds on any
+    // page) force a fresh reload behind the loop-guard backoff.
+    this._mainPageRounds = (this._mainPageRounds || 0) + 1;
+    const looksBroken = this._mainPageLooksBroken();
+    if ((this._mainPageRounds >= 2 && looksBroken) || this._mainPageRounds >= 4) {
+      const backoff = await this.registerReconnectAttempt();
+      this._showStatus('Strona główna bez formularza (błąd serwera?) — przeładowuję'
+        + (backoff > 0 ? ' za ' + Math.round(backoff / 1000) + 's' : '') + '...');
+      console.warn('[AFO_RECONNECT] Main page stuck (round ' + this._mainPageRounds
+        + ', errorPage=' + looksBroken + ') - reloading' + (backoff > 0 ? ' after ' + backoff + 'ms backoff' : ''));
+      await this.sleep(backoff > 0 ? backoff : 5000);
+      window.location.href = 'https://kosmiczni.pl/';
+      return;
+    }
+
     // Never give up - retry after delay (both "not found" and error paths end up here)
     console.log('[AFO_RECONNECT] Retrying main page login in 15s...');
     await this.sleep(15000);
@@ -3842,7 +3875,15 @@ const AFO_RECONNECT = {
 
         try {
           if (typeof AFO_STATE_MANAGER !== 'undefined') {
-            AFO_STATE_MANAGER.save();
+            // Save only when the module globals actually exist in this document.
+            // On a page where the bundle partially crashed/never loaded, GAME may
+            // still look logged-in while serialize() would yield an empty
+            // `modules:{}` — overwriting the last good state, so that nothing
+            // restarts after an otherwise successful reconnect.
+            if (typeof AFO_STATE_MANAGER.modulesPresent !== 'function' ||
+                AFO_STATE_MANAGER.modulesPresent()) {
+              AFO_STATE_MANAGER.save();
+            }
           }
           if (typeof AFO_STORAGE !== 'undefined') {
             AFO_STORAGE.set({
@@ -4051,6 +4092,30 @@ const AFO_RECONNECT = {
       if (btn) return true;
     } catch (e) {
       // DOM not ready / access error — treat as not-an-error-page
+    }
+    return false;
+  },
+
+  /**
+   * Error-page detection for the MAIN domain (kosmiczni.pl '/'). TEXT-ONLY on
+   * purpose: isAuthErrorPage()'s a.newBtn[href*=kosmiczni.pl] fallback would
+   * false-positive on the real main page (it legitimately contains such links).
+   * Also requires that no login form / server select is present.
+   */
+  _mainPageLooksBroken() {
+    try {
+      if (document.getElementById('game_win')) return false;
+      if (document.getElementById('login_login') || document.getElementById('server_choose')) return false;
+      const kom = document.querySelector('div.kom .content');
+      if (kom) {
+        const t = (kom.innerText || kom.textContent || '').toLowerCase();
+        if (t.includes('uwierzytelnienie') || t.includes('sesja wygas') ||
+            t.includes('sesji nie') || t.includes('nie powiod')) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // DOM access error — treat as not-broken (conservative)
     }
     return false;
   },
