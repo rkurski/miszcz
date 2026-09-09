@@ -512,6 +512,62 @@ const AFO_RECONNECT = {
           return;
         }
       }
+
+      // New game client (2.8.129+, js/connection-recovery.js): on socket loss the game
+      // zeroes pid AND char_id together (so the checks above never fire), hides #game_win,
+      // shows #connection_notice and gives up after 30 s ("Połączenie zakończone. Odśwież
+      // stronę..."). After a successful internal reconnect it drops the player to character
+      // select (char_id=0). GAME.is_disconnected is never set anymore.
+      if (typeof GAME !== 'undefined') {
+        const now = Date.now();
+        if (GAME.char_id > 0) this._sawCharId = true;
+
+        let canSend = true;
+        try {
+          if (GAME.connectionRecovery && typeof GAME.connectionRecovery.canSend === 'function') {
+            canSend = !!GAME.connectionRecovery.canSend();
+          }
+        } catch (e) { canSend = true; }
+        const socketDown = !!(GAME.socket && GAME.socket.connected === false);
+        const linkDown = socketDown || !canSend;
+
+        const notice = document.getElementById('connection_notice');
+        if (linkDown || notice) this._lastLinkEventAt = now;
+
+        // Terminal notice only - the retrying one also has an "Odśwież / Reload" button
+        if (notice && /Połączenie zakończone|zalogować się ponownie/i.test(notice.textContent || '')) {
+          console.log('[AFO_RECONNECT] 🔴 Disconnect detected: terminal #connection_notice');
+          this.handleDisconnect('gra zakończyła połączenie');
+          return;
+        }
+
+        if (linkDown && this._sawCharId) {
+          if (!this._noSendSince) this._noSendSince = now;
+          else if (now - this._noSendSince > 35000) {
+            console.log('[AFO_RECONNECT] 🔴 Disconnect detected: canSend()=false / socket down for >35s');
+            this._noSendSince = 0;
+            this.handleDisconnect('brak połączenia >35s');
+            return;
+          }
+        } else {
+          this._noSendSince = 0;
+        }
+
+        // char_id lost shortly after a link event = game-side reconnect dumped us on char select
+        // (a manual "Zmień postać" has no preceding link event and is left alone)
+        if (this._sawCharId && GAME.char_id === 0 && !linkDown &&
+            this._lastLinkEventAt && (now - this._lastLinkEventAt) < 120000) {
+          if (!this._charLostSince) this._charLostSince = now;
+          else if (now - this._charLostSince > 8000) {
+            console.log('[AFO_RECONNECT] 🔴 Disconnect detected: char_id lost after game-side reconnect');
+            this._charLostSince = 0;
+            this.handleDisconnect('utrata postaci po reconnecie gry');
+            return;
+          }
+        } else {
+          this._charLostSince = 0;
+        }
+      }
     }, this.TIMING.CHECK_INTERVAL);
 
     // Proactive save on page unload (catches server restart redirects
@@ -557,11 +613,15 @@ const AFO_RECONNECT = {
     }
   },
 
-  async handleDisconnect() {
+  /**
+   * @param {string} [reason] - optional human-readable cause (shown in status banner/log),
+   *                            e.g. from stallWatchdog.js: 'zawieszenie gry: stall-no-ack'
+   */
+  async handleDisconnect(reason) {
     if (this.isProcessing) return;
     this.isProcessing = true;
 
-    console.log('[AFO_RECONNECT] 🔄 Handling disconnect...');
+    console.log('[AFO_RECONNECT] 🔄 Handling disconnect...' + (reason ? ' (' + reason + ')' : ''));
 
     // Get credentials
     const creds = await this.getCredentials();
@@ -572,7 +632,7 @@ const AFO_RECONNECT = {
     }
 
     // Save target and redirect with small delay so user can see what's happening
-    this._showStatus('Rozłączono z serwerem — przekierowuję na stronę główną...');
+    this._showStatus((reason ? 'Reconnect (' + reason + ')' : 'Rozłączono z serwerem') + ' — przekierowuję na stronę główną...');
     await this.saveReconnectTarget();
 
     await this.sleep(1500);
