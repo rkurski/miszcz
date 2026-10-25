@@ -3398,6 +3398,118 @@ const AFO_RECONNECT = {
   isMainPage: false,
   isServerPage: false,
   currentServer: null,
+  tabPin: null,
+
+  // ============================================
+  // TAB PIN - which server THIS window belongs to
+  // ============================================
+  //
+  // chrome.storage.local is shared by EVERY window of the profile, incognito
+  // included. With a single global 'afo_reconnect_target' key a second window
+  // (e.g. s1 in incognito) could overwrite the target of the first (s20)
+  // between its save and its read - the s20 window then logged into s1 and
+  // looped there forever. Two stores give us the isolation chrome.storage
+  // cannot:
+  //   window.name - per TAB, survives same-site navigation
+  //                 (s20.kosmiczni.pl -> kosmiczni.pl -> s20.kosmiczni.pl).
+  //                 Chrome only clears it on cross-SITE navigation, which
+  //                 never happens in this flow. Nothing in the game client
+  //                 uses window.name, so we own it.
+  //   cookie on '.kosmiczni.pl' - per PROFILE (incognito has its own jar),
+  //                 readable from every subdomain. Fallback for when
+  //                 window.name is lost (restored tab, bookmark, new tab).
+  // Both are written together; window.name wins on read. On a server page the
+  // URL is ground truth and the cookie is ignored, so two tabs in the same
+  // profile can never steal each other's server.
+
+  PIN_TAG: 'afo_pin=',
+  PIN_COOKIE: 'afo_pin',
+  PIN_TTL: 30 * 60,         // cookie lifetime in seconds - a stale pin must expire
+  MAX_SERVER_FIXES: 3,      // wrong-server corrections allowed per tab
+  MAX_LOGIN_ROUNDS: 12,     // main-page login rounds before giving up (per tab)
+
+  /**
+   * @param {boolean} [allowCookie=true] - false on server pages, where the URL
+   *        is authoritative and the (profile-wide) cookie could belong to
+   *        another tab.
+   */
+  _readPin(allowCookie) {
+    const name = window.name || '';
+    if (name.startsWith(this.PIN_TAG)) {
+      const pin = this._parsePin(name.slice(this.PIN_TAG.length));
+      if (pin) return pin;
+    }
+
+    if (allowCookie === false) return null;
+
+    try {
+      const m = document.cookie.match(/(?:^|;\s*)afo_pin=([^;]*)/);
+      if (m) {
+        const pin = this._parsePin(m[1]);
+        // Re-seed window.name so further reads in this tab are tab-scoped again
+        if (pin) return this._writePin(pin.server, pin.charId, pin);
+      }
+    } catch (e) { /* cookies may be blocked */ }
+
+    return null;
+  },
+
+  _parsePin(raw) {
+    if (!raw) return null;
+    try {
+      const pin = JSON.parse(decodeURIComponent(raw));
+      return (pin && pin.server) ? pin : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /** @param {Object} [extra] - carried-over counters ({fixes, tries}) */
+  _writePin(server, charId, extra) {
+    if (!server) return null;
+
+    const pin = {
+      fixes: (extra && extra.fixes) || 0,
+      tries: (extra && extra.tries) || 0,
+      server: parseInt(server),
+      charId: charId ? parseInt(charId) : null,
+      at: Date.now()
+    };
+
+    const raw = encodeURIComponent(JSON.stringify(pin));
+    try { window.name = this.PIN_TAG + raw; } catch (e) { /* ignore */ }
+    try {
+      document.cookie = this.PIN_COOKIE + '=' + raw +
+        '; domain=.kosmiczni.pl; path=/; max-age=' + this.PIN_TTL + '; SameSite=Lax';
+    } catch (e) { /* ignore */ }
+
+    return pin;
+  },
+
+  /** Pin this tab, keeping the counters when the server doesn't change. */
+  _pinTab(server, charId) {
+    const prev = this._readPin(false);
+    const same = prev && prev.server === parseInt(server);
+    this.tabPin = this._writePin(server, charId || (same ? prev.charId : null), same ? prev : null);
+    return this.tabPin;
+  },
+
+  /** Per-server storage key so windows on different servers never collide. */
+  _targetKey(server) {
+    return 'afo_reconnect_target_s' + server;
+  },
+
+  /** Is a reconnect for this server still unfinished (target saved, not consumed)? */
+  async _hasPendingTarget(server) {
+    if (typeof AFO_STORAGE === 'undefined' || !server) return false;
+    try {
+      const key = this._targetKey(server);
+      const res = await AFO_STORAGE.get(key);
+      return !!(res[key] && res[key].server);
+    } catch (e) {
+      return false;
+    }
+  },
 
   // ============================================
   // INITIALIZATION
@@ -3428,12 +3540,22 @@ const AFO_RECONNECT = {
     if (this.isServerPage) {
       const match = hostname.match(/^s(\d+)\./);
       this.currentServer = match ? parseInt(match[1]) : null;
+
+      // First time this tab sees a server page: pin it from the URL. If a pin
+      // already exists we leave it alone - a mismatch means we landed on the
+      // wrong server and start() sends us back.
+      if (this.currentServer && !this._readPin(false)) {
+        this._pinTab(this.currentServer, null);
+      }
     }
+
+    this.tabPin = this._readPin(!this.isServerPage);
 
     console.log('[AFO_RECONNECT] Context:', {
       isMainPage: this.isMainPage,
       isServerPage: this.isServerPage,
-      currentServer: this.currentServer
+      currentServer: this.currentServer,
+      pinnedServer: this.tabPin ? this.tabPin.server : null
     });
   },
 
@@ -3449,6 +3571,16 @@ const AFO_RECONNECT = {
         if (!this.targetServer) this.targetServer = this.currentServer;
         await this.recoverFromAuthError();
         return;
+      }
+
+      // Wrong server for this tab: the game dropped us somewhere other than
+      // where this window was playing. Only correct it while a reconnect for
+      // the pinned server is still pending - otherwise the user simply switched
+      // servers in this tab by hand and must not be dragged back.
+      if (this.isServerPage && this.tabPin && this.currentServer &&
+          this.tabPin.server !== this.currentServer &&
+          await this._hasPendingTarget(this.tabPin.server)) {
+        if (await this.returnToPinnedServer()) return;
       }
 
       // Load reconnect target from chrome.storage (survives cross-subdomain redirect)
@@ -3511,9 +3643,31 @@ const AFO_RECONNECT = {
   async loadReconnectTarget() {
     if (typeof AFO_STORAGE === 'undefined') return;
 
+    // Which server's target may this window consume? The URL on a server page,
+    // the tab pin otherwise. NEVER "whatever happens to be in storage" - that
+    // area is shared with every other window of the profile, incognito included.
+    const server = this.isServerPage
+      ? this.currentServer
+      : (this.tabPin ? this.tabPin.server : null);
+
+    if (!server) {
+      console.log('[AFO_RECONNECT] No server pinned to this tab - not consuming any reconnect target');
+      return;
+    }
+
     try {
-      const result = await AFO_STORAGE.get('afo_reconnect_target');
-      const target = result['afo_reconnect_target'];
+      const key = this._targetKey(server);
+      const result = await AFO_STORAGE.get(key);
+      let target = result[key];
+
+      // Legacy single-key target (pre per-server keys). Consume only if it's ours.
+      if (!target) {
+        const legacy = (await AFO_STORAGE.get('afo_reconnect_target'))['afo_reconnect_target'];
+        if (legacy && parseInt(legacy.server) === server) {
+          target = legacy;
+          await AFO_STORAGE.remove('afo_reconnect_target');
+        }
+      }
 
       if (target && target.server) {
         this.targetServer = parseInt(target.server);
@@ -3524,7 +3678,7 @@ const AFO_RECONNECT = {
         // Only clear on server page (where we consume it).
         // On main page we keep it so the flag survives the redirect to server page.
         if (this.isServerPage) {
-          await AFO_STORAGE.remove('afo_reconnect_target');
+          await AFO_STORAGE.remove(key);
         }
       }
     } catch (e) {
@@ -3539,6 +3693,37 @@ const AFO_RECONNECT = {
   async handleMainPage(creds) {
     if (this.isProcessing) return;
     this.isProcessing = true;
+
+    // Persistent per-tab round counter. A bounce back to the main page reloads
+    // the whole document, so an in-memory counter restarts at 0 every time and
+    // never trips - the login -> server-select -> main-page loop could spin for
+    // hours. The pin survives navigation, so the count does too.
+    if (this.tabPin) {
+      const tries = (this.tabPin.tries || 0) + 1;
+      this.tabPin = this._writePin(this.tabPin.server, this.tabPin.charId,
+        { fixes: this.tabPin.fixes, tries: tries });
+
+      if (tries > this.MAX_LOGIN_ROUNDS) {
+        console.error('[AFO_RECONNECT] Login loop: ' + tries + ' rounds on the main page for s'
+          + this.tabPin.server + ' - stopping auto-login, manual intervention needed');
+        this._showStatus('Pętla logowania (' + tries + ' prób) — zatrzymuję auto-login. Zaloguj ręcznie.');
+        if (typeof AFO_RECONNECT_UI !== 'undefined') {
+          try { AFO_RECONNECT_UI.showToast('Pętla logowania — auto-login zatrzymany', 'error'); } catch (e) { }
+        }
+        this.isProcessing = false;
+        return;
+      }
+
+      // Progressive backoff once we're clearly bouncing (10s, 20s, 40s ... 120s)
+      if (tries > 3) {
+        const backoff = Math.min(120000, 10000 * Math.pow(2, tries - 4));
+        console.warn('[AFO_RECONNECT] Main-page round ' + tries + ' - backing off '
+          + Math.round(backoff / 1000) + 's before retrying login');
+        this._showStatus('Logowanie nie przechodzi (próba ' + tries + ') — czekam '
+          + Math.round(backoff / 1000) + 's...');
+        await this.sleep(backoff);
+      }
+    }
 
     try {
       // Wait for page to be ready + give user time to react
@@ -3789,8 +3974,10 @@ const AFO_RECONNECT = {
     // Check if fully logged in
     if (this.isFullyLoggedIn()) {
       console.log('[AFO_RECONNECT] Already logged in (char_id:', GAME.char_id, 'server:', GAME.server, 'login:', GAME.login, ')');
-      // Confirmed logged in → reset the auth-error loop guard
+      // Confirmed logged in → reset the auth-error loop guard and re-pin this
+      // tab to where we actually ended up, with both loop counters cleared.
       this.clearReconnectAttempts();
+      this.tabPin = this._writePin(GAME.server, GAME.char_id, null);
       if (this.savedStateToRestore && this.isReconnecting) {
         // Validate server/char match before restoring
         if (GAME.char_id == this.targetCharId && GAME.server == this.targetServer) {
@@ -3829,6 +4016,14 @@ const AFO_RECONNECT = {
     // Store interval ID to allow cleanup
     this.monitorIntervalId = setInterval(() => {
       if (this.isProcessing) return;
+
+      // Keep the pin cookie alive during long sessions (window.name never
+      // expires, the cookie does - and the cookie is what survives a tab that
+      // gets restored or reopened).
+      if (this.isServerPage && typeof GAME !== 'undefined' && GAME.server && GAME.char_id &&
+          Date.now() - ((this.tabPin && this.tabPin.at) || 0) > 5 * 60 * 1000) {
+        this._pinTab(GAME.server, GAME.char_id);
+      }
 
       // Check GAME.is_disconnected - most reliable
       if (typeof GAME !== 'undefined') {
@@ -3942,8 +4137,9 @@ const AFO_RECONNECT = {
             }
           }
           if (typeof AFO_STORAGE !== 'undefined') {
+            this._pinTab(GAME.server, GAME.char_id);
             AFO_STORAGE.set({
-              'afo_reconnect_target': {
+              [this._targetKey(GAME.server)]: {
                 server: GAME.server,
                 charId: GAME.char_id,
                 savedAt: Date.now()
@@ -4210,12 +4406,41 @@ const AFO_RECONNECT = {
   },
 
   /**
+   * We are on a server page that is NOT the one this tab belongs to. Navigate
+   * back to the pinned server. Capped: a server that keeps bouncing us
+   * elsewhere must not turn into a redirect loop - after MAX_SERVER_FIXES we
+   * give up, re-pin to where we actually are and let the normal flow continue.
+   * @returns {boolean} true if a correcting navigation was started
+   */
+  async returnToPinnedServer() {
+    const pin = this.tabPin;
+    const fixes = (pin.fixes || 0) + 1;
+
+    if (fixes > this.MAX_SERVER_FIXES) {
+      console.warn('[AFO_RECONNECT] Wrong server (s' + this.currentServer + ' instead of s'
+        + pin.server + ') but already corrected ' + pin.fixes + 'x - staying here');
+      this.tabPin = this._writePin(this.currentServer, null, null);
+      return false;
+    }
+
+    console.warn('[AFO_RECONNECT] Wrong server! This tab belongs to s' + pin.server
+      + ', landed on s' + this.currentServer + ' - going back (fix ' + fixes + '/' + this.MAX_SERVER_FIXES + ')');
+    this._showStatus('Zły serwer (s' + this.currentServer + ') — wracam na s' + pin.server + '...');
+    this.tabPin = this._writePin(pin.server, pin.charId, { fixes: fixes, tries: pin.tries });
+
+    await this.sleep(2000);
+    window.location.href = 'https://kosmiczni.pl/login/' + pin.server;
+    return true;
+  },
+
+  /**
    * Loop guard for auth-error recovery. Counts attempts in a 5-min window and
    * returns EXTRA backoff ms once we exceed a small threshold (0 = normal).
+   * Keyed per server - two windows reconnecting at once must not share a counter.
    */
   async registerReconnectAttempt() {
     if (typeof AFO_STORAGE === 'undefined') return 0;
-    const KEY = 'afo_reconnect_attempts';
+    const KEY = this._attemptsKey();
     const WINDOW = 5 * 60 * 1000; // 5 min
     try {
       const now = Date.now();
@@ -4238,10 +4463,15 @@ const AFO_RECONNECT = {
     }
   },
 
+  _attemptsKey() {
+    const server = this.currentServer || (this.tabPin && this.tabPin.server) || this.targetServer;
+    return 'afo_reconnect_attempts_s' + (server || 'x');
+  },
+
   /** Reset the loop-guard counter after a confirmed successful login. */
   async clearReconnectAttempts() {
     if (typeof AFO_STORAGE === 'undefined') return;
-    try { await AFO_STORAGE.remove('afo_reconnect_attempts'); } catch (e) { }
+    try { await AFO_STORAGE.remove([this._attemptsKey(), 'afo_reconnect_attempts']); } catch (e) { }
   },
 
   /**
@@ -4337,19 +4567,39 @@ const AFO_RECONNECT = {
       const now = Date.now();
       const MAX_AGE = 10 * 60 * 1000; // 10 minutes
 
+      // Only ever infer the server this tab is pinned to. Taking "the first
+      // recent state in storage" used to send a window to the OTHER window's
+      // server, because states of all windows live in the same shared area.
+      const pinned = this.tabPin ? this.tabPin.server : null;
+      const fresh = [];
+
       for (const key in result) {
         if (!key.startsWith('gieniobot_state_s') || !result[key]?.savedAt) continue;
-        if (now - result[key].savedAt < MAX_AGE) {
-          const match = key.match(/gieniobot_state_s(\d+)/);
-          if (match) {
-            this.targetServer = parseInt(match[1]);
-            this.targetCharId = result[key].charId || null;
-            this.savedStateToRestore = result[key];
-            console.log('[AFO_RECONNECT] Inferred reconnect from recent state (age:', Math.round((now - result[key].savedAt) / 1000), 's, server:', this.targetServer, ')');
-            return true;
-          }
-        }
+        if (now - result[key].savedAt >= MAX_AGE) continue;
+        const match = key.match(/gieniobot_state_s(\d+)/);
+        if (match) fresh.push({ server: parseInt(match[1]), state: result[key] });
       }
+
+      if (!fresh.length) return false;
+
+      let pick = pinned ? fresh.find(f => f.server === pinned) : null;
+      if (!pick && !pinned) {
+        if (fresh.length > 1) {
+          console.warn('[AFO_RECONNECT] ' + fresh.length + ' recent states and no tab pin'
+            + ' - refusing to guess which server this window belongs to');
+          return false;
+        }
+        pick = fresh[0];
+      }
+      if (!pick) return false;
+
+      this.targetServer = pick.server;
+      this.targetCharId = pick.state.charId || null;
+      this.savedStateToRestore = pick.state;
+      this._pinTab(pick.server, this.targetCharId);
+      console.log('[AFO_RECONNECT] Inferred reconnect from recent state (age:',
+        Math.round((now - pick.state.savedAt) / 1000), 's, server:', this.targetServer, ')');
+      return true;
     } catch (e) {
       console.error('[AFO_RECONNECT] inferReconnectFromState error:', e);
     }
@@ -4547,9 +4797,13 @@ const AFO_RECONNECT = {
       return;
     }
 
+    // Pin first: the pin is what lets THIS tab find its way back even when
+    // another window overwrites shared storage in the meantime.
+    this._pinTab(server, charId);
+
     try {
       await AFO_STORAGE.set({
-        'afo_reconnect_target': {
+        [this._targetKey(server)]: {
           server: server,
           charId: charId,
           savedAt: Date.now()
