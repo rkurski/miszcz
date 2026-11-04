@@ -352,15 +352,12 @@ const AFO_RECONNECT = {
       this.tabPin = this._writePin(this.tabPin.server, this.tabPin.charId,
         { fixes: this.tabPin.fixes, tries: tries });
 
+      // NEVER hard-stop here. An unattended bot that gives up with "log in
+      // manually" is a bot that stands AFK for days. A real login loop is made
+      // harmless by the capped backoff below (max 120s per round), not by quitting.
       if (tries > this.MAX_LOGIN_ROUNDS) {
-        console.error('[AFO_RECONNECT] Login loop: ' + tries + ' rounds on the main page for s'
-          + this.tabPin.server + ' - stopping auto-login, manual intervention needed');
-        this._showStatus('Pętla logowania (' + tries + ' prób) — zatrzymuję auto-login. Zaloguj ręcznie.');
-        if (typeof AFO_RECONNECT_UI !== 'undefined') {
-          try { AFO_RECONNECT_UI.showToast('Pętla logowania — auto-login zatrzymany', 'error'); } catch (e) { }
-        }
-        this.isProcessing = false;
-        return;
+        console.warn('[AFO_RECONNECT] Login loop: ' + tries + ' rounds on the main page for s'
+          + this.tabPin.server + ' - still retrying with max backoff');
       }
 
       // Progressive backoff once we're clearly bouncing (10s, 20s, 40s ... 120s)
@@ -499,8 +496,14 @@ const AFO_RECONNECT = {
     console.log('[AFO_RECONNECT] handleServerPage attempt ' + (_attempt + 1) + '/' + MAX_ATTEMPTS + ' (reconnecting:', this.isReconnecting, ')');
 
     if (_attempt >= MAX_ATTEMPTS) {
-      console.error('[AFO_RECONNECT] handleServerPage: max attempts reached (' + MAX_ATTEMPTS + '), giving up. GAME state:',
+      // Do NOT give up: a page where GAME never becomes ready / logged in would
+      // otherwise sit here forever (the disconnect monitor cannot fire without a
+      // char_id ever being seen). Treat it like the auth-error page: this is the
+      // same proven path used when #game_win is missing (save target, backoff via
+      // the per-server loop guard, back to the main page, re-login).
+      console.error('[AFO_RECONNECT] handleServerPage: max attempts reached (' + MAX_ATTEMPTS + ') - recovering via main page. GAME state:',
         typeof GAME !== 'undefined' ? { pid: GAME.pid, char_id: GAME.char_id, is_disconnected: GAME.is_disconnected } : 'GAME undefined');
+      await this.recoverFromAuthError();
       return;
     }
 
@@ -533,7 +536,16 @@ const AFO_RECONNECT = {
         return;
       }
 
-      // Game page structure exists but GAME JS not loaded yet - keep retrying
+      // Game page structure exists but GAME JS not loaded yet. A healthy page
+      // defines GAME within seconds; 30s already covers slow mobile. Each round
+      // here costs ~33s, so cap it separately (~300s total) - waiting out the
+      // shared MAX_ATTEMPTS would mean half an hour on a dead page.
+      const MAX_NO_GAME_ROUNDS = 9;
+      if (_attempt + 1 >= MAX_NO_GAME_ROUNDS) {
+        console.error('[AFO_RECONNECT] GAME still undefined after ' + MAX_NO_GAME_ROUNDS + ' rounds (~300s) - recovering via main page');
+        await this.recoverFromAuthError();
+        return;
+      }
       console.warn('[AFO_RECONNECT] GAME not available after 30s (game structure present, JS still loading). Retrying...');
       await this.sleep(3000);
       return this.handleServerPage(creds, _attempt + 1);
@@ -1328,7 +1340,12 @@ const AFO_RECONNECT = {
     }
 
     // We're confirmed logged in on the correct account/char → clear the loop guard
+    // AND the per-tab pin counters (tries/fixes). Without this the main-page
+    // round counter survives every *successful* reconnect (char-select path never
+    // hits the reset in handleServerPage) and after MAX_LOGIN_ROUNDS successful
+    // reconnects the next one is refused as a "login loop" on attempt #1.
     this.clearReconnectAttempts();
+    this.tabPin = this._writePin(GAME.server, GAME.char_id, null);
 
     console.log('[AFO_RECONNECT] Waiting for scripts to load...');
     await this.sleep(this.TIMING.SCRIPTS_LOAD_WAIT);
