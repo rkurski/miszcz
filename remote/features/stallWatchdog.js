@@ -113,6 +113,15 @@
 
     sock.on('gr', function () { W.lastGrTs = Date.now(); });
 
+    // Disconnect reason tells server kick ('io server disconnect') from network/lag
+    // ('ping timeout', 'transport close', 'transport error')
+    sock.on('disconnect', function (reason) {
+      console.warn(TAG, 'Socket disconnect: ' + reason + ' | ostatni gr: ' + fmtAge(W.lastGrTs) + ' temu');
+    });
+    sock.on('connect_error', function (err) {
+      console.warn(TAG, 'Socket connect_error: ' + (err && err.message ? err.message : err));
+    });
+
     W.hooked = true;
     console.log(TAG, 'Socket hooked (emit tracking + gr timestamps)');
   }

@@ -8664,14 +8664,9 @@ if (typeof GAME === 'undefined') {
       constructor(charactersManager) {
         console.log('[Gieniobot] Constructor starting...');
         this.charactersManager = charactersManager;
-        this.isLogged((data) => {
-          Object.defineProperty(GAME, 'pid', {
-            writable: false
-          });
-          Object.defineProperty(GAME, 'login', {
-            writable: false
-          });
-        });
+        // Do NOT make GAME.pid read-only: the game's connection-recovery.js ('use strict')
+        // sets game.pid = 0 in lost() - a non-writable pid throws there, aborting the game's
+        // disconnect handling (no load_stop, no terminal notice) -> 35s hang until our watchdog.
         this.isCheckingTournaments = false;
         this.tournamentCategory = undefined;
         this.newTournamentID = undefined;
@@ -9763,6 +9758,15 @@ if (typeof GAME === 'undefined') {
     };
 
     sock.on('gr', function () { W.lastGrTs = Date.now(); });
+
+    // Disconnect reason tells server kick ('io server disconnect') from network/lag
+    // ('ping timeout', 'transport close', 'transport error')
+    sock.on('disconnect', function (reason) {
+      console.warn(TAG, 'Socket disconnect: ' + reason + ' | ostatni gr: ' + fmtAge(W.lastGrTs) + ' temu');
+    });
+    sock.on('connect_error', function (err) {
+      console.warn(TAG, 'Socket connect_error: ' + (err && err.message ? err.message : err));
+    });
 
     W.hooked = true;
     console.log(TAG, 'Socket hooked (emit tracking + gr timestamps)');

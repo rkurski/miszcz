@@ -426,14 +426,9 @@ if (typeof GAME === 'undefined') {
       constructor(charactersManager) {
         console.log('[Gieniobot] Constructor starting...');
         this.charactersManager = charactersManager;
-        this.isLogged((data) => {
-          Object.defineProperty(GAME, 'pid', {
-            writable: false
-          });
-          Object.defineProperty(GAME, 'login', {
-            writable: false
-          });
-        });
+        // Do NOT make GAME.pid read-only: the game's connection-recovery.js ('use strict')
+        // sets game.pid = 0 in lost() - a non-writable pid throws there, aborting the game's
+        // disconnect handling (no load_stop, no terminal notice) -> 35s hang until our watchdog.
         this.isCheckingTournaments = false;
         this.tournamentCategory = undefined;
         this.newTournamentID = undefined;
